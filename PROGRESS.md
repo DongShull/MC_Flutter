@@ -144,3 +144,10 @@
 - 封面预加载（对齐 preloadArtwork）：lib/core/image/cover_preloader.dart（precacheImage 队列、并发 4、去重、宿主 element 安全）；library_home_page.dart 首屏行渲染后喂入全部封面 URL。
 - 播放保活/中断恢复（对齐 PlaybackInterruptionRecovery）：player_page 加 AppLifecycleListener（后台自动暂停、回前台恢复）+ wakelock_plus ^1.5.2 屏幕常亮（dispose 释放）。
 - 验收：analyze No issues (6.8s)、test +5 全绿。
+
+## Round 10（飞牛优点回填第二轮：进即用/传输自愈/崩溃兜底/预取扩展）
+- 启动直达：main 首帧前 appSession.restore() + router redirect（会话就绪跳过 onboarding 直达 /home）；SessionStore 全局单例 appSession。
+- 传输自愈：core/api/retry_interceptor.dart（GET 幂等重试、指数退避+抖动、上限 2）挂 McClient 三通道。
+- 崩溃兜底：BootstrapErrorLog 环形缓冲 50 条 + main runZonedGuarded 记录。
+- 预取扩展：discover 筛选网格接入 CoverPreloader。
+- 验收：analyze No issues (2.3s)、test +5 全绿。

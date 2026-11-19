@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/designsystem/adaptive.dart';
+import '../../../core/image/cover_preloader.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
@@ -46,6 +47,8 @@ class DiscoverFilteredGrid extends ConsumerStatefulWidget {
 }
 
 class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
+  int? _preloadedSig;
+
   void _openDim(String key) {
     final state = ref.read(discoverProvider);
     showModalBottomSheet<void>(
@@ -70,6 +73,16 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(discoverProvider);
+    // 封面预取（docs/design/09）：结果集变化（翻页追加）后把全部海报喂进预取队列。
+    final sig = state.filtered.length;
+    if (sig > 0 && sig != _preloadedSig) {
+      _preloadedSig = sig;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          CoverPreloader.preload(context, state.filtered.map((t) => t.posterUrl));
+        }
+      });
+    }
     return NotificationListener<ScrollNotification>(
       onNotification: (n) {
         // 翻页判定跟着网格的可见项走：滚到距底不足一屏时自动翻页。

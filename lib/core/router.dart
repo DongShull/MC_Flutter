@@ -1,5 +1,7 @@
 import 'package:go_router/go_router.dart';
 
+import 'session/session_store.dart';
+
 import '../features/onboarding/routes.dart' as feat_onboarding;
 import '../features/root/routes.dart' as feat_root;
 import '../features/library/routes.dart' as feat_library;
@@ -22,6 +24,12 @@ import '../features/more/routes.dart' as feat_more;
 /// 全部路由：每个功能模块只导出自己的 routes.dart，这里统一挂载。
 final mcRouter = GoRouter(
   initialLocation: feat_onboarding.routeOnboarding,
+  // 启动已恢复会话（main 里 appSession.restore）→ 跳过 onboarding 直达主界面。
+  redirect: (context, state) {
+    final onOnboarding = state.matchedLocation == feat_onboarding.routeOnboarding;
+    if (onOnboarding && appSession.isReady) return feat_root.routeRoot;
+    return null;
+  },
   routes: [
     ...feat_onboarding.routes,
     ...feat_root.routes,

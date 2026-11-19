@@ -27,3 +27,19 @@ class AppBootstrap {
     });
   }
 }
+
+/// 启动/运行期错误环形缓冲（飞牛无对应公开面，属通用兜底；
+/// 未来接崩溃上报时直接读这里）。
+class BootstrapErrorLog {
+  BootstrapErrorLog._();
+
+  static const maxSize = 50;
+  static final List<String> _entries = [];
+
+  static void record(String message) {
+    if (_entries.length >= maxSize) _entries.removeAt(0);
+    _entries.add(message);
+  }
+
+  static List<String> get entries => List.unmodifiable(_entries);
+}

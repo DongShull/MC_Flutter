@@ -47,3 +47,6 @@ class SessionStore {
     _baseUrl = null;
   }
 }
+
+/// 全 App 唯一会话实例（main 启动即 restore，router 重定向/各域 provider 共享）。
+final SessionStore appSession = SessionStore();

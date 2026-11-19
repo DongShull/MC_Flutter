@@ -59,3 +59,21 @@ trim_playback_session_plugin：注册参与者→激活抢占→心跳→命令�
 ## 四、待真机动态验证（静态榨干的部分）
 
 各阶段毫秒数、每页 TTFT、帧率、GC 行为——需 Frida + profile 实测（用户确认暂不需要）。
+
+## 五、第二轮落地（续）
+
+- **"进即用"启动重定向**：main() 首帧前 `appSession.restore()`（secure storage 读令牌）；
+  router redirect：会话就绪时访问 /onboarding 直接重定向 /home（对齐飞牛启动直达媒体库的体验）。
+  全 App 唯一 SessionStore 单例 `appSession`（core/session/session_store.dart），
+  sessionStoreProvider 返回同一实例——重定向与业务层永远看到同一份会话。
+- **传输层自愈**：lib/core/api/retry_interceptor.dart（对齐 trim_http_client 重试思想）——
+  仅幂等 GET；连接错误/超时重试，指数退避（300/600ms）+ 抖动防惊群，上限 2 次；McClient 三通道全挂。
+- **崩溃兜底**：BootstrapErrorLog 环形缓冲（50 条）记录 uncaught zone error，未来接上报直接读。
+- **预取扩展**：discover 筛选结果网格接入 CoverPreloader（结果集变化即预取全部海报）。
+
+### 回填清单状态更新
+| # | 技术 | 状态 |
+|---|---|---|
+| 6 | Go 引擎传输层 → 重试/自愈拦截器 | ✅（isolate 解析仍待接） |
+| — | 启动直达（session restore + redirect） | ✅ 新增 |
+| — | 错误环形缓冲 | ✅ 新增 |

@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../session/session_store.dart';
 import 'api_exception.dart';
+import 'retry_interceptor.dart';
 
 /// 三通道网络层（对齐 iOS 三 URLSession / 原 General|Live|Playback 三通道设计）：
 /// - general：常规业务请求
@@ -21,12 +22,14 @@ class McClient {
         headers: {'User-Agent': ua},
         validateStatus: (_) => true,
       ));
+      _dio[c]!.interceptors.add(RetryInterceptor(_dio[c]!));
     }
   }
 
   final SessionStore _session;
   final String ua;
   final Map<Channel, Dio> _dio = {};
+
 
   /// 当前服务器基址（含 /api/v1 前缀的完整 URL 拼接由调用方给 path）。
   String get baseUrl => _session.baseUrl ?? '';
