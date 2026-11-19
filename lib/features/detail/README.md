@@ -39,3 +39,4 @@
 - 路由：/detail 占位保留；/detail/:libraryId/:itemId 为深链落点。
 
 > 审核重构：已下沉 core 复用（poster_card / state_views / session_providers）。
+- 多设备适配：expanded（平板/TV）新增双栏详情（左海报/操作/元信息，右简介/演职员/季集/相似），compact 保持原单列；动作按钮 TV 形态包 McFocusRing。

@@ -7,7 +7,7 @@
 
 | 页面 / 组件 | 对应安卓源 | 状态 |
 | --- | --- | --- |
-| 主壳 pages/root_page.dart（五 tab + 悬浮胶囊底栏 + IndexedStack 保活） | MainTabScreen.kt | ✅ 已实现 |
+| 主壳 pages/root_page.dart（五 tab + 悬浮胶囊底栏 + IndexedStack 保活；平板/TV 切 McAdaptiveScaffold 左 Rail，bus/角标逻辑不动） | MainTabScreen.kt | ✅ 已实现（M6.2 宽屏适配完成） |
 | 底栏（348×54 圆角 999、图标-only、当前格白 15% 药丸、末格账号头像、再点回根） | MainTabScreen.kt 底栏区 | ✅ 已实现 |
 | 页签结构（发现/媒体库/订阅/活动/我的，对齐 MainTab 枚举顺序） | MainTab.kt | ✅ 已实现 |
 | 切页签总线 state/main_tab_bus.dart（open/consume 单例） | MainTabBus.kt | ✅ 已实现 |

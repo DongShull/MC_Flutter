@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../state/controllers.dart';
 import '../state/models.dart';
@@ -90,6 +91,7 @@ class _MorePageState extends ConsumerState<MorePage> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(moreProvider);
+    final form = ref.watch(mcFormProvider);
     final data = state.valueOrNull;
     final session = data?.session;
     final nickname = (session?['nickname'] ?? session?['username'] ?? '未登录').toString();
@@ -110,7 +112,15 @@ class _MorePageState extends ConsumerState<MorePage> {
                   text: '加载失败',
                   onRetry: () => ref.read(moreProvider.notifier).load(),
                 )
-              : NotificationListener<ScrollNotification>(
+              : Center(
+                  // 平板/TV（expanded）：列表放宽列宽，内容限宽居中；手机保持现状。
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: form == McDeviceForm.phone
+                          ? double.infinity
+                          : 720,
+                    ),
+                    child: NotificationListener<ScrollNotification>(
                   onNotification: (n) {
                     if (n.metrics.pixels >= n.metrics.maxScrollExtent - 200) {
                       ref.read(moreProvider.notifier).loadMoreSessions();
@@ -188,6 +198,8 @@ class _MorePageState extends ConsumerState<MorePage> {
                       ),
                       const SizedBox(height: 24),
                     ],
+                  ),
+                ),
                   ),
                 ),
     );

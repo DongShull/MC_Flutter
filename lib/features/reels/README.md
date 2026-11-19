@@ -31,3 +31,4 @@
 - `widgets/reel_filter_sheet.dart` — 筛选面板
 
 > 重构注记：已下沉 core 复用（session/McClient provider、格式化、状态视图、防抖/序号守卫）。
+- M6 多设备：顶栏返回/片名胶囊/筛选胶囊包 McFocusRing（TV 聚焦环，非 TV 原样透传）。

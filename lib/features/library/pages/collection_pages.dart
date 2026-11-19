@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../routes.dart';
 import '../state/models.dart';
 import '../state/collection_detail_controller.dart';
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../widgets/library_widgets.dart';
 
@@ -31,6 +32,7 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
   Widget build(BuildContext context) {
     final state = ref.watch(collectionDetailProvider(_arg));
     final c = state.collection;
+    final form = McFormWatch.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Text(c?.name ?? '合集'),
@@ -67,13 +69,25 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
                               ? const SliverToBoxAdapter(
                                   child: McEmptyView(text: '合集还没有条目'))
                               : SliverGrid(
-                                  gridDelegate:
-                                      const SliverGridDelegateWithMaxCrossAxisExtent(
-                                    maxCrossAxisExtent: 130,
-                                    mainAxisSpacing: 12,
-                                    crossAxisSpacing: 12,
-                                    childAspectRatio: 0.55,
-                                  ),
+                                  // 平板/TV 自适应列数；手机保持现有密度不变。
+                                  gridDelegate: form == McDeviceForm.phone
+                                      ? const SliverGridDelegateWithMaxCrossAxisExtent(
+                                          maxCrossAxisExtent: 130,
+                                          mainAxisSpacing: 12,
+                                          crossAxisSpacing: 12,
+                                          childAspectRatio: 0.55,
+                                        )
+                                      : SliverGridDelegateWithFixedCrossAxisCount(
+                                          crossAxisCount: mcGridCrossAxisCount(
+                                              form,
+                                              BoxConstraints.tightFor(
+                                                  width:
+                                                      MediaQuery.widthOf(context) - 32),
+                                          cellExtent: 130),
+                                          mainAxisSpacing: 12,
+                                          crossAxisSpacing: 12,
+                                          childAspectRatio: 0.55,
+                                        ),
                                   delegate: SliverChildBuilderDelegate(
                                     (context, i) => mcItemCard(context, state.items[i]),
                                     childCount: state.items.length,

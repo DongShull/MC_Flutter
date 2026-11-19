@@ -5,7 +5,7 @@
 - 状态：✅ 已实现（会话跳转传参除外，见 TODO）
 
 ## 页面
-- pages/more_page.dart — 用户卡片（头像/昵称/角色，点按进个人信息）/ 提醒组（通知与提醒、检查更新，带角标计数）/ 对话会话列表（滚动分页 GET /sessions?limit&offset；打开 / 重命名 PATCH / 重命名后刷新 / 删除 DELETE / 创建分叉 POST /sessions/{id}/fork）/ 设置入口
+- pages/more_page.dart — 用户卡片（头像/昵称/角色，点按进个人信息）/ 提醒组（通知与提醒、检查更新，带角标计数）/ 对话会话列表（滚动分页 GET /sessions?limit&offset；打开 / 重命名 PATCH / 重命名后刷新 / 删除 DELETE / 创建分叉 POST /sessions/{id}/fork）/ 设置入口；平板/TV 列表限宽 720 居中（expanded 放宽列宽）
 
 ## 状态
 - state/models.dart — McNotice（payload.group_key / grouped_under 折叠规则）、SessionSummary

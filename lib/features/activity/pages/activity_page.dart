@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 
 import '../state/activity_derive.dart';
@@ -39,14 +40,20 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
   Widget build(BuildContext context) {
     final snapshot = ref.watch(activityControllerProvider);
     final activity = deriveTaskActivity(snapshot.downloads, snapshot.jobs);
+    final form = McFormWatch.of(context);
+    final windowClass = mcWindowClassOf(form);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('活动中心'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => _guard(_controller.refresh),
+          // TV：刷新按钮 D-pad 聚焦环。
+          McFocusRing(
+            borderRadius: 24,
+            child: IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: () => _guard(_controller.refresh),
+            ),
           ),
         ],
       ),
@@ -54,20 +61,27 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
           ? const McLoadingView()
           : RefreshIndicator(
               onRefresh: () => _guard(_controller.refresh),
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: SegmentedButton<bool>(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: windowClass == McWindowClass.compact
+                        ? double.infinity
+                        : 720,
+                  ),
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: SegmentedButton<bool>(
                       segments: const [
                         ButtonSegment(value: true, label: Text('观看'), icon: Icon(Icons.play_circle_outline)),
                         ButtonSegment(value: false, label: Text('任务'), icon: Icon(Icons.task_outlined)),
                       ],
-                      selected: {_watchView},
-                      onSelectionChanged: (v) => setState(() => _watchView = v.first),
+                        selected: {_watchView},
+                        onSelectionChanged: (v) => setState(() => _watchView = v.first),
+                      ),
                     ),
-                  ),
                   if (snapshot.error != null)
                     Padding(
                       padding: const EdgeInsets.all(16),
@@ -77,7 +91,9 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
                       ),
                     ),
                   ...(_watchView ? _buildWatchView(snapshot) : _buildTaskView(snapshot, activity)),
-                ],
+                    ],
+                  ),
+                ),
               ),
             ),
     );

@@ -28,3 +28,4 @@
   禁止 import 其他 feature 目录；播放相关一律走 core/player PlayerService。
 
 > 重构注记：已下沉 core 复用（session/McClient provider、格式化、状态视图、防抖/序号守卫）。
+- M6 多设备：会话列表与输入区 expanded 限宽 720 居中，FAB/发送/模型 chip/停止按钮包 McFocusRing。

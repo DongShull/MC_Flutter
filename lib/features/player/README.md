@@ -17,3 +17,4 @@
 - 播放相关能力扩展：core/player/player_service.dart 增补 duration / setVolume / buildView（未破坏既有 API）。
 
 > 重构注记：已下沉 core 复用（session/McClient provider、格式化、状态视图、防抖/序号守卫）。
+- M6 多设备：TV 形态常驻底部控制条（手势层仅 phone/tablet 启用），可聚焦控件包 McFocusRing，tablet 横屏选集改右侧抽屉式（PlayerEpisodePicker asDrawer）。

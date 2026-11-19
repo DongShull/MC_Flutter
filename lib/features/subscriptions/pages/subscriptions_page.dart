@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../state/controllers.dart';
 import '../state/models.dart';
@@ -43,6 +44,7 @@ class _SubscriptionsPageState extends ConsumerState<SubscriptionsPage> {
 
     final state = ref.watch(subscriptionsListProvider);
     final subs = state.value ?? const <SubscriptionView>[];
+    final form = McFormWatch.of(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -107,19 +109,35 @@ class _SubscriptionsPageState extends ConsumerState<SubscriptionsPage> {
                             )
                           : GridView.builder(
                               padding: const EdgeInsets.all(12),
-                              gridDelegate:
-                                  const SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: 150,
-                                mainAxisSpacing: 14,
-                                crossAxisSpacing: 12,
-                                childAspectRatio: 126 / 240,
-                              ),
+                              // 平板/TV 自适应列数；手机保持现有密度不变。
+                              gridDelegate: form == McDeviceForm.phone
+                                  ? const SliverGridDelegateWithMaxCrossAxisExtent(
+                                      maxCrossAxisExtent: 150,
+                                      mainAxisSpacing: 14,
+                                      crossAxisSpacing: 12,
+                                      childAspectRatio: 126 / 240,
+                                    )
+                                  : SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: mcGridCrossAxisCount(
+                                          form,
+                                          BoxConstraints.tightFor(
+                                              width:
+                                                  MediaQuery.widthOf(context) - 24),
+                                      cellExtent: 150),
+                                      mainAxisSpacing: 14,
+                                      crossAxisSpacing: 12,
+                                      childAspectRatio: 126 / 240,
+                                    ),
                               itemCount: subs.length,
                               itemBuilder: (context, i) {
                                 final sub = subs[i];
-                                return SubCard(
-                                  sub: sub,
-                                  onTap: () => context.push('/subscriptions/detail/${sub.id}'),
+                                return McFocusRing(
+                                  borderRadius: 10,
+                                  child: SubCard(
+                                    sub: sub,
+                                    onTap: () =>
+                                        context.push('/subscriptions/detail/${sub.id}'),
+                                  ),
                                 );
                               },
                             ),

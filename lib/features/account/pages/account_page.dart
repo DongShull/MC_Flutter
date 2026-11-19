@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
+
 import '../state/account_state.dart';
 import '../widgets/account_row.dart';
 
@@ -74,6 +76,8 @@ class _AccountPageState extends ConsumerState<AccountPage> {
   Widget build(BuildContext context) {
     final ui = ref.watch(accountProvider);
     final scheme = Theme.of(context).colorScheme;
+    final form = McFormWatch.of(context);
+    final windowClass = mcWindowClassOf(form);
     final currentAccount = _currentAccount(ui);
     final displayName = ui.me?.nickname ??
         currentAccount?.nickname ??
@@ -85,16 +89,27 @@ class _AccountPageState extends ConsumerState<AccountPage> {
       appBar: AppBar(
         title: const Text('账号'),
         actions: [
-          IconButton(
-            tooltip: '设备管理',
-            icon: const Icon(Icons.devices_other),
-            onPressed: () => context.push('$routeAccountLocal/devices'),
+          // TV：设备管理入口 D-pad 聚焦环。
+          McFocusRing(
+            borderRadius: 24,
+            child: IconButton(
+              tooltip: '设备管理',
+              icon: const Icon(Icons.devices_other),
+              onPressed: () => context.push('$routeAccountLocal/devices'),
+            ),
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: windowClass == McWindowClass.compact
+                ? double.infinity
+                : 720,
+          ),
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
           // 当前用户信息卡。
           Container(
             padding: const EdgeInsets.all(16),
@@ -185,23 +200,29 @@ class _AccountPageState extends ConsumerState<AccountPage> {
           // 添加账号。
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: OutlinedButton.icon(
-              onPressed: () => context.go('/onboarding'),
-              icon: const Icon(Icons.person_add_alt_1),
-              label: const Text('添加账号'),
+            child: McFocusRing(
+              borderRadius: 20,
+              child: OutlinedButton.icon(
+                onPressed: () => context.go('/onboarding'),
+                icon: const Icon(Icons.person_add_alt_1),
+                label: const Text('添加账号'),
+              ),
             ),
           ),
           // 退出全部账号（Danger）。
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: scheme.error,
-                side: BorderSide(color: scheme.error.withValues(alpha: 0.4)),
+            child: McFocusRing(
+              borderRadius: 20,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: scheme.error,
+                  side: BorderSide(color: scheme.error.withValues(alpha: 0.4)),
+                ),
+                onPressed: () => _confirmLogoutAll(ui),
+                icon: const Icon(Icons.logout),
+                label: const Text('退出全部账号'),
               ),
-              onPressed: () => _confirmLogoutAll(ui),
-              icon: const Icon(Icons.logout),
-              label: const Text('退出全部账号'),
             ),
           ),
           const SizedBox(height: 8),
@@ -209,7 +230,9 @@ class _AccountPageState extends ConsumerState<AccountPage> {
             '本机已登录的账号，点击即可切换，不用再输密码。撤销凭证请到设置 → 设备管理。',
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }

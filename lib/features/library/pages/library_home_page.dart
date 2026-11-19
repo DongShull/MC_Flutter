@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/models/format.dart';
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
@@ -113,16 +114,19 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
     if (k is UpNextRowKind) {
       cards = [
         for (final e in state.upNext)
-          McPosterCard(
-            title: e.title,
-            posterUrl: e.episodeStillUrl,
-            aspect: 16 / 9,
-            subtitle: 'S${e.seasonNumber} E${e.episodeNumber} · ${e.episodeTitle ?? ''}',
-            progress: e.progressPercent / 100,
-            width: 160,
-            onTap: () {
-              // TODO(播放导航): 跳 detail/player 路由名。
-            },
+          McFocusRing(
+            borderRadius: 12,
+            child: McPosterCard(
+              title: e.title,
+              posterUrl: e.episodeStillUrl,
+              aspect: 16 / 9,
+              subtitle: 'S${e.seasonNumber} E${e.episodeNumber} · ${e.episodeTitle ?? ''}',
+              progress: e.progressPercent / 100,
+              width: 160,
+              onTap: () {
+                // TODO(播放导航): 跳 detail/player 路由名。
+              },
+            ),
           ),
       ];
     } else if (k is FavoritesRowKind) {
@@ -192,8 +196,15 @@ class _LibraryGrid extends ConsumerWidget {
         if (r.kind is LibraryRowKind) (r.kind as LibraryRowKind).library,
     ];
     if (libs.isEmpty) return const SizedBox.shrink();
-    return GridView.count(
-      crossAxisCount: 2,
+    return LayoutBuilder(builder: (context, constraints) {
+      // 平板/TV 自适应列数；手机保持 2 列不变。
+      final form = McFormWatch.of(context);
+      final columns = form == McDeviceForm.phone
+          ? 2
+          : mcGridCrossAxisCount(form, constraints,
+              cellExtent: 320, min: 2, max: 6);
+      return GridView.count(
+      crossAxisCount: columns,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       mainAxisSpacing: 10,
@@ -201,7 +212,9 @@ class _LibraryGrid extends ConsumerWidget {
       childAspectRatio: 1.6,
       children: [
         for (final lib in libs)
-          InkWell(
+          McFocusRing(
+            borderRadius: 10,
+            child: InkWell(
             borderRadius: BorderRadius.circular(10),
             onTap: () => context.push(routeLibraryDetail(lib.id)),
             child: Container(
@@ -233,8 +246,10 @@ class _LibraryGrid extends ConsumerWidget {
               ),
             ),
           ),
+            ),
       ],
-    );
+      );
+    });
   }
 }
 
@@ -248,7 +263,9 @@ class _GenreBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return McFocusRing(
+      borderRadius: 8,
+      child: GestureDetector(
       onTap: onTap,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
@@ -276,6 +293,7 @@ class _GenreBlock extends StatelessWidget {
             ],
           ),
         ),
+      ),
       ),
     );
   }

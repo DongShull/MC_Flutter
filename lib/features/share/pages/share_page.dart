@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../state/models.dart';
@@ -36,17 +37,26 @@ class _SharePageState extends ConsumerState<SharePage> {
     }
     final state = ref.watch(shareControllerFamily(slug));
     final controller = ref.read(shareControllerFamily(slug).notifier);
+    final form = McFormWatch.of(context);
+    final contentWidth = mcWindowClassOf(form) == McWindowClass.compact ? 560.0 : 720.0;
 
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
-            Row(
+            // 内容居中限宽（compact<=560，其余 720）。
+            Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: contentWidth),
+                child: Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back_rounded),
-                  tooltip: '返回',
-                  onPressed: () => context.pop(),
+                McFocusRing(
+                  borderRadius: 24,
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    tooltip: '返回',
+                    onPressed: () => context.pop(),
+                  ),
                 ),
                 const Expanded(
                   child: Text('分享', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
@@ -58,9 +68,16 @@ class _SharePageState extends ConsumerState<SharePage> {
                         style: const TextStyle(fontSize: 11)),
                   ),
               ],
+                ),
+              ),
             ),
             Expanded(
-              child: _body(context, state, controller),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: contentWidth),
+                  child: _body(context, state, controller),
+                ),
+              ),
             ),
           ],
         ),
@@ -124,10 +141,13 @@ class _PasswordGate extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            FilledButton(
-              onPressed: state.password.isEmpty ? null : controller.unlock,
-              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(44)),
-              child: const Text('解锁'),
+            McFocusRing(
+              borderRadius: 20,
+              child: FilledButton(
+                onPressed: state.password.isEmpty ? null : controller.unlock,
+                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+                child: const Text('解锁'),
+              ),
             ),
           ],
         ),
@@ -242,7 +262,9 @@ class _SharedItemDetail extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Row(
             children: [
-              FilledButton.icon(
+              McFocusRing(
+              borderRadius: 20,
+              child: FilledButton.icon(
                 onPressed: state.opening
                     ? null
                     : () => controller.play(
@@ -254,6 +276,7 @@ class _SharedItemDetail extends StatelessWidget {
                 icon: const Icon(Icons.play_arrow_rounded, size: 18),
                 label: Text(item.kind == 'tv' ? '播放第一集' : '播放'),
               ),
+            ),
               const SizedBox(width: 12),
               const Text('访客播放 · 不记录到成员进度', style: TextStyle(fontSize: 11)),
             ],
@@ -287,7 +310,9 @@ class _SharedItemDetail extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           for (final episode in state.episodes)
-            InkWell(
+            McFocusRing(
+              borderRadius: 10,
+              child: InkWell(
               onTap: episode.owned ? () => controller.play(episode.episodeNumber) : null,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
@@ -317,6 +342,7 @@ class _SharedItemDetail extends StatelessWidget {
                       const Text('缺集', style: TextStyle(fontSize: 11)),
                   ],
                 ),
+              ),
               ),
             ),
         ],

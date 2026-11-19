@@ -2,6 +2,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/designsystem/adaptive.dart';
+
 import '../state/models.dart';
 import '../state/offline_state.dart';
 import '../widgets/downloading_row.dart';
@@ -24,13 +26,17 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
     final scheme = Theme.of(context).colorScheme;
     final active = offline.activeUnits;
     final done = offline.doneUnits;
+    final form = McFormWatch.of(context);
+    final windowClass = mcWindowClassOf(form);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('下载'),
         actions: [
-          // 设置菜单：使用蜂窝网络下载开关。
-          PopupMenuButton<String>(
+          // 设置菜单：使用蜂窝网络下载开关（TV 聚焦环）。
+          McFocusRing(
+            borderRadius: 24,
+            child: PopupMenuButton<String>(
             icon: const Icon(Icons.settings_outlined),
             onSelected: (_) {},
             itemBuilder: (context) => [
@@ -50,11 +56,17 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
               ),
             ],
           ),
+          ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: windowClass == McWindowClass.expanded ? 720 : double.infinity,
+          ),
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
           // —— 下载中 ——
           if (active.isNotEmpty) ...[
             _sectionHeader('下载中'),
@@ -78,9 +90,11 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                           style: TextStyle(
                               fontSize: 12, color: scheme.onSurfaceVariant)),
                     ),
-                    TextButton(
-                      onPressed: () => controller.setAllowCellular(true),
-                      child: const Text('使用蜂窝网络下载'),
+                    McFocusRing(
+                      child: TextButton(
+                        onPressed: () => controller.setAllowCellular(true),
+                        child: const Text('使用蜂窝网络下载'),
+                      ),
                     ),
                   ],
                 ),
@@ -137,7 +151,9 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
               child: Text(offline.error!,
                   style: TextStyle(fontSize: 12, color: scheme.error)),
             ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }

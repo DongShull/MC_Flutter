@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
 import '../state/detail_controller.dart';
@@ -98,12 +99,15 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     if (entry == null) return const Scaffold(body: SizedBox.shrink());
     final controller = ref.read(detailControllerProvider(_key).notifier);
     final episodes = state.episodes[state.selectedSeason] ?? const <EpisodeEntry>[];
+    final form = McFormWatch.of(context);
 
     return Scaffold(
       backgroundColor: McColors.bgDark,
       body: RefreshIndicator(
         onRefresh: () => controller.load(),
-        child: ListView(
+        // 手机保持现单列布局；平板/TV 双栏（左操作/元信息，右简介/季集/相似）。
+        child: form == McDeviceForm.phone
+            ? ListView(
           padding: EdgeInsets.zero,
           children: [
             DetailHeader(entry: entry, onBack: () => context.pop()),
@@ -114,36 +118,48 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                 children: [
                   Expanded(
                     flex: 2,
-                    child: FilledButton.icon(
+                    child: McFocusRing(
+                      borderRadius: 20,
+                      child: FilledButton.icon(
                       onPressed: () => _play(
                         season: state.resume?.season ?? state.selectedSeason,
                         episode: state.resume?.episode ?? entry.resumeEpisode,
                       ),
-                      icon: const Icon(Icons.play_arrow_rounded),
-                      label: Text(playButtonLabel(state)),
+                        icon: const Icon(Icons.play_arrow_rounded),
+                        label: Text(playButtonLabel(state)),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
-                  IconButton(
-                    tooltip: '收藏',
-                    onPressed: state.busy ? null : controller.toggleFavorite,
-                    icon: Icon(
-                      state.marks.isFavorite ? Icons.favorite : Icons.favorite_border,
-                      color: state.marks.isFavorite ? Colors.redAccent : null,
+                  McFocusRing(
+                    borderRadius: 20,
+                    child: IconButton(
+                      tooltip: '收藏',
+                      onPressed: state.busy ? null : controller.toggleFavorite,
+                      icon: Icon(
+                        state.marks.isFavorite ? Icons.favorite : Icons.favorite_border,
+                        color: state.marks.isFavorite ? Colors.redAccent : null,
+                      ),
                     ),
                   ),
-                  IconButton(
-                    tooltip: '已看',
-                    onPressed: state.busy ? null : controller.togglePlayed,
-                    icon: Icon(
-                      state.marks.played ? Icons.check_circle : Icons.check_circle_outline,
-                      color: state.marks.played ? Colors.green : null,
+                  McFocusRing(
+                    borderRadius: 20,
+                    child: IconButton(
+                      tooltip: '已看',
+                      onPressed: state.busy ? null : controller.togglePlayed,
+                      icon: Icon(
+                        state.marks.played ? Icons.check_circle : Icons.check_circle_outline,
+                        color: state.marks.played ? Colors.green : null,
+                      ),
                     ),
                   ),
-                  IconButton(
-                    tooltip: '更多',
-                    onPressed: () => _showActionMenu(controller),
-                    icon: const Icon(Icons.more_horiz),
+                  McFocusRing(
+                    borderRadius: 20,
+                    child: IconButton(
+                      tooltip: '更多',
+                      onPressed: () => _showActionMenu(controller),
+                      icon: const Icon(Icons.more_horiz),
+                    ),
                   ),
                 ],
               ),
@@ -222,7 +238,180 @@ class _DetailPageState extends ConsumerState<DetailPage> {
             ),
             const SizedBox(height: 32),
           ],
-        ),
+        )
+            : ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  DetailHeader(entry: entry, onBack: () => context.pop()),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 左列：操作区 + 元信息
+                        SizedBox(
+                          width: 300,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              McFocusRing(
+                                borderRadius: 20,
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: FilledButton.icon(
+                                    onPressed: () => _play(
+                                      season: state.resume?.season ??
+                                          state.selectedSeason,
+                                      episode: state.resume?.episode ??
+                                          entry.resumeEpisode,
+                                    ),
+                                    icon: const Icon(Icons.play_arrow_rounded),
+                                    label: Text(playButtonLabel(state)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  McFocusRing(
+                                    borderRadius: 20,
+                                    child: IconButton(
+                                      tooltip: '收藏',
+                                      onPressed: state.busy
+                                          ? null
+                                          : controller.toggleFavorite,
+                                      icon: Icon(
+                                        state.marks.isFavorite
+                                            ? Icons.favorite
+                                            : Icons.favorite_border,
+                                        color: state.marks.isFavorite
+                                            ? Colors.redAccent
+                                            : null,
+                                      ),
+                                    ),
+                                  ),
+                                  McFocusRing(
+                                    borderRadius: 20,
+                                    child: IconButton(
+                                      tooltip: '已看',
+                                      onPressed: state.busy
+                                          ? null
+                                          : controller.togglePlayed,
+                                      icon: Icon(
+                                        state.marks.played
+                                            ? Icons.check_circle
+                                            : Icons.check_circle_outline,
+                                        color: state.marks.played
+                                            ? Colors.green
+                                            : null,
+                                      ),
+                                    ),
+                                  ),
+                                  McFocusRing(
+                                    borderRadius: 20,
+                                    child: IconButton(
+                                      tooltip: '更多',
+                                      onPressed: () =>
+                                          _showActionMenu(controller),
+                                      icon: const Icon(Icons.more_horiz),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              MetaLinks(entry: entry),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 24),
+                        // 右列：简介 / 演职员 / 剧集（季+集） / 系列 / 相似
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (entry.overview != null &&
+                                  entry.overview!.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: _Overview(
+                                    text: entry.overview!,
+                                    expanded: state.overviewExpanded,
+                                    onToggle: controller.toggleOverview,
+                                  ),
+                                ),
+                              CastRow(
+                                cast: entry.cast,
+                                onPersonTap: (member) {
+                                  _toast('人物页：${member.name}');
+                                },
+                              ),
+                              if (entry.isTv) ...[
+                                if (state.airSchedule != null)
+                                  AirSchedule(schedule: state.airSchedule!),
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                                  child: Text('剧集',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(
+                                              fontWeight: FontWeight.bold)),
+                                ),
+                                SizedBox(
+                                  height: 40,
+                                  child: ListView(
+                                    scrollDirection: Axis.horizontal,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16),
+                                    children: [
+                                      for (final s in entry.seasons)
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(right: 8),
+                                          child: ChoiceChip(
+                                            label: Text(
+                                                s.name ?? '第 ${s.number} 季'),
+                                            selected: state.selectedSeason ==
+                                                s.number,
+                                            onSelected: (_) =>
+                                                controller.loadSeason(s.number),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                EpisodeRanges(episodes: episodes),
+                                EpisodeList(
+                                  episodes: episodes,
+                                  onEpisodeTap: (e) => _play(
+                                      season: e.seasonNumber,
+                                      episode: e.episodeNumber),
+                                ),
+                              ],
+                              if (state.related.seriesParts.length > 1)
+                                SimilarRow(
+                                  title:
+                                      '系列 · ${state.related.seriesName ?? ''}',
+                                  entries: state.related.seriesParts,
+                                  onTap: (e) => context
+                                      .push('/detail/${entry.libraryId}/${e.id}'),
+                                ),
+                              SimilarRow(
+                                title: '相似推荐',
+                                entries: state.related.similar,
+                                onTap: (e) => context
+                                    .push('/detail/${entry.libraryId}/${e.id}'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                ],
+              ),
       ),
     );
   }

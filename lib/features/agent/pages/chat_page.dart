@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../state/agent_state.dart';
 import '../widgets/bubble.dart';
@@ -56,6 +57,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Widget build(BuildContext context) {
     final chat = ref.watch(chatProvider);
     final scheme = Theme.of(context).colorScheme;
+    final form = McFormWatch.of(context);
+    final windowClass = mcWindowClassOf(form);
     var selectedLabel = '默认模型';
     if (chat.modelRef != null) {
       for (final m in chat.models) {
@@ -68,8 +71,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       appBar: AppBar(
         title: const Text('AI 助手'),
         actions: [
-          // 模型 chip。
-          PopupMenuButton<String?>(
+          // 模型 chip（TV 聚焦环）。
+          McFocusRing(
+            borderRadius: 20,
+            child: PopupMenuButton<String?>(
             tooltip: '选择模型',
             onSelected: (refId) =>
                 ref.read(chatProvider.notifier).setModel(refId),
@@ -106,12 +111,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               ),
             ),
           ),
-          // 停止生成（运行中才有意义）。
+          ),
+          // 停止生成（运行中才有意义；TV 聚焦环）。
           if (chat.sending)
-            IconButton(
-              tooltip: '停止',
-              icon: const Icon(Icons.stop_circle_outlined),
-              onPressed: () => ref.read(chatProvider.notifier).stop(),
+            McFocusRing(
+              borderRadius: 24,
+              child: IconButton(
+                tooltip: '停止',
+                icon: const Icon(Icons.stop_circle_outlined),
+                onPressed: () => ref.read(chatProvider.notifier).stop(),
+              ),
             ),
         ],
       ),
@@ -159,7 +168,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-              child: Row(
+              // 平板/TV：输入区限宽居中，避免横屏拉满。
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: windowClass == McWindowClass.compact
+                        ? double.infinity
+                        : 720,
+                  ),
+                  child: Row(
                 children: [
                   Expanded(
                     child: TextField(
@@ -182,14 +199,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  IconButton.filled(
-                    onPressed: chat.sending ? null : _submit,
-                    icon: const Icon(Icons.send),
+                  McFocusRing(
+                    borderRadius: 20,
+                    child: IconButton.filled(
+                      onPressed: chat.sending ? null : _submit,
+                      icon: const Icon(Icons.send),
+                    ),
                   ),
                 ],
+                ),
               ),
             ),
           ),
+            ),
           if (chat.error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),

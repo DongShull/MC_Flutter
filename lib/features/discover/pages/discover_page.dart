@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
@@ -210,7 +211,9 @@ class _HeroCarousel extends StatelessWidget {
           final t = row.titles[i];
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-            child: GestureDetector(
+            child: McFocusRing(
+              borderRadius: 14,
+              child: GestureDetector(
               // TODO(player/detail): 跳 title 详情路由（导航意图，不做播放）。
               onTap: () => feat_discover.pushTitle(context, t.ref),
               child: ClipRRect(
@@ -243,6 +246,7 @@ class _HeroCarousel extends StatelessWidget {
                 ),
               ),
             ),
+              ),
           );
         },
       ),
@@ -286,7 +290,9 @@ class _SectionRow extends StatelessWidget {
                   width: 110,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: McPosterCard(
+                    child: McFocusRing(
+                      borderRadius: 12,
+                      child: McPosterCard(
                       title: t.title,
                       posterUrl: t.posterUrl,
                       width: null,
@@ -296,9 +302,10 @@ class _SectionRow extends StatelessWidget {
                         if (t.genres.isNotEmpty) t.genres.first,
                       ].join(' · '),
                       rating: (t.rating ?? 0) > 0 ? t.rating : null,
-                      badge: t.owned ? '在库' : null,
-                      // TODO(player/detail): 跳 title 详情路由（导航意图，不做播放）。
-                      onTap: () => feat_discover.pushTitle(context, t.ref),
+                        badge: t.owned ? '在库' : null,
+                        // TODO(player/detail): 跳 title 详情路由（导航意图，不做播放）。
+                        onTap: () => feat_discover.pushTitle(context, t.ref),
+                      ),
                     ),
                   ),
                 );

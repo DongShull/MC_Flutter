@@ -19,3 +19,4 @@
 - 任务详情页（ActivityDetailScreen 的「交给 AI」handoff 两步跳转）TODO：当前动作直接收敛在任务卡上。
 
 > 重构注记：已下沉 core 复用（session/McClient provider、格式化、状态视图、防抖/序号守卫）。
+- M6 多设备：非 compact 内容限宽 720 居中，刷新按钮包 McFocusRing。

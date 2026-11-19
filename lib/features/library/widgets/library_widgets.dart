@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../state/models.dart';
 
@@ -8,16 +9,20 @@ Widget mcItemCard(BuildContext context, LibraryItemView item, {double width = 12
   final badge = item.kind == 'episode'
       ? (item.seasons.isNotEmpty ? 'S1' : null)
       : (item.resolutions.isNotEmpty ? item.resolutions.first : null);
-  return McPosterCard(
-    title: item.title,
-    posterUrl: item.posterUrl,
-    aspect: item.primaryAspect,
-    subtitle: [item.year?.toString(), if (item.kindLabel.isNotEmpty) item.kindLabel].nonNulls.join(' · '),
-    badge: badge,
-    width: width,
-    onTap: () {
-      // TODO(播放导航): 跳 detail/player 路由名（播放相关一律只做导航意图）。
-    },
+  // TV 形态下海报卡包焦点环；非 TV 原样返回 child，零开销。
+  return McFocusRing(
+    borderRadius: 12,
+    child: McPosterCard(
+      title: item.title,
+      posterUrl: item.posterUrl,
+      aspect: item.primaryAspect,
+      subtitle: [item.year?.toString(), if (item.kindLabel.isNotEmpty) item.kindLabel].nonNulls.join(' · '),
+      badge: badge,
+      width: width,
+      onTap: () {
+        // TODO(播放导航): 跳 detail/player 路由名（播放相关一律只做导航意图）。
+      },
+    ),
   );
 }
 

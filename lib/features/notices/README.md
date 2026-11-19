@@ -11,3 +11,4 @@
 - 播放相关：无（纯通知列表）
 
 > 重构注记：已下沉 core 复用（session/McClient provider、格式化、状态视图、防抖/序号守卫）。
+- M6 多设备：non-phone 用 mcGridCrossAxisCount(min:2,max:4) 卡片网格（phone 保持 ListView），顶栏按钮包 McFocusRing。

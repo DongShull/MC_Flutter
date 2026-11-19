@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../state/detail_controller.dart';
 
 /// 演职员横滚（cast 前 40，人物卡点进人物页；人物页属于 library 域，这里只留导航意图）。
@@ -22,7 +23,9 @@ class CastRow extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(width: 10),
         itemBuilder: (context, i) {
           final member = cast[i];
-          return InkWell(
+          return McFocusRing(
+            borderRadius: 10,
+            child: InkWell(
             borderRadius: BorderRadius.circular(10),
             onTap: () => onPersonTap?.call(member),
             child: SizedBox(
@@ -56,8 +59,9 @@ class CastRow extends StatelessWidget {
                           .textTheme
                           .labelSmall
                           ?.copyWith(color: Colors.white38),
-                    ),
-                ],
+                      ),
+                  ],
+                ),
               ),
             ),
           );

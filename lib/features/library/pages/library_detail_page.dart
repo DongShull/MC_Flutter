@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/library_detail_controller.dart';
 import '../state/models.dart';
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../widgets/library_widgets.dart';
 
@@ -36,6 +37,7 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
   Widget build(BuildContext context) {
     final state = ref.watch(libraryDetailProvider(_arg));
     final library = state.library;
+    final form = McFormWatch.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Text(library?.name ?? '媒体库'),
@@ -81,13 +83,25 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
                               ? const SliverToBoxAdapter(
                                   child: McEmptyView(text: '没有符合条件的媒体'))
                               : SliverGrid(
-                                  gridDelegate:
-                                      const SliverGridDelegateWithMaxCrossAxisExtent(
-                                    maxCrossAxisExtent: 130,
-                                    mainAxisSpacing: 12,
-                                    crossAxisSpacing: 12,
-                                    childAspectRatio: 0.55,
-                                  ),
+                                  // 平板/TV 自适应列数；手机保持现有密度不变。
+                                  gridDelegate: form == McDeviceForm.phone
+                                      ? const SliverGridDelegateWithMaxCrossAxisExtent(
+                                          maxCrossAxisExtent: 130,
+                                          mainAxisSpacing: 12,
+                                          crossAxisSpacing: 12,
+                                          childAspectRatio: 0.55,
+                                        )
+                                      : SliverGridDelegateWithFixedCrossAxisCount(
+                                          crossAxisCount: mcGridCrossAxisCount(
+                                              form,
+                                              BoxConstraints.tightFor(
+                                                  width:
+                                                      MediaQuery.widthOf(context) - 32),
+                                          cellExtent: 130),
+                                          mainAxisSpacing: 12,
+                                          crossAxisSpacing: 12,
+                                          childAspectRatio: 0.55,
+                                        ),
                                   delegate: SliverChildBuilderDelegate(
                                     (context, i) => mcItemCard(context, state.items[i]),
                                     childCount: state.items.length,

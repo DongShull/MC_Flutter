@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/designsystem/adaptive.dart';
+
 /// 进度条上方的工具行（Android PlayerBottomControls）：
 /// 左胶囊 = 音轨 / 字幕（占位菜单），右胶囊 = 下一集 / 选集 / 倍速。
 /// 倍速选中后走 ⋮ 面板；这里保留「下一集」入口（电影没有下一集/选集）。
@@ -86,40 +88,40 @@ class PlayerBottomControls extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
-          _pill(TextButton.icon(
+          _pill(McFocusRing(child: TextButton.icon(
             onPressed: () => _showTrackMenu(context, subtitle: false),
             icon: const Icon(Icons.graphic_eq, size: 18, color: Colors.white),
             label: const Text('音轨', style: TextStyle(color: Colors.white)),
-          )),
+          ))),
           const SizedBox(width: 8),
-          _pill(TextButton.icon(
+          _pill(McFocusRing(child: TextButton.icon(
             onPressed: () => _showTrackMenu(context, subtitle: true),
             icon: const Icon(Icons.closed_caption, size: 18, color: Colors.white),
             label: const Text('字幕', style: TextStyle(color: Colors.white)),
-          )),
+          ))),
           const Spacer(),
           if (hasNext)
-            _pill(IconButton(
+            _pill(McFocusRing(child: IconButton(
               onPressed: onNext,
               icon: const Icon(Icons.skip_next, color: Colors.white),
               tooltip: '下一集',
-            )),
+            ))),
           if (isEpisode) ...[
             const SizedBox(width: 8),
-            _pill(IconButton(
+            _pill(McFocusRing(child: IconButton(
               onPressed: onEpisodes,
               icon: const Icon(Icons.playlist_play, color: Colors.white),
               tooltip: '选集',
-            )),
+            ))),
             const SizedBox(width: 8),
           ],
-          _pill(TextButton(
+          _pill(McFocusRing(child: TextButton(
             onPressed: () => _showSpeedMenu(context),
             child: Text(
               speed == 1.0 ? '倍速' : '${_label(speed)}x',
               style: const TextStyle(color: Colors.white),
             ),
-          )),
+          ))),
         ],
       ),
     );

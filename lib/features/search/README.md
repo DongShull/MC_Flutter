@@ -26,3 +26,4 @@
   禁止 import 其他 feature 目录；播放相关一律走 core/player PlayerService。
 
 > 重构注记：已下沉 core 复用（session/McClient provider、格式化、状态视图、防抖/序号守卫）。
+- 多设备适配：结果列表/人物横滚 TV 形态包 McFocusRing（无媒体墙网格，无列数改动）；phone 布局零差异。

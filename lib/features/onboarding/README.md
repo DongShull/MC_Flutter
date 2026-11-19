@@ -7,3 +7,4 @@
 - 约束：禁止 import 其他 feature 目录；播放相关一律走 core/player PlayerService。
 
 > 重构注记：已下沉 core 复用（session/McClient provider、格式化、状态视图、防抖/序号守卫）。
+- M6 多设备：登录内容居中限宽（compact<=560，其余 720），连接按钮包 McFocusRing。

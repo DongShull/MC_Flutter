@@ -44,3 +44,4 @@
 - 取消订阅不删已下载内容；确认弹窗文案与安卓一致。
 - 本域自持 sessionStoreProvider（state/mc_api.dart），不依赖其他 feature。
 - 路由：/subscriptions 主名不变；新增 /subscriptions/wall?kind=、/subscriptions/wall/:id、/subscriptions/detail/:id。
+- 多设备适配：订阅墙网格列数随宽度自适应（mcGridCrossAxisCount，cellExtent 150）；订阅卡 TV 形态包 McFocusRing；phone 布局零差异。

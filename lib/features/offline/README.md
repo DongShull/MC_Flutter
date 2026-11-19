@@ -22,3 +22,4 @@
     其他账号离线扫描（OfflineOwners）、建议区「已看完」判定接观看进度。
 - 实现要求：页面放 pages/，私有组件放 widgets/，状态放 state/（Riverpod），路由只从 routes.dart 导出；
   禁止 import 其他 feature 目录；播放相关一律走 core/player PlayerService。
+- M6 多设备：expanded 内容限宽 720 居中，设置菜单/蜂窝按钮包 McFocusRing。

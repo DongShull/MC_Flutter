@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../state/models.dart';
 
 /// 订阅卡片（对齐 SubCard 126×189：海报 + 状态小签 + 底部进度线 + 标题 + meta）。
@@ -29,7 +30,10 @@ class SubCard extends StatelessWidget {
     final p = sub.progress;
     final doneRatio = p.total > 0 ? (p.imported / p.total).clamp(0.0, 1.0) : 0.0;
 
-    return InkWell(
+    // TV 形态包焦点环；非 TV 原样返回 child，零开销。
+    return McFocusRing(
+      borderRadius: 10,
+      child: InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: SizedBox(
@@ -111,6 +115,7 @@ class SubCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }

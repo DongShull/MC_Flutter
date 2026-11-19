@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/theme.dart';
 import '../state/onboarding_controller.dart';
 import '../routes.dart' as feat_onboarding;
@@ -39,6 +40,10 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
       }
     });
 
+    final form = McFormWatch.of(context);
+    final contentWidth =
+        mcWindowClassOf(form) == McWindowClass.compact ? 560.0 : 720.0;
+
     return Scaffold(
       body: DecoratedBox(
         decoration: const BoxDecoration(
@@ -49,9 +54,12 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
           ),
         ),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: contentWidth),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -89,17 +97,22 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                   ),
                   const SizedBox(height: 12),
                 ],
-                FilledButton(
-                  onPressed: state.busy ? null : _connect,
-                  child: state.busy
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('连接'),
+                McFocusRing(
+                  borderRadius: 20,
+                  child: FilledButton(
+                    onPressed: state.busy ? null : _connect,
+                    child: state.busy
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('连接'),
+                  ),
                 ),
               ],
+                ),
+              ),
             ),
           ),
         ),

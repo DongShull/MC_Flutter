@@ -127,3 +127,6 @@
 
 
 - 2026-11-18 R1：读取 MovieClaw 结构与 android README；写 FEATURE_BREAKDOWN.md；后台安装 Flutter SDK（job bash-9a72af99a54545ab）；派 doc-auth / doc-player / doc-features 三个子代理写设计文档。
+- 2026-11-19 M6.2/M6.4（adaptive-shell，root/settings/more）：root_page 平板/TV 切 McAdaptiveScaffold 左 Rail（bus/角标逻辑不动，手机胶囊底栏零差异）；settings_page medium/expanded 改 master-detail（TV 菜单项包 McFocusRing）；more_page expanded 列表限宽 720 居中；analyze No issues + test 全绿。
+- 2026-11-19 M6 adaptive-rest：player/reels/activity/offline/account/agent/notices/share/update/onboarding 十模块多设备适配完成（TV 聚焦环/常驻控制条/抽屉选集/居中限宽/网格自适应，phone 零差异）；最终验收 flutter analyze No issues found + flutter test 全绿。
+- 2026-11-19 M6.3 adaptive-browse：library/discover/search/detail/subscriptions 五模块多设备适配完成（媒体墙网格 mcGridCrossAxisCount 自适应、detail expanded 双栏、TV 可聚焦元素包 McFocusRing，compact 零差异）；flutter analyze No issues found、flutter test 全绿。

@@ -6,6 +6,7 @@ import '../../../core/api/api_exception.dart';
 import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
 import '../state/discover_controller.dart' show DiscTitle;
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/state_views.dart';
 
@@ -102,14 +103,26 @@ class _PersonPageState extends ConsumerState<PersonPage> {
           ? const McLoadingView()
           : s.error != null
               ? Center(child: Text(s.error!))
-              : GridView.builder(
+              : LayoutBuilder(builder: (context, constraints) {
+                  // 平板/TV 自适应列数；手机保持现有密度不变。
+                  final form = McFormWatch.of(context);
+                  final gridDelegate = form == McDeviceForm.phone
+                      ? const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 160,
+                          mainAxisSpacing: 16,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 0.55,
+                        )
+                      : SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: mcGridCrossAxisCount(form, constraints,
+                              cellExtent: 160),
+                          mainAxisSpacing: 16,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 0.55,
+                        );
+                  return GridView.builder(
                   padding: const EdgeInsets.all(16),
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 160,
-                    mainAxisSpacing: 16,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 0.55,
-                  ),
+                  gridDelegate: gridDelegate,
                   itemCount: s.titles.length + 1,
                   itemBuilder: (context, i) {
                     if (i == 0) {
@@ -129,18 +142,23 @@ class _PersonPageState extends ConsumerState<PersonPage> {
                       );
                     }
                     final t = s.titles[i - 1];
-                    return McPosterCard(
-                      title: t.title,
-                      posterUrl: t.posterUrl,
-                      width: null,
-                      radius: 12,
-                      subtitle: [if (t.year != null) t.year.toString()].join(' · '),
-                      rating: (t.rating ?? 0) > 0 ? t.rating : null,
-                      // TODO(player/detail): 跳 title 详情路由（导航意图，不做播放）。
-                      onTap: () {},
+                    return McFocusRing(
+                      borderRadius: 12,
+                      child: McPosterCard(
+                        title: t.title,
+                        posterUrl: t.posterUrl,
+                        width: null,
+                        radius: 12,
+                        subtitle: [if (t.year != null) t.year.toString()].join(' · '),
+                        rating: (t.rating ?? 0) > 0 ? t.rating : null,
+                        // TODO(player/detail): 跳 title 详情路由（导航意图，不做播放）。
+                        onTap: () {},
+                      ),
                     );
                   },
-                ),
+                );
+                },
+              ),
     );
   }
 }

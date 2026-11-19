@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/person_kind_controllers.dart';
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../widgets/library_widgets.dart';
 
@@ -30,6 +31,7 @@ class _LibraryPersonPageState extends ConsumerState<LibraryPersonPage> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(personProvider(_arg));
+    final form = McFormWatch.of(context);
     return Scaffold(
       appBar: AppBar(title: Text(widget.personName ?? '相关作品')),
       body: state.loading && state.items.isEmpty
@@ -60,13 +62,26 @@ class _LibraryPersonPageState extends ConsumerState<LibraryPersonPage> {
                             ? const SliverToBoxAdapter(
                                 child: McEmptyView(text: '没有找到相关作品'))
                             : SliverGrid(
-                                gridDelegate:
-                                    const SliverGridDelegateWithMaxCrossAxisExtent(
-                                  maxCrossAxisExtent: 130,
-                                  mainAxisSpacing: 12,
-                                  crossAxisSpacing: 12,
-                                  childAspectRatio: 0.55,
-                                ),
+                                // 平板/TV 自适应列数；手机保持现有密度不变。
+                                gridDelegate: form == McDeviceForm.phone
+                                    ? const SliverGridDelegateWithMaxCrossAxisExtent(
+                                        maxCrossAxisExtent: 130,
+                                        mainAxisSpacing: 12,
+                                        crossAxisSpacing: 12,
+                                        childAspectRatio: 0.55,
+                                      )
+                                    : SliverGridDelegateWithFixedCrossAxisCount(
+                                        crossAxisCount: mcGridCrossAxisCount(
+                                            form,
+                                            BoxConstraints.tightFor(
+                                                width:
+                                                    MediaQuery.widthOf(context) -
+                                                        32),
+                                        cellExtent: 130),
+                                        mainAxisSpacing: 12,
+                                        crossAxisSpacing: 12,
+                                        childAspectRatio: 0.55,
+                                      ),
                                 delegate: SliverChildBuilderDelegate(
                                   (context, i) {
                                     final hit = state.items[i];
@@ -107,6 +122,7 @@ class _KindWallPageState extends ConsumerState<KindWallPage> {
   Widget build(BuildContext context) {
     final state = ref.watch(kindWallProvider(_arg));
     final total = state.summary?.itemCount ?? 0;
+    final form = McFormWatch.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Text('${widget.kind == 'movie' ? '电影' : '剧集'} · $total 部'),
@@ -182,13 +198,25 @@ class _KindWallPageState extends ConsumerState<KindWallPage> {
                               : GridView.builder(
                                   physics: const AlwaysScrollableScrollPhysics(),
                                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                                  gridDelegate:
-                                      const SliverGridDelegateWithMaxCrossAxisExtent(
-                                    maxCrossAxisExtent: 130,
-                                    mainAxisSpacing: 12,
-                                    crossAxisSpacing: 12,
-                                    childAspectRatio: 0.55,
-                                  ),
+                                  // 平板/TV 自适应列数；手机保持现有密度不变。
+                                  gridDelegate: form == McDeviceForm.phone
+                                      ? const SliverGridDelegateWithMaxCrossAxisExtent(
+                                          maxCrossAxisExtent: 130,
+                                          mainAxisSpacing: 12,
+                                          crossAxisSpacing: 12,
+                                          childAspectRatio: 0.55,
+                                        )
+                                      : SliverGridDelegateWithFixedCrossAxisCount(
+                                          crossAxisCount: mcGridCrossAxisCount(
+                                              form,
+                                              BoxConstraints.tightFor(
+                                                  width:
+                                                      MediaQuery.widthOf(context) - 32),
+                                          cellExtent: 130),
+                                          mainAxisSpacing: 12,
+                                          crossAxisSpacing: 12,
+                                          childAspectRatio: 0.55,
+                                        ),
                                   itemCount: state.items.length,
                                   itemBuilder: (context, i) =>
                                       mcItemCard(context, state.items[i]),

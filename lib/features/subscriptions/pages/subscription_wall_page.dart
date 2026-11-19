@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../state/mc_api.dart';
 import '../state/models.dart';
@@ -80,6 +81,28 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
   }
 
   Widget _buildBody() {
+    final form = McFormWatch.of(context);
+    SliverGridDelegate wallDelegate(McDeviceForm form, double aspect) {
+      // 平板/TV 自适应列数；手机保持现有密度不变。
+      if (form == McDeviceForm.phone) {
+        return const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 150,
+          mainAxisSpacing: 14,
+          crossAxisSpacing: 12,
+          childAspectRatio: 126 / 220,
+        );
+      }
+      return SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: mcGridCrossAxisCount(
+            form,
+            BoxConstraints.tightFor(
+                width: MediaQuery.widthOf(context) - 24),
+        cellExtent: 150),
+        mainAxisSpacing: 14,
+        crossAxisSpacing: 12,
+        childAspectRatio: aspect,
+      );
+    }
     // 单订阅资源墙
     final items = _items;
     if (items != null) {
@@ -88,17 +111,15 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
       }
       return GridView.builder(
         padding: const EdgeInsets.all(12),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 150,
-          mainAxisSpacing: 14,
-          crossAxisSpacing: 12,
-          childAspectRatio: 126 / 220,
-        ),
+        gridDelegate: wallDelegate(form, 126 / 220),
         itemCount: items.length,
-        itemBuilder: (context, i) => _PosterTile(
-          title: items[i].title,
-          posterUrl: items[i].posterUrl,
-          subtitle: items[i].kind,
+        itemBuilder: (context, i) => McFocusRing(
+          borderRadius: 10,
+          child: _PosterTile(
+            title: items[i].title,
+            posterUrl: items[i].posterUrl,
+            subtitle: items[i].kind,
+          ),
         ),
       );
     }
@@ -107,20 +128,19 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
     if (subs.isEmpty) return const Center(child: Text('暂无订阅'));
     return GridView.builder(
       padding: const EdgeInsets.all(12),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 150,
-        mainAxisSpacing: 14,
-        crossAxisSpacing: 12,
-        childAspectRatio: 126 / 220,
-      ),
+      gridDelegate: wallDelegate(form, 126 / 220),
       itemCount: subs.length,
       itemBuilder: (context, i) {
         final s = subs[i];
-        return _PosterTile(
-          title: s.media.title,
-          posterUrl: s.media.posterUrl,
-          subtitle: '${subscriptionStatusLabel(s)} · ${subscriptionProgressNote(s)}',
-          onTap: () => context.push('/subscriptions/detail/${s.id}'),
+        return McFocusRing(
+          borderRadius: 10,
+          child: _PosterTile(
+            title: s.media.title,
+            posterUrl: s.media.posterUrl,
+            subtitle:
+                '${subscriptionStatusLabel(s)} · ${subscriptionProgressNote(s)}',
+            onTap: () => context.push('/subscriptions/detail/${s.id}'),
+          ),
         );
       },
     );

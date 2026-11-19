@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
 import '../state/search_controller.dart';
@@ -319,7 +320,10 @@ class _PersonCell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return InkWell(
+    // TV 形态包焦点环；非 TV 原样返回 child，零开销。
+    return McFocusRing(
+      borderRadius: 12,
+      child: InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: () => ref.read(searchProvider.notifier).selectPerson(person),
       child: SizedBox(
@@ -347,6 +351,7 @@ class _PersonCell extends ConsumerWidget {
           ],
         ),
       ),
+      ),
     );
   }
 
@@ -366,7 +371,10 @@ class _HitTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    // TV 形态包焦点环；非 TV 原样返回 child，零开销。
+    return McFocusRing(
+      borderRadius: 14,
+      child: Card(
       margin: EdgeInsets.zero,
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -430,6 +438,7 @@ class _HitTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
       ),
     );
   }

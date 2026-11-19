@@ -31,3 +31,4 @@
   禁止 import 其他 feature 目录；播放相关一律走 core/player PlayerService。
 
 > 审核重构：已下沉 core 复用（poster_card / state_views / session_providers / debounce_guard）。
+- 多设备适配：发现媒体墙平板/TV 列数随宽度自适应（mcGridCrossAxisCount，cellExtent 200）；hero 与板块行卡片 TV 形态包 McFocusRing；人物页网格同理自适应。

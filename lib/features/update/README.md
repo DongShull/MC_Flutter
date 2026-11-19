@@ -23,3 +23,4 @@
   （对齐 Android 端「签名不符→打开发布页」的降级路径）。
 
 > 重构注记：已下沉 core 复用（session/McClient provider、格式化、状态视图、防抖/序号守卫）。
+- M6 多设备：内容居中限宽（compact<=560，其余 720），检查更新 ListTile 包 McFocusRing。

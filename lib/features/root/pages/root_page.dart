@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../state/main_tab_bus.dart';
 import '../state/shell_badges.dart';
 
@@ -74,46 +75,102 @@ class _RootPageState extends ConsumerState<RootPage> {
     if (i == 3) ref.read(shellBadgesProvider.notifier).refresh();
   }
 
+  static const _filledIcons = [
+    Icons.explore,
+    Icons.video_library,
+    Icons.subscriptions,
+    Icons.notifications,
+    Icons.person,
+  ];
+
   @override
   Widget build(BuildContext context) {
     final badges = ref.watch(shellBadgesProvider);
+    final form = ref.watch(mcFormProvider);
 
-    return Scaffold(
-      body: IndexedStack(
-        index: _index,
-        children: [
+    final body = IndexedStack(
+      index: _index,
+      children: [
+        for (var i = 0; i < _tabs.length; i++)
+          _TabPanel(
+            label: _labels[i],
+            route: _tabRoutes[i],
+            hint: _tabHints[i],
+            icon: _icons[i],
+            badge: _badgeText(i, badges),
+          ),
+      ],
+    );
+
+    // 手机：现有悬浮胶囊底栏原样保留（compact 回归零差异）。
+    if (form == McDeviceForm.phone) {
+      return Scaffold(body: body, bottomNavigationBar: _phoneBottomBar(context, badges));
+    }
+
+    // 平板/TV：左侧 Rail（5 个 tab 语义不变），main_tab_bus / shell_badges 逻辑不动。
+    return McFormWatch(
+      form: form,
+      child: McAdaptiveScaffold(
+        destinations: [
           for (var i = 0; i < _tabs.length; i++)
-            _TabPanel(
-              label: _labels[i],
-              route: _tabRoutes[i],
-              hint: _tabHints[i],
+            McAdaptiveDestination(
               icon: _icons[i],
-              badge: _badgeText(i, badges),
+              selectedIcon: _filledIcons[i],
+              label: _labels[i],
             ),
         ],
+        currentIndex: _index,
+        onSelect: _onTab,
+        body: body,
+        railTrailing: _railBadgeDot(badges),
       ),
-      // 悬浮胶囊底栏：348×54、圆角 999、图标-only
-      bottomNavigationBar: SafeArea(
-        child: Center(
-          child: Container(
-            width: 348,
-            height: 54,
-            margin: const EdgeInsets.only(bottom: 8),
-            decoration: BoxDecoration(
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? const Color(0xFF141A21)
-                  : Colors.white,
-              borderRadius: BorderRadius.circular(999),
-              boxShadow: const [
-                BoxShadow(color: Colors.black26, blurRadius: 16, offset: Offset(0, 4)),
-              ],
-            ),
-            child: Row(
-              children: [
-                for (var i = 0; i < _tabs.length; i++)
-                  Expanded(child: _tabSlot(i, badges)),
-              ],
-            ),
+    );
+  }
+
+  /// Rail 侧活动角标点（红 > 绿 > 蓝 优先级，与 _dotColor 同规则）；无活动则不占位。
+  Widget? _railBadgeDot(ShellBadges badges) {
+    final Color? color;
+    if (badges.attentionTotal > 0) {
+      color = const Color(0xFFE5615B);
+    } else if (badges.livePlayback > 0) {
+      color = const Color(0xFF34C77B);
+    } else if (badges.activeTotal > 0) {
+      color = const Color(0xFF6AA7FF);
+    } else {
+      return null;
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
+    );
+  }
+
+  /// 悬浮胶囊底栏：348×54、圆角 999、图标-only（仅手机形态使用）。
+  Widget _phoneBottomBar(BuildContext context, ShellBadges badges) {
+    return SafeArea(
+      child: Center(
+        child: Container(
+          width: 348,
+          height: 54,
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? const Color(0xFF141A21)
+                : Colors.white,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: const [
+              BoxShadow(color: Colors.black26, blurRadius: 16, offset: Offset(0, 4)),
+            ],
+          ),
+          child: Row(
+            children: [
+              for (var i = 0; i < _tabs.length; i++)
+                Expanded(child: _tabSlot(i, badges)),
+            ],
           ),
         ),
       ),

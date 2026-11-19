@@ -15,3 +15,4 @@
   - TODO：多账号令牌快照（mc_token:<origin>:<user>）落地后切换账号免重输密码；本机下载清理平台通道。
 - 实现要求：页面放 pages/，私有组件放 widgets/，状态放 state/（Riverpod），路由只从 routes.dart 导出；
   禁止 import 其他 feature 目录；播放相关一律走 core/player PlayerService。
+- M6 多设备：非 compact 内容限宽 720 居中，设备管理/添加账号/退出全部包 McFocusRing。

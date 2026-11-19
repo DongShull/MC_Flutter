@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
 import '../state/models.dart';
@@ -16,6 +17,7 @@ class NoticesPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(noticesControllerProvider);
     final controller = ref.read(noticesControllerProvider.notifier);
+    final form = McFormWatch.of(context);
 
     return Scaffold(
       body: SafeArea(
@@ -23,19 +25,24 @@ class NoticesPage extends ConsumerWidget {
           children: [
             Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back_rounded),
-                  tooltip: '返回',
-                  onPressed: () => context.pop(),
+                McFocusRing(
+                  borderRadius: 24,
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    tooltip: '返回',
+                    onPressed: () => context.pop(),
+                  ),
                 ),
                 const Expanded(
                   child: Text('通知中心', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
                 ),
                 if (state is NoticesReady && state.value.isNotEmpty)
-                  TextButton.icon(
-                    onPressed: controller.dismissAll,
-                    icon: const Icon(Icons.done_all_rounded, size: 16),
-                    label: const Text('全部忽略', style: TextStyle(fontSize: 12)),
+                  McFocusRing(
+                    child: TextButton.icon(
+                      onPressed: controller.dismissAll,
+                      icon: const Icon(Icons.done_all_rounded, size: 16),
+                      label: const Text('全部忽略', style: TextStyle(fontSize: 12)),
+                    ),
                   ),
               ],
             ),
@@ -63,18 +70,49 @@ class NoticesPage extends ConsumerWidget {
                       )
                     : RefreshIndicator(
                         onRefresh: () => controller.refresh(silent: true),
-                        child: ListView.separated(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          itemCount: value.length,
-                          separatorBuilder: (context, _) => const SizedBox(height: 10),
-                          itemBuilder: (context, index) {
-                            final notice = value[index];
-                            return _NoticeCard(
-                              notice: notice,
-                              onDismiss: () => controller.dismiss(notice),
-                            );
-                          },
-                        ),
+                        // 平板/TV：卡片网格自适应列数；phone 保持原 ListView。
+                        child: form == McDeviceForm.phone
+                            ? ListView.separated(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                itemCount: value.length,
+                                separatorBuilder: (context, _) => const SizedBox(height: 10),
+                                itemBuilder: (context, index) {
+                                  final notice = value[index];
+                                  return _NoticeCard(
+                                    notice: notice,
+                                    onDismiss: () => controller.dismiss(notice),
+                                  );
+                                },
+                              )
+                            : LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final columns = mcGridCrossAxisCount(
+                                    form,
+                                    constraints,
+                                    min: 2,
+                                    max: 4,
+                                  );
+                                  return GridView.builder(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 8),
+                                    gridDelegate:
+                                        SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: columns,
+                                      mainAxisSpacing: 10,
+                                      crossAxisSpacing: 10,
+                                      childAspectRatio: 3.0,
+                                    ),
+                                    itemCount: value.length,
+                                    itemBuilder: (context, index) {
+                                      final notice = value[index];
+                                      return _NoticeCard(
+                                        notice: notice,
+                                        onDismiss: () => controller.dismiss(notice),
+                                      );
+                                    },
+                                  );
+                                },
+                              ),
                       ),
               },
             ),

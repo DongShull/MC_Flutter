@@ -14,3 +14,4 @@
   - `routes.dart`：`/share` 主路由名不变；新增 `/share/:slug` 深链（origin 经查询参数）
 - 播放相关：play() 仅做导航意图 + TODO（铁律 4）；实际播放须走 core/player PlayerService 的
   ShareBackend（/api/v1/share/{slug}/playback/…），续播记本机不写成员进度（05 §4.3）。
+- M6 多设备：内容居中限宽（compact<=560，其余 720），返回/解锁/播放/集条目包 McFocusRing。

@@ -33,3 +33,4 @@
 - 播放导航：条目点击目前只留 TODO，待 core/player 路由接通
 
 > 审核重构：已下沉 core 复用（poster_card / state_views / session_providers / format / debounce_guard）。
+- 多设备适配：库墙/合集/人物网格改用 mcGridCrossAxisCount（phone 保持原 2 列/密度不变）；库卡、upNext、横滑行与类型色块 TV 形态包 McFocusRing。

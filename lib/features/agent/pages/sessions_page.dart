@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
+
 import '../state/agent_state.dart';
 
 /// AI 助手入口页（对齐 Kotlin 会话列表）：新对话 + 会话列表（条数/时间），左滑删除。
@@ -26,12 +28,17 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
   Widget build(BuildContext context) {
     final sessions = ref.watch(sessionsProvider);
     final scheme = Theme.of(context).colorScheme;
+    final form = McFormWatch.of(context);
+    final windowClass = mcWindowClassOf(form);
     return Scaffold(
       appBar: AppBar(title: const Text('AI 助手')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('$routeAgentLocal/new'),
-        icon: const Icon(Icons.add),
-        label: const Text('新对话'),
+      floatingActionButton: McFocusRing(
+        borderRadius: 20,
+        child: FloatingActionButton.extended(
+          onPressed: () => context.push('$routeAgentLocal/new'),
+          icon: const Icon(Icons.add),
+          label: const Text('新对话'),
+        ),
       ),
       body: sessions.isEmpty
           ? Center(
@@ -40,8 +47,15 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
                 style: TextStyle(color: scheme.onSurfaceVariant),
               ),
             )
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
+          : Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: windowClass == McWindowClass.compact
+                      ? double.infinity
+                      : 720,
+                ),
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(16),
               itemCount: sessions.length,
               itemBuilder: (context, index) {
                 final session = sessions[index];
@@ -85,6 +99,8 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
                   ),
                 );
               },
+                ),
+              ),
             ),
     );
   }

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/models/format.dart';
 
@@ -47,6 +48,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   double _brightnessLevel = 1.0;
   double _volumeLevel = 1.0;
   DateTime _lastUserActivity = DateTime.now();
+  bool _tvForm = false; // TV 形态：常驻控制条、手势层停用（build 时同步）
 
   PlayerController get _controller =>
       ref.read(playerControllerProvider.notifier);
@@ -239,12 +241,13 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   }
 
   Widget _chrome(PlayerPlayback playback) {
+    final isTv = _tvForm;
     final accent = Theme.of(context).colorScheme.primary;
     return AnimatedOpacity(
-      opacity: _chromeVisible && !_locked ? 1 : 0,
+      opacity: (_chromeVisible || isTv) && !_locked ? 1 : 0,
       duration: const Duration(milliseconds: 200),
       child: IgnorePointer(
-        ignoring: !_chromeVisible || _locked,
+        ignoring: (!(_chromeVisible || isTv)) || _locked,
         child: Column(
           children: [
             // 顶栏：返回 / 标题 / 锁屏 / ⋮
@@ -252,12 +255,14 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
               top: false,
               child: Row(
                 children: [
-                  BackButton(
-                    color: Colors.white,
-                    onPressed: () {
-                      _controller.exit();
-                      _exit();
-                    },
+                  McFocusRing(
+                    child: BackButton(
+                      color: Colors.white,
+                      onPressed: () {
+                        _controller.exit();
+                        _exit();
+                      },
+                    ),
                   ),
                   Expanded(
                     child: Column(
@@ -282,37 +287,44 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                       ],
                     ),
                   ),
-                  IconButton(
-                    onPressed: () {
-                      setState(() {
-                        _locked = true;
-                        _lockHint = true;
-                        _chromeVisible = false;
-                      });
-                    },
-                    icon: const Icon(Icons.lock_outline, color: Colors.white),
-                    tooltip: '锁屏',
+                  McFocusRing(
+                    child: IconButton(
+                      onPressed: () {
+                        setState(() {
+                          _locked = true;
+                          _lockHint = true;
+                          _chromeVisible = false;
+                        });
+                      },
+                      icon: const Icon(Icons.lock_outline, color: Colors.white),
+                      tooltip: '锁屏',
+                    ),
                   ),
-                  IconButton(
-                    onPressed: () {
-                      setState(() => _settingsOpen = true);
-                      _noteActivity();
-                    },
-                    icon: const Icon(Icons.more_vert, color: Colors.white),
-                    tooltip: '更多',
+                  McFocusRing(
+                    child: IconButton(
+                      onPressed: () {
+                        setState(() => _settingsOpen = true);
+                        _noteActivity();
+                      },
+                      icon: const Icon(Icons.more_vert, color: Colors.white),
+                      tooltip: '更多',
+                    ),
                   ),
                 ],
               ),
             ),
             const Spacer(),
             // 中央播放/暂停
-            CenterGlassButton(
-              playing: playback.playing,
-              accent: accent,
-              onTap: () {
-                _controller.togglePlay();
-                _noteActivity();
-              },
+            McFocusRing(
+              borderRadius: 36,
+              child: CenterGlassButton(
+                playing: playback.playing,
+                accent: accent,
+                onTap: () {
+                  _controller.togglePlay();
+                  _noteActivity();
+                },
+              ),
             ),
             const Spacer(),
             // 工具行（音轨/字幕/下一集/选集/倍速）
@@ -351,6 +363,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   @override
   Widget build(BuildContext context) {
     final playback = ref.watch(playerControllerProvider);
+    _tvForm = McFormWatch.of(context) == McDeviceForm.tv;
     final body = Scaffold(
       backgroundColor: Colors.black,
       body: PopScope(
@@ -380,7 +393,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
               ),
             // 手势层（控制层下方的兄弟节点）
             PlayerGestureLayer(
-              enabled: !_locked && playback.status == PlayerStatus.ready,
+              // TV 形态停用手势层，全部操作走常驻控制条。
+              enabled: !_tvForm && !_locked && playback.status == PlayerStatus.ready,
               canHold: playback.playing,
               onTap: () {
                 _toggleChrome();
@@ -487,6 +501,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
             // 选集面板
             if (_episodePickerOpen)
               PlayerEpisodePicker(
+                asDrawer: McFormWatch.of(context) == McDeviceForm.tablet,
                 args: _args,
                 currentSeason: 1,
                 currentEpisode: 1,
@@ -513,7 +528,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
         if (_levelHud != null && elapsed >= _hudHideAfter) {
           setState(() => _levelHud = null);
         }
-        if (_chromeVisible && !_mustStayVisible && elapsed >= _chromeHideAfter) {
+        if (_chromeVisible &&
+            !_tvForm && // TV 常驻控制条，不自动隐藏
+            !_mustStayVisible &&
+            elapsed >= _chromeHideAfter) {
           setState(() => _chromeVisible = false);
         }
         if (_lockHint && elapsed >= const Duration(seconds: 3)) {

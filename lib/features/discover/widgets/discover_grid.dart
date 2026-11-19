@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
@@ -77,14 +78,27 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
         }
         return false;
       },
-      child: GridView.custom(
+      // 平板/TV 用 mcGridCrossAxisCount 自适应列数（TV 条目稍大）；
+      // 手机保持现有 maxCrossAxisExtent 密度不变。
+      child: LayoutBuilder(builder: (context, constraints) {
+        final form = McFormWatch.of(context);
+        final gridDelegate = form == McDeviceForm.phone
+            ? const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 200,
+                mainAxisSpacing: 24,
+                crossAxisSpacing: 12,
+                childAspectRatio: 0.52,
+              )
+            : SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount:
+                    mcGridCrossAxisCount(form, constraints, cellExtent: 200),
+                mainAxisSpacing: 24,
+                crossAxisSpacing: 12,
+                childAspectRatio: 0.52,
+              );
+        return GridView.custom(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 200,
-          mainAxisSpacing: 24,
-          crossAxisSpacing: 12,
-          childAspectRatio: 0.52,
-        ),
+        gridDelegate: gridDelegate,
         childrenDelegate: SliverChildListDelegate([
           _header(state, ref),
           DiscoverFilterChipsRow(
@@ -117,7 +131,9 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
               onRetry: () => ref.read(discoverProvider.notifier).loadFiltered(),
             ),
           for (final t in state.filtered)
-            McPosterCard(
+            McFocusRing(
+              borderRadius: 12,
+              child: McPosterCard(
               title: t.title,
               posterUrl: t.posterUrl,
               width: null,
@@ -128,8 +144,9 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
               ].join(' · '),
               rating: (t.rating ?? 0) > 0 ? t.rating : null,
               badge: t.owned ? '在库' : null,
-              // TODO(player/detail): 跳 title 详情路由（导航意图，不做播放）。
-              onTap: () => feat_discover.pushTitle(context, t.ref),
+                // TODO(player/detail): 跳 title 详情路由（导航意图，不做播放）。
+                onTap: () => feat_discover.pushTitle(context, t.ref),
+              ),
             ),
           if (state.filteredLoading && state.filtered.isNotEmpty)
             const Padding(
@@ -147,7 +164,8 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
               ),
             ),
         ]),
-      ),
+        );
+      }),
     );
   }
 

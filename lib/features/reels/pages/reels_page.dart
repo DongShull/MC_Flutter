@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
+
 import '../state/controllers.dart';
 import '../state/models.dart';
 import '../widgets/reel_page.dart';
@@ -143,16 +145,19 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
       color: Colors.white.withValues(alpha: 0.16),
       shape: const StadiumBorder(),
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: current == null
-            ? null
-            : () {
-                final item = state.items[_currentIndex];
-                ref
-                    .read(reelsControllerProvider.notifier)
-                    .event(item, 'detail');
-                _openDetail(item);
-              },
+      // TV：片名胶囊可聚焦。
+      child: McFocusRing(
+        borderRadius: 22,
+        child: InkWell(
+          onTap: current == null
+              ? null
+              : () {
+                  final item = state.items[_currentIndex];
+                  ref
+                      .read(reelsControllerProvider.notifier)
+                      .event(item, 'detail');
+                  _openDetail(item);
+                },
         child: Container(
           height: 44,
           alignment: Alignment.center,
@@ -181,6 +186,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
             ],
           ),
         ),
+        ),
       ),
     );
   }
@@ -190,11 +196,14 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
       color: Colors.white.withValues(alpha: 0.16),
       shape: const StadiumBorder(),
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () async {
-          final filter = await showReelFilterSheet(context, state);
-          if (filter != null) controller.applyFilter(filter);
-        },
+      // TV：筛选胶囊可聚焦。
+      child: McFocusRing(
+        borderRadius: 22,
+        child: InkWell(
+          onTap: () async {
+            final filter = await showReelFilterSheet(context, state);
+            if (filter != null) controller.applyFilter(filter);
+          },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           child: Row(
@@ -215,6 +224,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
               color: Colors.white.withValues(alpha: 0.85),
             ),
           ],
+        ),
         ),
         ),
       ),
@@ -339,12 +349,16 @@ class _GlassIconButton extends StatelessWidget {
       color: Colors.white.withValues(alpha: 0.16),
       shape: const CircleBorder(),
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: Icon(icon, size: 22, color: Colors.white),
+      // TV：返回键 D-pad 聚焦环（非 TV 原样透传）。
+      child: McFocusRing(
+        borderRadius: 22,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Icon(icon, size: 22, color: Colors.white),
+          ),
         ),
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/theme.dart';
 import '../state/mc_api.dart';
 import '../state/models.dart';
@@ -20,10 +21,20 @@ class UpdatePage extends ConsumerWidget {
     });
     return Scaffold(
       appBar: AppBar(title: const Text('关于与更新')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          ListTile(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: mcWindowClassOf(McFormWatch.of(context)) == McWindowClass.compact
+                ? 560
+                : 720,
+          ),
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+          // TV：整行 ListTile D-pad 聚焦环。
+          McFocusRing(
+            borderRadius: 12,
+            child: ListTile(
             leading: const Icon(Icons.system_update, color: McColors.accent),
             title: const Text('检查更新'),
             subtitle: const Text('当前版本 0.1.0'),
@@ -38,12 +49,15 @@ class UpdatePage extends ConsumerWidget {
                 ? null
                 : () => ref.read(updateControllerProvider.notifier).checkManually(),
           ),
+          ),
           const Divider(height: 32),
           const Text(
             '提示：新版本会先在官网发布，查不到时再用你的服务器兜底。',
             style: TextStyle(fontSize: 12, color: Colors.white54),
           ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
