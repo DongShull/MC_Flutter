@@ -17,6 +17,7 @@ dependencies:
   shared_preferences: ^2.3.2        # 轻量偏好
   cached_network_image: ^3.4.1      # 海报缓存
   intl: ^0.19.0
+  wakelock_plus: ^1.5.2
 
 dev_dependencies:
   flutter_test:

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -50,6 +51,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   static const _participantId = 'player-page';
   StreamSubscription<CoordinatorCommand>? _commandSub;
   DateTime _lastStateReport = DateTime.fromMillisecondsSinceEpoch(0);
+  // 中断恢复（对齐飞牛 PlaybackInterruptionRecovery 口径）：
+  // 系统级后台 → 自动暂停并记录；回前台且非用户手动暂停 → 自动恢复。
+  AppLifecycleListener? _lifecycle;
+  bool _pausedBySystem = false;
   bool? _lastReportedPlaying;
   Duration? _scrubPreview;
   ({bool brightness, double level})? _levelHud;
@@ -85,7 +90,23 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _controller.open(_args);
       _joinPlaybackSession();
+      // 播放中屏幕常亮（wakelock_plus，退出播放页在 dispose 释放）。
+      WakelockPlus.enable();
     });
+    _lifecycle = AppLifecycleListener(
+      onHide: () {
+        if (ref.read(playerControllerProvider).playing) {
+          _pausedBySystem = true;
+          _controller.togglePlay();
+        }
+      },
+      onShow: () {
+        if (_pausedBySystem) {
+          _pausedBySystem = false;
+          _controller.togglePlay();
+        }
+      },
+    );
   }
 
   /// 播放会话协调（docs/design/08）：注册参与者 + 订阅协调器命令。
@@ -133,6 +154,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   @override
   void dispose() {
     _commandSub?.cancel();
+    _lifecycle?.dispose();
+    WakelockPlus.disable();
     // reportUserStopped 口径：用户主动离开播放页，注销并清会话。
     ref.read(playbackCoordinatorProvider).reportUserStopped(_participantId);
     _controller.detach();

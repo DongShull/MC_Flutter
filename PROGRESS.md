@@ -137,3 +137,10 @@
 - player_page.dart 接入：initState postFrame 注册 'player-page'、commands 订阅（pause/play/seek/stop→togglePlay/seekTo/_exit）、build 内 ref.listen 节流 4s 上报 ParticipantState、dispose reportUserStopped。
 - 新增 test/playback_session_test.dart 4 用例（激活快照/抢占 pause/注销诊断/synchronize seek）。
 - 验收：flutter analyze No issues (5.1s)、flutter test +5 全绿。
+
+## Round 9（飞牛优点回填：启动/预取/保活，docs/design/09）
+- docs/design/09-finnas-benchmarks.md：飞牛 App 六个架构级优点深度分析 + 10 项回填清单（已抄/待抄状态表）。
+- 启动分阶段（对齐 EndWarmUpFrame）：main.dart runZonedGuarded + AppBootstrap.ensureMinimum + 首帧栅格化后跑非首屏任务（lib/core/bootstrap/app_bootstrap.dart）。
+- 封面预加载（对齐 preloadArtwork）：lib/core/image/cover_preloader.dart（precacheImage 队列、并发 4、去重、宿主 element 安全）；library_home_page.dart 首屏行渲染后喂入全部封面 URL。
+- 播放保活/中断恢复（对齐 PlaybackInterruptionRecovery）：player_page 加 AppLifecycleListener（后台自动暂停、回前台恢复）+ wakelock_plus ^1.5.2 屏幕常亮（dispose 释放）。
+- 验收：analyze No issues (6.8s)、test +5 全绿。

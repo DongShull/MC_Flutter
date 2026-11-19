@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/image/cover_preloader.dart';
 import '../../../core/models/format.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/poster_card.dart';
@@ -25,16 +26,41 @@ class LibraryHomePage extends ConsumerStatefulWidget {
 }
 
 class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
+  bool _coversPreloaded = false;
+
   @override
   void initState() {
     super.initState();
     Future.microtask(() => ref.read(libraryHomeProvider.notifier).load());
   }
 
+  /// 从首页状态收集全部可预取的封面 URL。
+  List<String> _collectCoverUrls(LibraryHomeState state) {
+    final urls = <String>[
+      for (final e in state.upNext) if (e.episodeStillUrl != null) e.episodeStillUrl!,
+    ];
+    for (final row in state.rows) {
+      final genres = state.kindGenres[row.id] ?? const <Map<String, dynamic>>[];
+      for (final g in genres) {
+        final url = (g['backdrop_url'] ?? g['poster_url'] ?? g['cover_url'] ?? '') as String;
+        if (url.isNotEmpty) urls.add(url);
+      }
+    }
+    return urls;
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(libraryHomeProvider);
     final (count, bytes) = state.storageStats;
+    // 封面预加载（docs/design/09 §3.3，对齐飞牛 preloadArtwork）：
+    // 首屏行渲染完成后，把首页全部封面喂进预取队列（并发 4、去重）。
+    if (!_coversPreloaded && state.rows.isNotEmpty) {
+      _coversPreloaded = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        CoverPreloader.preload(context, _collectCoverUrls(state));
+      });
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('媒体库'),
