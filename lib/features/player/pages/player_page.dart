@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +8,8 @@ import 'package:go_router/go_router.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/models/format.dart';
+import '../../../core/player/session/playback_session.dart';
+import '../../../core/player/session/playback_session_providers.dart';
 
 import '../state/player_controller.dart';
 import '../widgets/player_bottom_controls.dart';
@@ -43,6 +47,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   bool _episodePickerOpen = false;
   String _displayMode = 'fit';
   String? _notice;
+  static const _participantId = 'player-page';
+  StreamSubscription<CoordinatorCommand>? _commandSub;
+  DateTime _lastStateReport = DateTime.fromMillisecondsSinceEpoch(0);
+  bool? _lastReportedPlaying;
   Duration? _scrubPreview;
   ({bool brightness, double level})? _levelHud;
   double _brightnessLevel = 1.0;
@@ -76,11 +84,57 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _controller.open(_args);
+      _joinPlaybackSession();
     });
+  }
+
+  /// 播放会话协调（docs/design/08）：注册参与者 + 订阅协调器命令。
+  /// 后到抢占时旧 active 收 pause；synchronize 下发 seek。
+  void _joinPlaybackSession() {
+    final coordinator = ref.read(playbackCoordinatorProvider);
+    coordinator.registerParticipant(_participantId);
+    _commandSub = coordinator.commands.listen((cmd) {
+      switch (cmd.type) {
+        case 'pause':
+          if (ref.read(playerControllerProvider).playing) {
+            _controller.togglePlay();
+          }
+        case 'play':
+          if (!ref.read(playerControllerProvider).playing) {
+            _controller.togglePlay();
+          }
+        case 'seek':
+          if (cmd.position != null) _controller.seekTo(cmd.position!);
+        case 'stop':
+          _exit();
+      }
+    });
+  }
+
+  /// 节流上报参与者状态（5s 心跳窗口内 1 次 + 播放态变化立即报）。
+  void _reportSessionState(PlayerPlayback playback) {
+    final now = DateTime.now();
+    if (!playback.playing != !(_lastReportedPlaying ?? false) ||
+        now.difference(_lastStateReport) >= const Duration(seconds: 4)) {
+      _lastStateReport = now;
+      _lastReportedPlaying = playback.playing;
+      ref.read(playbackCoordinatorProvider).reportParticipantState(
+            _participantId,
+            ParticipantState(
+              playing: playback.playing,
+              position: playback.position,
+              duration: playback.duration,
+              speed: playback.speed,
+            ),
+          );
+    }
   }
 
   @override
   void dispose() {
+    _commandSub?.cancel();
+    // reportUserStopped 口径：用户主动离开播放页，注销并清会话。
+    ref.read(playbackCoordinatorProvider).reportUserStopped(_participantId);
     _controller.detach();
     _controller.exit();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -363,6 +417,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   @override
   Widget build(BuildContext context) {
     final playback = ref.watch(playerControllerProvider);
+    // 播放会话：状态变化立即上报，位置推进按 4s 节流。
+    ref.listen(playerControllerProvider, (_, next) => _reportSessionState(next));
     _tvForm = McFormWatch.of(context) == McDeviceForm.tv;
     final body = Scaffold(
       backgroundColor: Colors.black,

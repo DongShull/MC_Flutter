@@ -130,3 +130,9 @@
 - 2026-11-19 M6.2/M6.4（adaptive-shell，root/settings/more）：root_page 平板/TV 切 McAdaptiveScaffold 左 Rail（bus/角标逻辑不动，手机胶囊底栏零差异）；settings_page medium/expanded 改 master-detail（TV 菜单项包 McFocusRing）；more_page expanded 列表限宽 720 居中；analyze No issues + test 全绿。
 - 2026-11-19 M6 adaptive-rest：player/reels/activity/offline/account/agent/notices/share/update/onboarding 十模块多设备适配完成（TV 聚焦环/常驻控制条/抽屉选集/居中限宽/网格自适应，phone 零差异）；最终验收 flutter analyze No issues found + flutter test 全绿。
 - 2026-11-19 M6.3 adaptive-browse：library/discover/search/detail/subscriptions 五模块多设备适配完成（媒体墙网格 mcGridCrossAxisCount 自适应、detail expanded 双栏、TV 可聚焦元素包 McFocusRing，compact 零差异）；flutter analyze No issues found、flutter test 全绿。
+## Round 8（播放会话协调器落地）
+- 新增 lib/core/player/session/playback_session.dart：PlaybackCoordinator（registerParticipant/unregisterParticipant/reportParticipantState/reportUserStopped/synchronize + commands/snapshots/diagnostics 三流，5s 心跳 ×3 超时注销，后到抢占激活），对齐飞牛 trim_playback_session_plugin Pigeon 接口面（docs/design/08）。
+- 新增 playback_session_providers.dart（playbackCoordinatorProvider 全局单例）。
+- player_page.dart 接入：initState postFrame 注册 'player-page'、commands 订阅（pause/play/seek/stop→togglePlay/seekTo/_exit）、build 内 ref.listen 节流 4s 上报 ParticipantState、dispose reportUserStopped。
+- 新增 test/playback_session_test.dart 4 用例（激活快照/抢占 pause/注销诊断/synchronize seek）。
+- 验收：flutter analyze No issues (5.1s)、flutter test +5 全绿。
