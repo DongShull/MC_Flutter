@@ -1,0 +1,16 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+  errors:
+    # Flutter 3.50 起对 package:flutter/material.dart 的前瞻性废弃提示，
+    # material_ui 尚无稳定替代，暂忽略（后续跟随上游决策统一迁移）。
+    deprecated_member_use: ignore
+  exclude:
+    - build/**
+    - android/**
+linter:
+  rules:
+    always_declare_return_types: true
+    prefer_final_locals: true

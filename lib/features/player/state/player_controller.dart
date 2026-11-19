@@ -1,0 +1,186 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/player/player_service.dart';
+
+/// 播放参数：详情页等入口通过 go_router extra 传进来。
+/// 对应 Android PlayingSurface 的 active.target（演示路径：网络 url 直出）。
+class PlayerPageArgs {
+  const PlayerPageArgs({
+    required this.url,
+    this.title,
+    this.subtitle,
+    this.startPosition,
+    this.headers = const {},
+    this.isEpisode = false,
+    this.seasons = const [],
+    this.episodes = const [],
+  });
+
+  final String url;
+  final String? title;
+  final String? subtitle;
+  final Duration? startPosition;
+  final Map<String, String> headers;
+
+  /// 剧集元信息：true 时底栏出现「选集」入口（Android state.unit.isEpisode）。
+  final bool isEpisode;
+
+  /// 选集面板数据。TODO(playback-session): 正式路径走 McClient(Channel.playback)
+  /// 的会话协商与条目接口取季/集，当前先由入口方直接传入。
+  final List<int> seasons;
+  final List<EpisodeItem> episodes;
+}
+
+class EpisodeItem {
+  const EpisodeItem({
+    required this.season,
+    required this.episode,
+    required this.name,
+  });
+
+  final int season;
+  final int episode;
+  final String name;
+}
+
+enum PlayerStatus { idle, opening, ready, failed }
+
+/// 播放页可观察状态（对应 Android PlaybackSessionHolder.State + 引擎 state 的 UI 子集）。
+@immutable
+class PlayerPlayback {
+  const PlayerPlayback({
+    this.status = PlayerStatus.idle,
+    this.error,
+    this.playing = false,
+    this.position = Duration.zero,
+    this.duration,
+    this.speed = 1.0,
+  });
+
+  final PlayerStatus status;
+  final String? error;
+  final bool playing;
+  final Duration position;
+  final Duration? duration;
+  final double speed;
+
+  PlayerPlayback copyWith({
+    PlayerStatus? status,
+    String? error,
+    bool? playing,
+    Duration? position,
+    Duration? duration,
+    double? speed,
+    bool clearError = false,
+  }) {
+    return PlayerPlayback(
+      status: status ?? this.status,
+      error: clearError ? null : (error ?? this.error),
+      playing: playing ?? this.playing,
+      position: position ?? this.position,
+      duration: duration ?? this.duration,
+      speed: speed ?? this.speed,
+    );
+  }
+}
+
+/// 全 App 唯一播放器实例（docs/design/03 §2.1：provider 挂全局单例）。
+final playerServiceProvider = Provider<PlayerService>((ref) {
+  final service = VideoPlayerService();
+  ref.onDispose(service.close);
+  return service;
+});
+
+/// 播放页控制器：只做「服务调用 + 状态搬运」，UI 全在 widgets/。
+/// 对应 Android PlayerViewModel / PlaybackSessionHolder 的播放控制部分。
+class PlayerController extends Notifier<PlayerPlayback> {
+  static const speeds = <double>[0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+
+  PlayerService get _service => ref.read(playerServiceProvider);
+
+  @override
+  PlayerPlayback build() => const PlayerPlayback(status: PlayerStatus.idle);
+
+  Future<void> open(PlayerPageArgs args) async {
+    state = state.copyWith(status: PlayerStatus.opening, clearError: true);
+    try {
+      await _service.open(PlayerRequest(
+        url: args.url,
+        title: args.title,
+        startPosition: args.startPosition,
+        headers: args.headers,
+      ));
+      state = state.copyWith(status: PlayerStatus.ready);
+      // 位置/时长/播放态直接消费服务的稳定通知器（UI 不轮询引擎）。
+      _service.position.addListener(_onPosition);
+      _service.playing.addListener(_onPlaying);
+      _service.duration.addListener(_onDuration);
+      _onPosition();
+      _onPlaying();
+      _onDuration();
+    } catch (e) {
+      state = state.copyWith(
+        status: PlayerStatus.failed,
+        error: '播放失败：$e',
+      );
+    }
+  }
+
+  void _onPosition() =>
+      state = state.copyWith(position: _service.position.value);
+  void _onPlaying() => state = state.copyWith(playing: _service.playing.value);
+  void _onDuration() =>
+      state = state.copyWith(duration: _service.duration.value);
+
+  void detach() {
+    _service.position.removeListener(_onPosition);
+    _service.playing.removeListener(_onPlaying);
+    _service.duration.removeListener(_onDuration);
+  }
+
+  Future<void> togglePlay() async {
+    if (state.playing) {
+      await _service.pause();
+    } else {
+      await _service.play();
+    }
+  }
+
+  /// 拖动条点按 / 拖动松手 / 章节跳播统一入口（钳制在 [0, duration]）。
+  Future<void> seekTo(Duration target) async {
+    final duration = state.duration;
+    final clamped = duration == null
+        ? (target.isNegative ? Duration.zero : target)
+        : target < Duration.zero
+            ? Duration.zero
+            : (target > duration ? duration : target);
+    await _service.seekTo(clamped);
+    state = state.copyWith(position: clamped);
+  }
+
+  /// 手势横向滑动：满屏一划 = 90 秒（Android PlayerGestureMath）。
+  Future<void> seekByRelative(int deltaMs) async {
+    final base = _service.position.value;
+    await seekTo(base + Duration(milliseconds: deltaMs));
+  }
+
+  Future<void> setSpeed(double speed) async {
+    await _service.setSpeed(speed);
+    state = state.copyWith(speed: speed);
+  }
+
+  /// 长按 2× 变速（Android HOLD_SPEED = 2f）：按住升到 2×，松手回原速。
+  Future<void> setHoldSpeed(bool holding) async {
+    await setSpeed(holding ? 2.0 : 1.0);
+  }
+
+  Future<void> exit() async {
+    detach();
+    await _service.close();
+    state = const PlayerPlayback(status: PlayerStatus.idle);
+  }
+}
+
+final playerControllerProvider =
+    NotifierProvider<PlayerController, PlayerPlayback>(PlayerController.new);
