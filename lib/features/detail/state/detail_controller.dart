@@ -90,6 +90,8 @@ class DetailEntry {
     this.seasons = const [],
     this.cast = const [],
     this.resumeEpisode,
+    this.tmdbId,
+    this.fileIds = const [],
   });
 
   final int id;
@@ -118,6 +120,10 @@ class DetailEntry {
   final List<SeasonInfo> seasons;
   /// 演职员（前 40 由页面截断）
   final List<CastMember> cast;
+  /// 外部词条（订阅弹层 titleRef 用；null = 服务端没给，订阅入口置灰提示）
+  final int? tmdbId;
+  /// 电影的在库台账文件 id（下载 / 字幕生成取首个；剧集走分集的 fileIds）
+  final List<int> fileIds;
   /// 服务端续播集锚点（resume_episode）
   final int? resumeEpisode;
 
@@ -151,6 +157,12 @@ class DetailEntry {
       seasons: seasons,
       cast: J.listOfMap(j, ['cast', 'people']).map(CastMember.fromJson).toList(),
       resumeEpisode: J.i(j, ['resume_episode']),
+      tmdbId: J.i(j, ['tmdb_id', 'tmdb']),
+      fileIds: ((j['files'] ?? const []) as List<dynamic>)
+          .whereType<Map>()
+          .map((e) => J.i(e.cast<String, dynamic>(), ['id', 'file_id']))
+          .whereType<int>()
+          .toList(),
     );
   }
 }
@@ -611,6 +623,104 @@ class DetailController extends FamilyNotifier<DetailState, String> {
       return e.friendlyMessage;
     } catch (e) {
       return '刷新失败：$e';
+    }
+  }
+
+  /// 删除条目：DELETE /libraries/{libraryId}/items/{itemId}
+  /// （对齐 Kotlin McApi.deleteLibraryItem）。null = 成功。
+  Future<String?> deleteItem() async {
+    try {
+      await _api.delete(
+        Channel.general,
+        '/api/v1/libraries/$_libraryId/items/$_itemId',
+      );
+      return null;
+    } on ApiException catch (e) {
+      return e.friendlyMessage;
+    } catch (e) {
+      return '删除失败：$e';
+    }
+  }
+
+  /// 详情条目的在位文件 id（电影取 files；剧集取首个可播集），无则 null。
+  int? get leadFileId {
+    final state = this.state;
+    final entry = state.entry;
+    if (entry == null) return null;
+    if (!entry.isTv && entry.fileIds.isNotEmpty) return entry.fileIds.first;
+    for (final list in state.episodes.values) {
+      for (final e in list) {
+        if (e.playFileId != null) return e.playFileId;
+      }
+    }
+    return null;
+  }
+
+  /// AI 字幕生成（任务域，对齐 Kotlin McApi.kt 字幕段）：
+  /// 1) GET /libraries/files/{fileId}/subtitles/generation-preview 预检，
+  ///    服务端给了 blocker 就把原因带回去 toast；
+  /// 2) 预检通过 → POST /libraries/files/{fileId}/subtitles/generations 提交生成任务
+  ///    （目标语言固定简体中文，与默认一致）。
+  /// 返回给页面 toast 的文案。
+  Future<String> startSubtitleGen({int? fileId}) async {
+    final id = fileId ?? leadFileId;
+    if (id == null) return '没有在位文件，无法生成字幕';
+    try {
+      final preview = await _api.unwrap<Map<String, dynamic>>(
+        Channel.general,
+        'GET',
+        '/api/v1/libraries/files/$id/subtitles/generation-preview',
+      );
+      final blocker = preview['blocker'];
+      if (blocker is Map) {
+        final b = blocker.cast<String, dynamic>();
+        final title = b['title']?.toString();
+        final message = b['message']?.toString();
+        return '无法生成字幕：${title ?? ''}${message != null && message.isNotEmpty ? ' $message' : ''}';
+      }
+      final pending = preview['pending'];
+      if (pending is Map && (pending['message']?.toString().isNotEmpty ?? false)) {
+        return pending['message'].toString();
+      }
+      await _api.post(
+        Channel.general,
+        '/api/v1/libraries/files/$id/subtitles/generations',
+        body: {'targetLanguage': 'chs'},
+      );
+      return '已提交 AI 字幕生成任务（简体中文），进度在任务列表查看';
+    } on ApiException catch (e) {
+      return e.friendlyMessage;
+    } catch (e) {
+      return '字幕生成失败：$e';
+    }
+  }
+
+  /// 创建分享链接：POST /libraries/{libraryId}/items/{itemId}/share
+  /// （有效期默认 7 天；url 是相对路径 /s/{slug} 时拼上服务器基址）。
+  /// 成功返回可分享的完整链接，失败返回 null 并把错误放 [err]。
+  Future<String?> createShareLink({StringBuffer? err}) async {
+    try {
+      final body = await _api.unwrap<Map<String, dynamic>>(
+        Channel.general,
+        'POST',
+        '/api/v1/libraries/$_libraryId/items/$_itemId/share',
+        body: {'expiresInDays': 7},
+      );
+      var url = body['url']?.toString() ?? '';
+      if (url.isEmpty) {
+        final slug = body['slug']?.toString() ?? '';
+        if (slug.isEmpty) return null;
+        url = '/s/$slug';
+      }
+      final base = _api.baseUrl;
+      if (url.startsWith('/') && base.isNotEmpty) url = base + url;
+      return url;
+    } on ApiException catch (e) {
+      err?.write(e.friendlyMessage);
+      return null;
+    } catch (e) {
+      err?.write(e.toString());
+      return null;
     }
   }
 }

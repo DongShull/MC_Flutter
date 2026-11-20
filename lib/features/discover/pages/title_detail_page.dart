@@ -8,6 +8,7 @@ import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/subscribe_sheet.dart';
 
 /// 本 feature 会话入口（core 不发全局 provider；与 onboarding/library 同构）。
 /// 发现侧条目详情状态（GET /discover/titles/{titleRef}；展示信息实时拉取不落缓存）。
@@ -197,10 +198,22 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
                               // 订阅入口：未订阅 → 订阅弹层；已订阅 → 订阅管理。
                               const SizedBox(height: 12),
                               FilledButton.icon(
-                                onPressed: () {
-                                  // TODO(subscriptions): 打开订阅弹层（§5.2，传 widget.titleRef）。
+                                onPressed: () async {
+                                  // 订阅弹层（core 共用；§5.2，传 widget.titleRef）。
+                                  final outcome = await showSubscribeSheet(
+                                    context,
+                                    ref,
+                                    titleRef: widget.titleRef,
+                                  );
+                                  if (!context.mounted || outcome == null) return;
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('订阅弹层待 subscriptions 模块实现')),
+                                    SnackBar(
+                                      content: Text(
+                                        outcome == SubscribeSheetOutcome.created
+                                            ? '订阅成功'
+                                            : '前往订阅管理',
+                                      ),
+                                    ),
                                   );
                                 },
                                 icon: const Icon(McIcons.bellOnFill),
