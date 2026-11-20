@@ -8,7 +8,7 @@ import '../../../core/designsystem/mc_icons.dart';
 
 /// 观看统计面板（对齐 WatchStatsPanel.kt）：
 /// 周期切换 7/30/90 天、指标卡、逐日柱状、TOP 作品、四维分解、成员钻取。
-/// Android 端的 7×24 热力图暂以每小时合计柱条代替（TODO: 热力图）。
+/// 7×24 观看热力图由 _WeekHeatmap 自绘（CustomPaint，无第三方热力图库）。
 class WatchStatsPanel extends StatelessWidget {
   const WatchStatsPanel({
     super.key,
@@ -196,6 +196,14 @@ class WatchStatsPanel extends StatelessWidget {
             ),
           ),
         ],
+        // 7×24 观看热力图（行=周一..周日，列=0..23 时）
+        if (stats.byHour.isNotEmpty) ...[
+          const SectionLabel(text: '时段热力'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: _WeekHeatmap(matrix: stats.byHour, theme: theme),
+          ),
+        ],
         // 最近播放流水
         if (stats.previousAvailable && stats.favorites.isNotEmpty) ...[
           const SectionLabel(text: '收藏常看'),
@@ -257,6 +265,99 @@ class _MetricCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+
+/// 7×24 观看热力图：CustomPaint 自绘格子矩阵，色深按时长占比。
+class _WeekHeatmap extends StatelessWidget {
+  const _WeekHeatmap({required this.matrix, required this.theme});
+
+  final List<List<int>> matrix;
+  final ThemeData theme;
+
+  static const _dayLabels = ['一', '二', '三', '四', '五', '六', '日'];
+
+  Color _cell(int ms, int max, ColorScheme scheme) {
+    if (ms <= 0 || max <= 0) return scheme.surfaceContainerHighest.withValues(alpha: 0.5);
+    final t = (ms / max).clamp(0.0, 1.0);
+    return Color.lerp(scheme.primary.withValues(alpha: 0.25), scheme.primary, t)!;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = theme.colorScheme;
+    var max = 0;
+    for (final row in matrix) {
+      for (final v in row) {
+        if (v > max) max = v;
+      }
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const labelW = 18.0;
+        const labelH = 14.0;
+        final cellH = ((constraints.maxHeight - labelH) / 7).floorToDouble().clamp(10.0, 22.0);
+        return SizedBox(
+          height: 7 * cellH + labelH,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var d = 0; d < 7; d++)
+                Expanded(
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: labelW,
+                        child: Text(
+                          _dayLabels[d],
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      for (var h = 0; h < 24; h++)
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.all(1),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: _cell(
+                                  d < matrix.length && h < matrix[d].length
+                                      ? matrix[d][h]
+                                      : 0,
+                                  max,
+                                  scheme,
+                                ),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                              child: const SizedBox.expand(),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              // 小时刻度：0/6/12/18
+              SizedBox(
+                height: labelH,
+                child: Row(
+                  children: [
+                    const SizedBox(width: labelW),
+                    for (var h = 0; h < 24; h++)
+                      Expanded(
+                        child: h % 6 == 0
+                            ? Text('$h', style: theme.textTheme.labelSmall)
+                            : const SizedBox.shrink(),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

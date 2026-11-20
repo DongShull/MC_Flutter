@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
+import '../../../core/api/agent_sse_client.dart';
+import '../../../core/api/session_providers.dart';
 import 'activity_api.dart';
 import 'models.dart';
 
@@ -75,11 +77,14 @@ class ActivitySnapshot {
 /// 活动总览控制器：手动刷新 + 三路轮询。
 ///
 /// Android 端下载 10s、播放活动 8s，任务走 SSE jobs/stream（120ms 防抖）。
-/// Flutter 端暂无 EventSource 依赖，任务改为 15s 低频轮询（TODO: 接 SSE）。
+/// Flutter 端：jobs 接 SSE（ready/job 事件，120ms 防抖后拉增量）；
+/// SSE 不可用（未登录/端点 404/重试耗尽）时回退 15s 低频轮询。
 class ActivityController extends Notifier<ActivitySnapshot> {
   Timer? _jobsTimer;
   Timer? _tasksTimer;
   Timer? _playbackTimer;
+  StreamSubscription? _jobsStreamSub;
+  Timer? _jobDebounce;
   bool _disposed = false;
 
   ActivityApi get _api => ref.watch(activityApiProvider);
@@ -88,11 +93,44 @@ class ActivityController extends Notifier<ActivitySnapshot> {
     ref.onDispose(_stopTimers);
     unawaited(refresh());
     _startTimers();
+    _observeJobsStream();
     return state;
   }
 
+  /// jobs 增量流（对齐 Kotlin observeJobsStream：ready→全量刷，job→防抖刷新）。
+  Future<void> _observeJobsStream() async {
+    final sse = AgentSseClient(ref.read(sessionStoreProvider));
+    try {
+      final sub = sse.events('/api/v1/jobs/stream', terminalEvents: const {}).listen(
+        (event) async {
+          if (event.name == 'ready') {
+            await _loadJobs();
+          } else if (event.name == 'job') {
+            // 120ms 防抖对齐 iOS/Kotlin：合并密集事件为一次拉取。
+            _jobDebounce?.cancel();
+            _jobDebounce = Timer(const Duration(milliseconds: 120), () {
+              unawaited(_poll(_loadJobs()));
+            });
+          }
+        },
+        onError: (_) {}, // 由 onDone 分支统一处理回退
+      );
+      _jobsStreamSub = sub;
+      // 流结束（服务器关闭/网络中断且重试耗尽）→ 回退轮询。
+      await sub.asFuture<void>();
+      _fallbackJobsPolling();
+    } catch (_) {
+      _fallbackJobsPolling();
+    }
+  }
+
+  /// SSE 不可用：jobs 回落 15s 轮询（保持旧行为）。
+  void _fallbackJobsPolling() {
+    if (_disposed || _jobsTimer != null) return;
+    _jobsTimer = Timer.periodic(const Duration(seconds: 15), (_) => _poll(_loadJobs()));
+  }
+
   void _startTimers() {
-    _jobsTimer ??= Timer.periodic(const Duration(seconds: 15), (_) => _poll(_loadJobs()));
     _tasksTimer ??= Timer.periodic(const Duration(seconds: 10), (_) => _poll(_loadTasks()));
     _playbackTimer ??= Timer.periodic(const Duration(seconds: 8), (_) => _poll(_loadPlayback()));
   }
@@ -102,7 +140,10 @@ class ActivityController extends Notifier<ActivitySnapshot> {
     _jobsTimer?.cancel();
     _tasksTimer?.cancel();
     _playbackTimer?.cancel();
-    _jobsTimer = _tasksTimer = _playbackTimer = null;
+    _jobDebounce?.cancel();
+    _jobsStreamSub?.cancel();
+    _jobsTimer = _tasksTimer = _playbackTimer = _jobDebounce = null;
+    _jobsStreamSub = null;
   }
 
   /// 轮询失败静默（保持上一帧数据），仅首载失败才落 error。
