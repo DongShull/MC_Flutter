@@ -126,6 +126,8 @@ class OfflineController extends Notifier<OfflineState> {
       allowCellular: prefs.getBool(_cellularKey) ?? false,
     );
     await _restoreTasks();
+    // 容量走原生通道（拿不到就保持占位）。
+    unawaited(refreshStorage());
   }
 
   /// 重启恢复：已落盘的副本 → done；没下完的 → 排队并自动续传（
@@ -503,6 +505,24 @@ class OfflineController extends Notifier<OfflineState> {
   /// 更新容量（实际数字由平台通道返回，先占位 TODO）。
   void updateStorage(StorageInfo info) {
     state = state.copyWith(storage: info);
+  }
+
+  /// 从原生通道（mc/native/download 的 capacity）刷新本机容量展示。
+  /// 原生未实现（MissingPluginException / 非 Android 平台）时保持占位：
+  /// storage 维持 null，页面继续显示占位文案。
+  Future<void> refreshStorage() async {
+    try {
+      final cap = await McDownloadChannel.capacity();
+      if (cap == null) return;
+      state = state.copyWith(
+        storage: StorageInfo(
+          availableBytes: cap.freeBytes,
+          totalBytes: cap.totalBytes,
+        ),
+      );
+    } catch (_) {
+      // 拿不到真实容量就走占位，不阻塞页面。
+    }
   }
 
   void _patch(String id, DownloadUnit Function(DownloadUnit) fn) {

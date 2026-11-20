@@ -2,10 +2,15 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
+import '../../../core/platform/download_channel.dart';
 import '../../../core/session/session_store.dart';
+
+/// 与 OfflineController._tasksKey 保持一致（删除本机下载副本用）。
+const _offlineTasksKey = 'offline_tasks_v2';
 
 /// account 域复用全局 McClient 单例（SessionStore/McClient 全 App 唯一实例）。
 final accountClientProvider = mcClientProvider;
@@ -328,7 +333,26 @@ class AccountController extends Notifier<AccountUiState> {
   /// 退出全部账号：清 sessionStore 令牌 + 清本机快照；界面随后跳 /onboarding。
   Future<void> logoutAll({bool wipeOffline = false}) async {
     if (wipeOffline) {
-      // TODO(平台通道)：删除本机已下载文件需要平台通道，先只清状态。
+      // 删除本机已下载文件：经 mc/native/download 的 delete(path) 删真实文件
+      // （原生未实现时 Dart 侧降级 dart:io 直接删除）。
+      // 任一文件删除失败只继续清理，不阻断登出。
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final raw = prefs.getString(_offlineTasksKey);
+        if (raw != null && raw.isNotEmpty) {
+          final tasks = jsonDecode(raw) as List<dynamic>;
+          for (final t in tasks) {
+            final path =
+                (t as Map<String, dynamic>)['savePath']?.toString();
+            if (path != null && path.isNotEmpty) {
+              await McDownloadChannel.delete(path);
+            }
+          }
+          await prefs.remove(_offlineTasksKey);
+        }
+      } catch (_) {
+        // 清理失败仅清状态，不阻断登出。
+      }
     }
     await _session.logout();
     state = const AccountUiState(servers: <SavedServer>[]);

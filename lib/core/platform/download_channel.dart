@@ -234,6 +234,67 @@ abstract final class McDownloadChannel {
   /// 删除半成品（.part / .part.meta），供取消与重下使用。
   static Future<void> removePartial(String savePath) =>
       _fallback.removePartial(savePath);
+
+  /// 本机存储容量（原生 capacity → {freeBytes, totalBytes}）。
+  /// 原生未实现（MissingPluginException / 非 Android 平台）时返回 null，
+  /// 调用方保持占位行为。
+  static Future<({int freeBytes, int totalBytes})?> capacity() async {
+    if (_useFallback) return null;
+    try {
+      final raw = await _channel.invokeMethod<Object?>('capacity');
+      _nativeAvailable = true;
+      if (raw is Map) {
+        final map = <String, Object?>{
+          for (final e in raw.entries) e.key.toString(): e.value,
+        };
+        final free = (map['freeBytes'] ?? map['free']) as num?;
+        final total = (map['totalBytes'] ?? map['total']) as num?;
+        if (free != null && total != null) {
+          return (freeBytes: free.toInt(), totalBytes: total.toInt());
+        }
+      }
+      return null;
+    } on MissingPluginException {
+      _nativeAvailable = false;
+      return null;
+    } on PlatformException catch (e) {
+      if (e.code != 'unsupported') rethrow;
+      _nativeAvailable = false;
+      return null;
+    }
+  }
+
+  /// 删除本机文件（原生 delete(path) → bool）。
+  /// 原生未实现时降级为 dart:io 直接删除；删除失败返回 false，不抛异常。
+  static Future<bool> delete(String path) async {
+    if (_useFallback) return _deleteLocal(path);
+    try {
+      final ok = await _channel.invokeMethod<bool>('delete', {'path': path});
+      _nativeAvailable = true;
+      return ok ?? false;
+    } on MissingPluginException {
+      _nativeAvailable = false;
+    } on PlatformException catch (e) {
+      if (e.code != 'unsupported') return false;
+      _nativeAvailable = false;
+    } catch (_) {
+      return false;
+    }
+    return _deleteLocal(path);
+  }
+
+  static Future<bool> _deleteLocal(String path) async {
+    try {
+      final f = File(path);
+      if (await f.exists()) {
+        await f.delete();
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
 }
 
 /// 纯 Dart 保底下载器：HttpClient + Range 断点续传。

@@ -1,0 +1,8 @@
+# flutter pub run flutter_launcher_icons
+# 注意：assets/ 下当前没有 logo 图片，放置 assets/logo.png 后运行上面的命令即可生成。
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/logo.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/logo.png"

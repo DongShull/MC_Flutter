@@ -1,0 +1,9 @@
+# dart run flutter_native_splash:create
+# 注意：assets/ 下当前没有 logo 图片，放置 assets/logo.png 后运行上面的命令即可生成。
+flutter_native_splash:
+  color: "#FFFFFF"
+  image: "assets/logo.png"
+  android_12:
+    color: "#FFFFFF"
+    image: "assets/logo.png"
+  fullscreen: false
