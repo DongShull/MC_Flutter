@@ -1,3 +1,4 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/models/format.dart';
@@ -127,48 +128,71 @@ class WatchStatsPanel extends StatelessWidget {
               subtitle: Text('${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}'),
             ),
         ],
-        // 逐日柱状（简易：时长归一化条）
+        // 逐日柱状（fl_chart，对齐飞牛图表库选型）
         if (stats.byDay.isNotEmpty) ...[
           const SectionLabel(text: '逐日时长'),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              children: [
-                for (final row in stats.byDay)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 76,
-                          child: Text(
-                            row.date.length >= 10 ? row.date.substring(5) : row.date,
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ),
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(3),
-                            child: LinearProgressIndicator(
-                              value: _maxDay(stats.byDay) <= 0
-                                  ? 0
-                                  : row.watchedMs / _maxDay(stats.byDay),
-                              minHeight: 6,
-                            ),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 72,
-                          child: Text(
-                            mcFormatWatched(row.watchedMs),
-                            textAlign: TextAlign.right,
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ),
-                      ],
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: SizedBox(
+              height: 180,
+              child: BarChart(
+                BarChartData(
+                  alignment: BarChartAlignment.spaceAround,
+                  maxY: _maxDay(stats.byDay).toDouble(),
+                  barTouchData: BarTouchData(
+                    touchTooltipData: BarTouchTooltipData(
+                      getTooltipItem: (group, gi, rod, ri) => BarTooltipItem(
+                        mcFormatWatched(rod.toY.toInt()),
+                        theme.textTheme.bodySmall!,
+                      ),
                     ),
                   ),
-              ],
+                  titlesData: FlTitlesData(
+                    leftTitles: const AxisTitles(),
+                    topTitles: const AxisTitles(),
+                    rightTitles: const AxisTitles(),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 26,
+                        interval: (stats.byDay.length / 6).ceilToDouble().clamp(1, 30),
+                        getTitlesWidget: (value, meta) {
+                          final i = value.toInt();
+                          if (i < 0 || i >= stats.byDay.length) {
+                            return const SizedBox.shrink();
+                          }
+                          final d = stats.byDay[i].date;
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              d.length >= 10 ? d.substring(5) : d,
+                              style: theme.textTheme.labelSmall,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  gridData: const FlGridData(show: false),
+                  borderData: FlBorderData(show: false),
+                  barGroups: [
+                    for (var i = 0; i < stats.byDay.length; i++)
+                      BarChartGroupData(
+                        x: i,
+                        barRods: [
+                          BarChartRodData(
+                            toY: stats.byDay[i].watchedMs.toDouble(),
+                            width: 10,
+                            borderRadius: BorderRadius.circular(3),
+                            color: theme.colorScheme.primary.withValues(
+                              alpha: stats.byDay[i].watchedMs > 0 ? 0.85 : 0.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],

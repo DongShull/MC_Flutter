@@ -180,3 +180,7 @@
 - lib/core/platform/mc_platform.dart：McPlatformTarget 探测（HarmonyUtilApi 口径，MethodChannel mc/base/platform + MissingPluginException 降级）+ GlobalEventBus 通道位。
 - docs/design/10-platform-adaptation.md：飞牛三端适配逆向证据（HarmonyUtilApi/mmkv_ohos/独立 CI/Pigeon 化插件）+ mc_flutter 落地对照表 + 三条铁律（业务禁编译期分叉/差异全通道化/鸿蒙只动 SDK+overrides+CI）。
 - 验收：analyze No issues (6.6s)、test +5 全绿。
+
+## Round 16（深度探测二轮 + 现状总结）
+- fl_chart 接入：activity 逐日柱状 BarChart（飞牛同款图表库），analyze/test 全绿。
+- docs/design/11-status-deepdive.md：新挖技术（stretch shader/liquid_glass/spring/lottie/zxing 评估表）+ mc_flutter 现状总结（18/18、多设备、三端、飞牛对齐清单、遗留 TODO 六项）。
