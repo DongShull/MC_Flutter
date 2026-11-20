@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/account_state.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 账号行（对齐 Kotlin AccountRow）：渐变圆头像 + 昵称 + @username · 角色 + 当前标记；
 /// 过期提示「点一下重新输入密码」；非当前账号给移除按钮。
@@ -88,7 +89,7 @@ class AccountRow extends StatelessWidget {
                       ),
                       if (isCurrent) ...[
                         const SizedBox(width: 6),
-                        Icon(Icons.check, size: 14, color: scheme.primary),
+                        Icon(McIcons.check, size: 14, color: scheme.primary),
                         Text(
                           '当前',
                           style:
@@ -115,7 +116,7 @@ class AccountRow extends StatelessWidget {
                 tooltip: '从本机移除',
                 onPressed: onRemove,
                 icon:
-                    Icon(Icons.close, size: 16, color: scheme.onSurfaceVariant),
+                    Icon(McIcons.close2, size: 16, color: scheme.onSurfaceVariant),
               ),
           ],
         ),

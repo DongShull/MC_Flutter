@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../state/detail_controller.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 分集列表（media_episode：名称 / 简介 / 播出日 / 时长 / 评分 / still 缩略图）。
 /// 点击分集 = 播放导航意图，不自己播视频（跳 player 路由，见 DetailPage）。
@@ -63,7 +64,7 @@ class EpisodeList extends StatelessWidget {
                               ),
                             ),
                             if (e.played)
-                              const Icon(Icons.check_circle_outline,
+                              const Icon(McIcons.checkCircle,
                                   size: 16, color: Colors.green),
                           ],
                         ),
@@ -119,6 +120,6 @@ class EpisodeList extends StatelessWidget {
         width: 110,
         height: 62,
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: const Icon(Icons.tv_outlined, size: 22),
+        child: const Icon(McIcons.tv, size: 22),
       );
 }

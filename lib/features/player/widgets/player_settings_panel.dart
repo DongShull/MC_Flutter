@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/player_controller.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 enum _SettingsPage { root, quality, speed, display }
 
@@ -66,7 +67,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                   style: const TextStyle(color: Colors.white54, fontSize: 13)),
             const SizedBox(width: 4),
             if (onTap != null)
-              const Icon(Icons.chevron_right, color: Colors.white38),
+              const Icon(McIcons.chevronRight, color: Colors.white38),
           ],
         ),
         onTap: onTap,
@@ -78,7 +79,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
       case _SettingsPage.root:
         body = Column(children: [
           row(
-            icon: Icons.high_quality,
+            icon: McIcons.hq,
             label: '画质',
             value: '原画',
             onTap: () => widget.onNotice('画质切换待会话协商接口接入（占位）'),
@@ -90,7 +91,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
             onTap: () => setState(() => _page = _SettingsPage.speed),
           ),
           row(
-            icon: Icons.aspect_ratio,
+            icon: McIcons.aspectRatio,
             label: '画面缩放',
             value: _displayLabel,
             onTap: () => setState(() => _page = _SettingsPage.display),
@@ -106,7 +107,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
           for (final s in _speeds)
             ListTile(
               leading: Icon(
-                s == widget.speed ? Icons.check : Icons.speed,
+                s == widget.speed ? McIcons.check : Icons.speed,
                 color: s == widget.speed ? accent : Colors.white38,
               ),
               title: Text(
@@ -125,7 +126,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
           for (final (mode, label) in _displayModes)
             ListTile(
               leading: Icon(
-                mode == widget.displayMode ? Icons.check : Icons.aspect_ratio,
+                mode == widget.displayMode ? McIcons.check : McIcons.aspectRatio,
                 color: mode == widget.displayMode ? accent : Colors.white38,
               ),
               title: Text(label,

@@ -7,6 +7,7 @@ import '../../../core/designsystem/adaptive.dart';
 import '../state/models.dart';
 import '../state/offline_state.dart';
 import '../widgets/downloading_row.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 离线下载页（1:1 对齐 Kotlin DownloadsScreen 的 sections 顺序）：
 /// 下载中（含 waitingForWiFi 提示条 + 蜂窝一键开）→ 建议 → 已下载 →
@@ -37,7 +38,7 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
           McFocusRing(
             borderRadius: 24,
             child: PopupMenuButton<String>(
-            icon: const Icon(Icons.settings_outlined),
+            icon: const Icon(McIcons.setting),
             onSelected: (_) {},
             itemBuilder: (context) => [
               PopupMenuItem<String>(
@@ -83,7 +84,7 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.wifi_off, size: 16),
+                    const Icon(McIcons.wifiOff, size: 16),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text('正在等待 Wi-Fi',

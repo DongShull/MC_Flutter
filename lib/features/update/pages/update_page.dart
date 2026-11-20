@@ -6,6 +6,7 @@ import '../../../core/designsystem/theme.dart';
 import '../state/mc_api.dart';
 import '../state/models.dart';
 import '../state/update_controller.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 应用更新页（对应原 Kotlin feature/update 的 AppUpdateController + AppUpdateDialog）。
 class UpdatePage extends ConsumerWidget {
@@ -35,7 +36,7 @@ class UpdatePage extends ConsumerWidget {
           McFocusRing(
             borderRadius: 12,
             child: ListTile(
-            leading: const Icon(Icons.system_update, color: McColors.accent),
+            leading: const Icon(McIcons.dataupgradeFill, color: McColors.accent),
             title: const Text('检查更新'),
             subtitle: const Text('当前版本 0.1.0'),
             trailing: state is UpdateChecking
@@ -44,7 +45,7 @@ class UpdatePage extends ConsumerWidget {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.chevron_right),
+                : const Icon(McIcons.arrowRight),
             onTap: state is UpdateChecking
                 ? null
                 : () => ref.read(updateControllerProvider.notifier).checkManually(),

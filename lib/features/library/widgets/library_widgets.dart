@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../state/models.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// LibraryItemView → 海报卡片（详情导航 TODO：跳 detail/player 路由名）。
 Widget mcItemCard(BuildContext context, LibraryItemView item, {double width = 120}) {
@@ -69,7 +70,7 @@ class McHomeRowSection extends StatelessWidget {
               if (onMore != null)
                 GestureDetector(
                   onTap: onMore,
-                  child: const Icon(Icons.chevron_right, size: 20),
+                  child: const Icon(McIcons.arrowRight, size: 20),
                 ),
             ],
           ),

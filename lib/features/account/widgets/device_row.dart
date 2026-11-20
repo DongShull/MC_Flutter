@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/account_state.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 设备行（设备管理）：设备名 + 平台 + 最近活跃 + 本机标记；菜单给重命名与吊销。
 class DeviceRow extends StatelessWidget {
@@ -29,7 +30,7 @@ class DeviceRow extends StatelessWidget {
       child: Row(
         children: [
           Icon(
-            device.current ? Icons.smartphone : Icons.devices_other,
+            device.current ? McIcons.iphone : McIcons.device,
             size: 20,
             color: scheme.primary,
           ),

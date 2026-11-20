@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/models.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 一页片段（对应 Android ReelPage 竖屏布局）：
 /// 16:9 横带（满宽、中心在屏高 46%）+ 右下图标列 + 左下导演与简介 +
@@ -76,7 +77,7 @@ class ReelPage extends StatelessWidget {
                           onPressed: onPlay,
                           iconSize: 32,
                           color: Colors.white,
-                          icon: const Icon(Icons.play_arrow_rounded),
+                          icon: const Icon(McIcons.play2Fill),
                         ),
                       ),
                     ],
@@ -137,7 +138,7 @@ class ReelPage extends StatelessWidget {
                             backgroundColor:
                                 Colors.white.withValues(alpha: 0.14),
                             child: const Icon(
-                              Icons.person_outline,
+                              McIcons.user,
                               size: 18,
                               color: Colors.white70,
                             ),
@@ -231,27 +232,27 @@ class ReelActions extends StatelessWidget {
     return Column(
       children: [
         _ReelIcon(
-          icon: favorite ? Icons.favorite : Icons.favorite_border,
+          icon: favorite ? McIcons.heart2Fill : McIcons.heart2,
           label: '收藏',
           color: favorite ? const Color(0xFFFF4459) : Colors.white,
           onTap: onToggleFavorite,
         ),
         const SizedBox(height: 18),
         _ReelIcon(
-          icon: Icons.movie_outlined,
+          icon: McIcons.movie,
           label: '详情',
           iconSize: 21, // 宽扁的符号小一号，整列视觉等重
           onTap: onOpenDetail,
         ),
         const SizedBox(height: 18),
         _ReelIcon(
-          icon: Icons.check_circle_outline,
+          icon: McIcons.checkCircle,
           label: '已看',
           color: played ? const Color(0xFF4ADE80) : Colors.white,
           onTap: onTogglePlayed,
         ),
         const SizedBox(height: 18),
-        _ReelIcon(icon: Icons.share_outlined, label: '分享', onTap: onShare),
+        _ReelIcon(icon: McIcons.share, label: '分享', onTap: onShare),
       ],
     );
   }

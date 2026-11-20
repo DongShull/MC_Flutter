@@ -9,6 +9,7 @@ import '../state/models.dart';
 import '../state/rule_set_spec.dart';
 import '../widgets/activity_timeline.dart';
 import '../widgets/tracking_list.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 订阅详情页（对齐 SubscriptionDetailScreen.kt / 设计文档 04 §5.3）：
 /// 摘要卡（四段进度条 + 状态 + 进度一句话）→ 操作行（立即搜索 / 更多）→
@@ -46,17 +47,17 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.playlist_add),
+              leading: const Icon(McIcons.playListAdd),
               title: const Text('调整订阅（换选季）', style: TextStyle(fontSize: 14)),
               onTap: () => Navigator.of(context).pop(_DetailAction.seasons),
             ),
             ListTile(
-              leading: const Icon(Icons.auto_awesome),
+              leading: const Icon(McIcons.aiStarFill),
               title: const Text('洗一轮版', style: TextStyle(fontSize: 14)),
               onTap: () => Navigator.of(context).pop(_DetailAction.upgrade),
             ),
             ListTile(
-              leading: const Icon(Icons.update),
+              leading: const Icon(McIcons.clockFill),
               title: Text(
                 sub.followFuture ? '关闭自动续订' : '开启自动续订',
                 style: const TextStyle(fontSize: 14),
@@ -64,12 +65,12 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
               onTap: () => Navigator.of(context).pop(_DetailAction.follow),
             ),
             ListTile(
-              leading: const Icon(Icons.rule),
+              leading: const Icon(McIcons.listSettings2),
               title: const Text('规则组', style: TextStyle(fontSize: 14)),
               onTap: () => Navigator.of(context).pop(_DetailAction.ruleSet),
             ),
             ListTile(
-              leading: const Icon(Icons.pause_circle_outline),
+              leading: const Icon(McIcons.pauseCircle),
               title: Text(
                 sub.status == 'paused' ? '恢复追踪' : '暂停追踪',
                 style: const TextStyle(fontSize: 14),
@@ -215,7 +216,7 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
         actions: [
           if (sub != null)
             IconButton(
-              icon: const Icon(Icons.more_horiz),
+              icon: const Icon(McIcons.moreFill),
               tooltip: '更多操作',
               onPressed: () => _showMoreMenu(controller, sub),
             ),
@@ -237,7 +238,7 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
-                                icon: const Icon(Icons.search, size: 16),
+                                icon: const Icon(McIcons.search, size: 16),
                                 label: const Text('立即搜索'),
                                 onPressed: () async {
                                   await controller.searchNow();
@@ -248,7 +249,7 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
                             const SizedBox(width: 8),
                             Expanded(
                               child: OutlinedButton.icon(
-                                icon: const Icon(Icons.grid_view_outlined, size: 16),
+                                icon: const Icon(McIcons.gridFill, size: 16),
                                 label: const Text('资源墙'),
                                 onPressed: () =>
                                     context.push('/subscriptions/wall/${sub.id}'),
@@ -257,7 +258,7 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
                             const SizedBox(width: 8),
                             Expanded(
                               child: OutlinedButton.icon(
-                                icon: const Icon(Icons.link_off, size: 16),
+                                icon: const Icon(McIcons.linkUnlink, size: 16),
                                 label: const Text('取消订阅'),
                                 onPressed: () => _confirmUnsubscribe(controller, sub),
                               ),

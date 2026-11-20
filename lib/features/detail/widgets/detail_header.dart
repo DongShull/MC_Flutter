@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/designsystem/theme.dart';
 import '../state/detail_controller.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 头部：backdrop 模糊底 + poster + 标题 / 年份 / 元信息行 + 评分 + tagline
 /// （对齐 ItemDetailScreen.kt 的头部区）。
@@ -95,7 +96,7 @@ class DetailHeader extends StatelessWidget {
                               width: 120,
                               height: 180,
                               color: McColors.surfaceDark,
-                              child: const Icon(Icons.movie_outlined, size: 40),
+                              child: const Icon(McIcons.movie, size: 40),
                             ),
                     ),
                     const SizedBox(width: 16),

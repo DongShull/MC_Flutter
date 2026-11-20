@@ -8,6 +8,7 @@ import '../state/controllers.dart';
 import '../state/models.dart';
 import '../state/subscription_events.dart';
 import '../widgets/sub_card.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 订阅列表页（对齐设计文档 04 §5.1 与 SubsHomeScreen 的订阅墙区）：
 /// kind 筛选 + 海报卡片（状态徽标 + 进度）+ 按最近活动倒序；点卡片进详情；
@@ -52,12 +53,12 @@ class _SubscriptionsPageState extends ConsumerState<SubscriptionsPage> {
         actions: [
           IconButton(
             tooltip: '剧集订阅墙',
-            icon: const Icon(Icons.tv_outlined),
+            icon: const Icon(McIcons.tv),
             onPressed: () => context.push('/subscriptions/wall?kind=tv'),
           ),
           IconButton(
             tooltip: '电影订阅墙',
-            icon: const Icon(Icons.movie_outlined),
+            icon: const Icon(McIcons.movie),
             onPressed: () => context.push('/subscriptions/wall?kind=movie'),
           ),
         ],

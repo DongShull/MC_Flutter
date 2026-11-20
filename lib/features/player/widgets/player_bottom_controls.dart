@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/designsystem/adaptive.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 进度条上方的工具行（Android PlayerBottomControls）：
 /// 左胶囊 = 音轨 / 字幕（占位菜单），右胶囊 = 下一集 / 选集 / 倍速。
@@ -68,7 +69,7 @@ class PlayerBottomControls extends StatelessWidget {
                   ),
                 ),
                 trailing: s == speed
-                    ? Icon(Icons.check,
+                    ? Icon(McIcons.check,
                         color: Theme.of(context).colorScheme.primary)
                     : null,
                 onTap: () {
@@ -90,27 +91,27 @@ class PlayerBottomControls extends StatelessWidget {
         children: [
           _pill(McFocusRing(child: TextButton.icon(
             onPressed: () => _showTrackMenu(context, subtitle: false),
-            icon: const Icon(Icons.graphic_eq, size: 18, color: Colors.white),
+            icon: const Icon(McIcons.equalizer, size: 18, color: Colors.white),
             label: const Text('音轨', style: TextStyle(color: Colors.white)),
           ))),
           const SizedBox(width: 8),
           _pill(McFocusRing(child: TextButton.icon(
             onPressed: () => _showTrackMenu(context, subtitle: true),
-            icon: const Icon(Icons.closed_caption, size: 18, color: Colors.white),
+            icon: const Icon(McIcons.closedCaptioning, size: 18, color: Colors.white),
             label: const Text('字幕', style: TextStyle(color: Colors.white)),
           ))),
           const Spacer(),
           if (hasNext)
             _pill(McFocusRing(child: IconButton(
               onPressed: onNext,
-              icon: const Icon(Icons.skip_next, color: Colors.white),
+              icon: const Icon(McIcons.skipForwardFill, color: Colors.white),
               tooltip: '下一集',
             ))),
           if (isEpisode) ...[
             const SizedBox(width: 8),
             _pill(McFocusRing(child: IconButton(
               onPressed: onEpisodes,
-              icon: const Icon(Icons.playlist_play, color: Colors.white),
+              icon: const Icon(McIcons.playListAdd, color: Colors.white),
               tooltip: '选集',
             ))),
             const SizedBox(width: 8),

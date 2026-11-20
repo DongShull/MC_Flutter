@@ -7,6 +7,7 @@ import '../../../core/designsystem/theme.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../state/models.dart';
 import '../state/share_controller.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 访客分享页（对齐 Kotlin ShareScreen）：探测 → 密码门 → 条目详情 / 合集列表。
 /// 独立壳：无底栏、无侧栏、无站内入口（设计文档 05 §4.3）。
@@ -53,7 +54,7 @@ class _SharePageState extends ConsumerState<SharePage> {
                 McFocusRing(
                   borderRadius: 24,
                   child: IconButton(
-                    icon: const Icon(Icons.arrow_back_rounded),
+                    icon: const Icon(McIcons.arrowLeft),
                     tooltip: '返回',
                     onPressed: () => context.pop(),
                   ),
@@ -123,7 +124,7 @@ class _PasswordGate extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(Icons.lock_rounded, color: McColors.accent, size: 30),
+            const Icon(McIcons.lock, color: McColors.accent, size: 30),
             const SizedBox(height: 10),
             const Center(child: Text('这是一个加密分享',
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600))),
@@ -236,7 +237,7 @@ class _SharedItemDetail extends StatelessWidget {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     // TODO: RemoteImage 加载分享通道海报（路径经 GuestShareApi.imageUrl 拼基址）。
-                    child: const Icon(Icons.movie_outlined),
+                    child: const Icon(McIcons.movie),
                   ),
                   const SizedBox(width: 12),
                   Column(
@@ -273,7 +274,7 @@ class _SharedItemDetail extends StatelessWidget {
                                     orElse: () => const ShareEpisodeView(episodeNumber: 0))
                                 .episodeNumber)
                             : 0),
-                icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                icon: const Icon(McIcons.play2Fill, size: 18),
                 label: Text(item.kind == 'tv' ? '播放第一集' : '播放'),
               ),
             ),
@@ -337,7 +338,7 @@ class _SharedItemDetail extends StatelessWidget {
                       ),
                     ),
                     if (episode.played)
-                      const Icon(Icons.check_circle_rounded, color: Colors.green, size: 18)
+                      const Icon(McIcons.checkCircleFill, color: Colors.green, size: 18)
                     else if (!episode.owned)
                       const Text('缺集', style: TextStyle(fontSize: 11)),
                   ],

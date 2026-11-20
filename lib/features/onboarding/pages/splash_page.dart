@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/mc_strings.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/session/session_store.dart';
 import '../../root/routes.dart' as feat_root;
@@ -51,7 +52,7 @@ class _SplashPageState extends State<SplashPage>
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
-              'MovieClaw',
+              McStrings.appName,
               style: TextStyle(
                 color: McColors.accent,
                 fontSize: 34,
@@ -61,7 +62,7 @@ class _SplashPageState extends State<SplashPage>
             ),
             const SizedBox(height: 28),
             Text(
-              username.isEmpty ? '欢迎回来' : username,
+              username.isEmpty ? McStrings.welcomeBack : username,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 20,

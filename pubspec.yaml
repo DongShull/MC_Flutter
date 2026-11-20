@@ -31,3 +31,6 @@ flutter:
     - family: McIcons
       fonts:
         - asset: assets/fonts/McIcons.ttf
+    - family: SourceHanSansCN
+      fonts:
+        - asset: assets/fonts/SourceHanSansCN-Medium.otf

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 「我的」页内部小部件。
 
@@ -28,7 +29,7 @@ class MoreUserCard extends StatelessWidget {
           ),
           title: Text(displayName, style: Theme.of(context).textTheme.titleMedium),
           subtitle: Text(detail),
-          trailing: const Icon(Icons.chevron_right),
+          trailing: const Icon(McIcons.chevronRight),
         ),
       );
 }
@@ -78,7 +79,7 @@ class MoreEntryRow extends StatelessWidget {
               label: Text('$badge'),
               backgroundColor: scheme.error,
             )
-          : const Icon(Icons.chevron_right),
+          : const Icon(McIcons.chevronRight),
     );
   }
 }

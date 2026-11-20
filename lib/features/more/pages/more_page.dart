@@ -7,6 +7,7 @@ import '../../../core/designsystem/state_views.dart';
 import '../state/controllers.dart';
 import '../state/models.dart';
 import '../widgets/more_cards.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 「我的」页（对应安卓 feature/more）：用户卡片 / 提醒组 / 对话会话列表 / 设置入口。
 class MorePage extends ConsumerStatefulWidget {
@@ -136,7 +137,7 @@ class _MorePageState extends ConsumerState<MorePage> {
                       ),
                       const MoreSectionLabel('提醒'),
                       MoreEntryRow(
-                        icon: Icons.notifications_none,
+                        icon: McIcons.bellOn,
                         title: '通知与提醒',
                         badge: data?.reminderCount ?? 0,
                         onTap: () => context.push('/notices'),
@@ -151,7 +152,7 @@ class _MorePageState extends ConsumerState<MorePage> {
                       for (final s in data?.sessions ?? const <SessionSummary>[])
                         ListTile(
                           leading: Icon(
-                            s.running ? Icons.autorenew : Icons.chat_bubble_outline,
+                            s.running ? McIcons.refreshS : McIcons.chat,
                             color: s.running
                                 ? Theme.of(context).colorScheme.primary
                                 : null,
@@ -192,7 +193,7 @@ class _MorePageState extends ConsumerState<MorePage> {
                         ),
                       const MoreSectionLabel('更多'),
                       MoreEntryRow(
-                        icon: Icons.settings_outlined,
+                        icon: McIcons.setting1,
                         title: '设置',
                         onTap: () => context.push('/settings'),
                       ),

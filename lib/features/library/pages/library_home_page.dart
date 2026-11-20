@@ -14,6 +14,7 @@ import '../state/home_rows.dart';
 import '../state/library_home_controller.dart';
 import '../state/models.dart';
 import '../widgets/library_widgets.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 媒体库首页（对齐 Kotlin LibraryScreen.kt）：
 /// 顶部计数/容量一行 + 有序行清单（up-next / favorites / libraries / genres / lib / collection）。
@@ -66,7 +67,7 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
         title: const Text('媒体库'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.tune_outlined),
+            icon: const Icon(McIcons.filterS),
             tooltip: '自定义首页',
             onPressed: () => context.push(routeLibraryCustomize),
           ),

@@ -6,6 +6,7 @@ import '../state/models.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../widgets/library_widgets.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 单库页（对齐 Kotlin LibraryDetailScreen.kt）：
 /// 筛选墙。分段「影片/合集」；筛选条即时生效（铁律：点一下就变）；排序抽屉；
@@ -46,13 +47,13 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
             icon: Badge(
               isLabelVisible: state.filter.activeCount > 0,
               label: Text('${state.filter.activeCount}'),
-              child: const Icon(Icons.filter_list),
+              child: const Icon(McIcons.filterS),
             ),
             tooltip: '筛选',
             onPressed: () => _openFilterSheet(context, state),
           ),
           IconButton(
-            icon: const Icon(Icons.sort),
+            icon: const Icon(McIcons.sort),
             tooltip: '排序',
             onPressed: () => _openSortSheet(context, state),
           ),
@@ -230,7 +231,7 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
               ListTile(
                 title: Text(label),
                 trailing: state.filter.sort == value
-                    ? const Icon(Icons.check, size: 18)
+                    ? const Icon(McIcons.check, size: 18)
                     : null,
                 onTap: () {
                   ref.read(libraryDetailProvider(_arg).notifier).setSort(value, null);

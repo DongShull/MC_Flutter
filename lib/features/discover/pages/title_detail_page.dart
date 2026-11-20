@@ -7,6 +7,7 @@ import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/state_views.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 本 feature 会话入口（core 不发全局 provider；与 onboarding/library 同构）。
 /// 发现侧条目详情状态（GET /discover/titles/{titleRef}；展示信息实时拉取不落缓存）。
@@ -202,7 +203,7 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
                                     const SnackBar(content: Text('订阅弹层待 subscriptions 模块实现')),
                                   );
                                 },
-                                icon: const Icon(Icons.notifications_active),
+                                icon: const Icon(McIcons.bellOnFill),
                                 label: const Text('订阅影片'),
                               ),
                             ],
@@ -245,8 +246,8 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
                                       child: c.profileUrl != null
                                           ? Image.network(c.profileUrl!, fit: BoxFit.cover,
                                               errorBuilder: (_, __, ___) =>
-                                                  const Icon(Icons.person, color: Colors.white24))
-                                          : const Icon(Icons.person, color: Colors.white24),
+                                                  const Icon(McIcons.user, color: Colors.white24))
+                                          : const Icon(McIcons.user, color: Colors.white24),
                                     ),
                                   ),
                                   const SizedBox(height: 4),

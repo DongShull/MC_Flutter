@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/agent_state.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 对话气泡（1:1 对齐 Kotlin Bubble 渲染）：
 /// user = 半透明白玻璃（white 10%，圆角 18），点按浮现 复制/改写；
@@ -107,7 +108,7 @@ class BubbleView extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.copy_outlined),
+              leading: const Icon(McIcons.copy),
               title: const Text('复制'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
@@ -116,7 +117,7 @@ class BubbleView extends StatelessWidget {
             ),
             if (onEdit != null)
               ListTile(
-                leading: const Icon(Icons.edit_outlined),
+                leading: const Icon(McIcons.edit),
                 title: const Text('改写'),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
@@ -158,7 +159,7 @@ class ProcessBlockView extends StatelessWidget {
         collapsedIconColor: scheme.onSurfaceVariant,
         title: Row(
           children: [
-            Icon(Icons.psychology_outlined,
+            Icon(McIcons.aiSearchFill,
                 size: 16, color: scheme.onSurfaceVariant),
             const SizedBox(width: 8),
             Text(

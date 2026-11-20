@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/designsystem/adaptive.dart';
 
 import '../state/agent_state.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// AI 助手入口页（对齐 Kotlin 会话列表）：新对话 + 会话列表（条数/时间），左滑删除。
 class SessionsPage extends ConsumerStatefulWidget {
@@ -36,7 +37,7 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
         borderRadius: 20,
         child: FloatingActionButton.extended(
           onPressed: () => context.push('$routeAgentLocal/new'),
-          icon: const Icon(Icons.add),
+          icon: const Icon(McIcons.addS),
           label: const Text('新对话'),
         ),
       ),
@@ -66,7 +67,7 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
                     alignment: Alignment.centerRight,
                     padding: const EdgeInsets.only(right: 20),
                     color: scheme.error,
-                    child: const Icon(Icons.delete_outline,
+                    child: const Icon(McIcons.trash2,
                         color: Colors.white),
                   ),
                   onDismissed: (_) =>
@@ -75,8 +76,8 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
                     contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                     leading: Icon(
                       session.running
-                          ? Icons.autorenew
-                          : Icons.chat_bubble_outline,
+                          ? McIcons.refreshS
+                          : McIcons.chat,
                       color: session.running
                           ? scheme.primary
                           : scheme.onSurfaceVariant,

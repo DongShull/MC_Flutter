@@ -5,6 +5,7 @@ import '../../../core/models/format.dart';
 
 import '../state/activity_derive.dart';
 import '../state/models.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 活动页共用小部件：摘要行、分区标签、任务卡、下载组卡、播放会话卡等
 /// （对齐 ActivityScreen.kt 的卡片体系，Android 用 Compose，这里用 Material）。
@@ -249,7 +250,7 @@ class JobCard extends StatelessWidget {
             ? null
             : IconButton(
                 tooltip: '取消',
-                icon: const Icon(Icons.close),
+                icon: const Icon(McIcons.close2),
                 onPressed: onCancel,
               ),
         isThreeLine: true,
@@ -282,7 +283,7 @@ class PlaybackSessionCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: ListTile(
-        leading: const Icon(Icons.play_circle_outline),
+        leading: const Icon(McIcons.playCircle),
         title: Text(media.title + episode, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -325,7 +326,7 @@ class FileDownloadCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: ListTile(
-        leading: const Icon(Icons.file_download_outlined),
+        leading: const Icon(McIcons.downloadCloudOutFill),
         title: Text(media?.title ?? download.fileName,
             maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Column(
@@ -370,7 +371,7 @@ class HistoryTile extends StatelessWidget {
     final libraryId = media.libraryId;
     return ListTile(
       dense: true,
-      leading: Icon(entry.completed ? Icons.check_circle_outline : Icons.history,
+      leading: Icon(entry.completed ? McIcons.checkCircle : McIcons.history1,
           size: 20),
       title: Text(media.title + episode, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(

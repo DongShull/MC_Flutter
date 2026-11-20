@@ -6,6 +6,7 @@ import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../state/agent_state.dart';
 import '../widgets/bubble.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 对话页（1:1 对齐 Kotlin 会话页）：消息流 + 底部输入框（模型 chip + 发送）。
 /// sessionId 为空 = 新对话（首次发送后由服务器分配）。
@@ -105,7 +106,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(selectedLabel, style: const TextStyle(fontSize: 12)),
-                    const Icon(Icons.arrow_drop_down, size: 16),
+                    const Icon(McIcons.arrowDropDown, size: 16),
                   ],
                 ),
               ),
@@ -118,7 +119,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               borderRadius: 24,
               child: IconButton(
                 tooltip: '停止',
-                icon: const Icon(Icons.stop_circle_outlined),
+                icon: const Icon(McIcons.stopCircle),
                 onPressed: () => ref.read(chatProvider.notifier).stop(),
               ),
             ),
@@ -155,12 +156,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               child: Row(
                 children: [
-                  const Icon(Icons.edit_outlined, size: 14),
+                  const Icon(McIcons.edit, size: 14),
                   const SizedBox(width: 6),
                   const Expanded(child: Text('正在改写这条消息')),
                   GestureDetector(
                     onTap: () => setState(() => _editingMessageId = null),
-                    child: const Icon(Icons.close, size: 16),
+                    child: const Icon(McIcons.close2, size: 16),
                   ),
                 ],
               ),
@@ -203,7 +204,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     borderRadius: 20,
                     child: IconButton.filled(
                       onPressed: chat.sending ? null : _submit,
-                      icon: const Icon(Icons.send),
+                      icon: const Icon(McIcons.send),
                     ),
                   ),
                 ],

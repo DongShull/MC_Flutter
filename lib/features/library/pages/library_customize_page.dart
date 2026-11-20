@@ -6,6 +6,7 @@ import '../state/library_customize_controller.dart';
 import '../state/mc_api.dart';
 import '../state/models.dart';
 import '../../../core/designsystem/state_views.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 自定义首页（对齐 Kotlin LibraryCustomizeScreen.kt）：
 /// 行清单编辑器：拖拽排序、隐藏/显示、删除（row:/kind: 行）、行内排序与观看过滤、
@@ -190,13 +191,13 @@ class _RowTile extends ConsumerWidget {
                 const PopupMenuDivider(),
                 const PopupMenuItem(value: '__dir__', child: Text('切换方向')),
               ],
-              child: const Icon(Icons.sort, size: 20),
+              child: const Icon(McIcons.sort, size: 20),
             ),
           if (k is LibraryRowKind && k.sort != 'last_played')
             IconButton(
               tooltip: k.unwatched ? '只看未看：开' : '只看未看：关',
               icon: Icon(
-                k.unwatched ? Icons.visibility_off : Icons.visibility_outlined,
+                k.unwatched ? McIcons.eyeClosedFill : McIcons.eyeOpen,
                 size: 20,
               ),
               onPressed: () => notifier.setUnwatched(row.id, !k.unwatched),
@@ -204,7 +205,7 @@ class _RowTile extends ConsumerWidget {
           IconButton(
             tooltip: row.hidden ? '显示' : '隐藏',
             icon: Icon(
-              row.hidden ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+              row.hidden ? McIcons.eyeOpen : Icons.visibility_off_outlined,
               size: 20,
             ),
             onPressed: () => notifier.setHidden(row.id, !row.hidden),
@@ -212,10 +213,10 @@ class _RowTile extends ConsumerWidget {
           if (removable)
             IconButton(
               tooltip: '删除行',
-              icon: const Icon(Icons.delete_outline, size: 20),
+              icon: const Icon(McIcons.trash2, size: 20),
               onPressed: () => notifier.removeRow(row.id),
             ),
-          const Icon(Icons.drag_handle, size: 18),
+          const Icon(McIcons.draggableS, size: 18),
         ],
       ),
     );

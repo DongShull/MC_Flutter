@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/designsystem/adaptive.dart';
 
 import '../state/player_controller.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 选集面板（Android PlayerEpisodePicker）：季 chips 横排 + 集网格，当前季高亮。
 /// 数据由入口方经 PlayerPageArgs 传入；正式路径 TODO(playback-session)：
@@ -153,7 +154,7 @@ class _PlayerEpisodePickerState extends State<PlayerEpisodePicker> {
                         const Spacer(),
                         IconButton(
                           onPressed: widget.onDismiss,
-                          icon: const Icon(Icons.close, color: Colors.white70),
+                          icon: const Icon(McIcons.close2, color: Colors.white70),
                           tooltip: '关闭',
                         ),
                       ],

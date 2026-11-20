@@ -19,6 +19,8 @@ abstract final class McTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
+      // 飞牛原型主字体：思源黑体 CN Medium（assets/fonts 全量内嵌）。
+      fontFamily: 'SourceHanSansCN',
       scaffoldBackgroundColor:
           brightness == Brightness.dark ? McColors.bgDark : null,
       cardTheme: CardThemeData(

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/format.dart';
 import '../state/models.dart';
 import '../state/offline_state.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 下载档位选择（1:1 对齐 Kotlin DownloadProfileSheet）：
 /// 取消 / 标题 / 下载 三栏；范围分段；画质行选中打勾、原画准数其余 ≈、
@@ -132,8 +133,8 @@ class _DownloadProfileSheetState extends ConsumerState<DownloadProfileSheet> {
                 contentPadding: EdgeInsets.zero,
                 leading: Icon(
                   _selected.contains(profile.id)
-                      ? Icons.check_circle
-                      : Icons.radio_button_unchecked,
+                      ? McIcons.checkCircleFill
+                      : McIcons.radioButtonLine,
                   color: _selected.contains(profile.id)
                       ? scheme.primary
                       : scheme.onSurfaceVariant,

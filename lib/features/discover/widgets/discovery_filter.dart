@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/designsystem/theme.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 发现页筛选条件（TMDB discover 六维：类型/地区/年份/评分/片长/排序）。
 class DiscoveryFilter {
@@ -81,13 +82,13 @@ const _tvGenres = [
 ];
 
 const _dims = [
-  _Dim('genres', '类型', Icons.category, multi: true),
-  _Dim('country', '地区', Icons.public, options: [
+  _Dim('genres', '类型', McIcons.gridFill, multi: true),
+  _Dim('country', '地区', McIcons.planet, options: [
     MapEntry('CN', '中国大陆'), MapEntry('HK', '中国香港'), MapEntry('TW', '中国台湾'),
     MapEntry('US', '美国'), MapEntry('GB', '英国'), MapEntry('JP', '日本'),
     MapEntry('KR', '韩国'), MapEntry('FR', '法国'), MapEntry('DE', '德国'),
   ]),
-  _Dim('year', '年代', Icons.calendar_today, options: [
+  _Dim('year', '年代', McIcons.calendar, options: [
     MapEntry('2025', '2025'), MapEntry('2024', '2024'), MapEntry('2023', '2023'),
     MapEntry('2022', '2022'), MapEntry('2021', '2021'), MapEntry('2020', '2020'),
     MapEntry('2010s', '2010 年代'), MapEntry('2000s', '2000 年代'), MapEntry('1990s', '90 年代'),
@@ -100,7 +101,7 @@ const _dims = [
     MapEntry('60', '60 分钟以内'), MapEntry('90', '90 分钟以内'),
     MapEntry('120', '120 分钟以内'), MapEntry('150', '150 分钟以内'),
   ]),
-  _Dim('sort', '排序', Icons.sort, options: [
+  _Dim('sort', '排序', McIcons.sort, options: [
     MapEntry('popular', '热门优先'), MapEntry('rating', '评分最高'),
     MapEntry('newest', '最新上线'), MapEntry('oldest', '最早上映'),
     MapEntry('revenue', '票房最高'),
@@ -142,7 +143,7 @@ String dimValue(String key, DiscoveryFilter f, String mediaType) => switch (key)
     };
 
 String discoveryDimTitle(String key) =>
-    _dims.firstWhere((d) => d.key == key, orElse: () => _Dim(key, key, Icons.help)).title;
+    _dims.firstWhere((d) => d.key == key, orElse: () => _Dim(key, key, McIcons.helpCircleFill)).title;
 
 List<String> get discoveryDimKeys => [for (final d in _dims) d.key];
 
@@ -211,7 +212,7 @@ class DiscoveryFilterOptionsPanel extends StatelessWidget {
         if (onBack != null)
           _MenuRow(
             title: dim.title,
-            icon: Icons.arrow_back,
+            icon: McIcons.arrowLeft,
             highlight: true,
             onTap: onBack!,
           ),
@@ -297,7 +298,7 @@ class _DiscoveryFilterMenuState extends State<DiscoveryFilterMenu> {
                     const Divider(height: 1, color: Colors.white12),
                     _MenuRow(
                       title: '清空条件',
-                      icon: Icons.close,
+                      icon: McIcons.close2,
                       danger: true,
                       onTap: () => widget.onApply(const DiscoveryFilter()),
                     ),
@@ -426,7 +427,7 @@ class _MenuRow extends StatelessWidget {
             if (value != null)
               Text(value!, style: TextStyle(fontSize: 13, color: Colors.white.withValues(alpha: 0.7))),
             if (chevron && value != null)
-              Icon(Icons.chevron_right, size: 14, color: Colors.white.withValues(alpha: 0.4)),
+              Icon(McIcons.arrowRight, size: 14, color: Colors.white.withValues(alpha: 0.4)),
           ],
         ),
       ),
@@ -457,7 +458,7 @@ class _OptionRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 13, color: Colors.white.withValues(alpha: 0.7))),
             ),
-            if (selected) const Icon(Icons.check, size: 14, color: McColors.accent),
+            if (selected) const Icon(McIcons.check, size: 14, color: McColors.accent),
           ],
         ),
       ),

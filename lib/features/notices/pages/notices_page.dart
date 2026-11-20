@@ -7,6 +7,7 @@ import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
 import '../state/models.dart';
 import '../state/notices_controller.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 通知中心（管理员）：只有需要处理的问题才出现在这里。
 /// 对齐 Kotlin NoticeCenterScreen：列表卡片 + 单条/全部忽略 + 30s 轮询。
@@ -28,7 +29,7 @@ class NoticesPage extends ConsumerWidget {
                 McFocusRing(
                   borderRadius: 24,
                   child: IconButton(
-                    icon: const Icon(Icons.arrow_back_rounded),
+                    icon: const Icon(McIcons.arrowLeft),
                     tooltip: '返回',
                     onPressed: () => context.pop(),
                   ),
@@ -40,7 +41,7 @@ class NoticesPage extends ConsumerWidget {
                   McFocusRing(
                     child: TextButton.icon(
                       onPressed: controller.dismissAll,
-                      icon: const Icon(Icons.done_all_rounded, size: 16),
+                      icon: const Icon(McIcons.checkDouble, size: 16),
                       label: const Text('全部忽略', style: TextStyle(fontSize: 12)),
                     ),
                   ),

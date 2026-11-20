@@ -169,3 +169,9 @@
 - onboarding_controller.login：保存 device.name，登录后 GET /auth/me 回填 nickname/username（失败不阻断）。
 - 路由重定向：isReady && /onboarding → /splash（先启动页再主界面）；未登录访问 /splash → 回登录页。
 - 验收：analyze No issues (4.9s)、test +5 全绿。
+
+## Round 14（飞牛 UI 资产三件套对齐）
+- 思源黑体 SourceHanSansCN-Medium.otf 内嵌（assets/fonts）+ 主题 fontFamily 全局生效。
+- McStrings 文案令牌表（core/designsystem/mc_strings.dart）：启动/连接/播放/通用四组，player 弹窗与 splash 已接。
+- 图标对齐：两个并行子代理替换 192 处 Material Icons → McIcons（TrimIcons 字体，54 文件），语义不贴切的保留 Material 不硬凑。
+- 验收：analyze No issues (2.2s)、test +5 全绿。

@@ -11,6 +11,7 @@ import '../routes.dart' as feat_discover;
 import '../state/discover_controller.dart';
 import '../widgets/discovery_filter.dart';
 import 'discover_filtered_page.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 发现页：搜索入口 + 电影/剧集 + 来源切换（TMDB/豆瓣）+ 筛选 + 服务端板块行。
 class DiscoverPage extends ConsumerStatefulWidget {
@@ -33,7 +34,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         actions: [
           // 搜索入口
           IconButton(
-            icon: const Icon(Icons.search),
+            icon: const Icon(McIcons.search),
             tooltip: '搜索',
             // TODO(player/detail): 跳 search 路由（导航意图）。
             onPressed: () => context.go(feat_discover.routeSearchEntry),
@@ -41,7 +42,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
           if (state.source.toLowerCase() == 'tmdb')
             // 顶栏「全部」筛选入口：任何时候都能改条件。
             PopupMenuButton<String>(
-              icon: const Icon(Icons.tune),
+              icon: const Icon(McIcons.filterS),
               tooltip: '筛选',
               onSelected: (dim) => _openFilterDim(dim, state),
               itemBuilder: (_) => [

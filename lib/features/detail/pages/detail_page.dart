@@ -14,6 +14,7 @@ import '../widgets/episode_ranges.dart';
 import '../widgets/item_actions_menu.dart';
 import '../widgets/meta_links.dart';
 import '../widgets/similar_row.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 媒体详情页（对齐 ItemDetailScreen.kt / 设计文档 04 第 4 节）：
 /// 头部 / 动作区 / 元信息行 / 简介 / 演职员 / 剧集（季选择 + 分集 + 缺集 + 档期）/
@@ -125,7 +126,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                         season: state.resume?.season ?? state.selectedSeason,
                         episode: state.resume?.episode ?? entry.resumeEpisode,
                       ),
-                        icon: const Icon(Icons.play_arrow_rounded),
+                        icon: const Icon(McIcons.play2Fill),
                         label: Text(playButtonLabel(state)),
                       ),
                     ),
@@ -137,7 +138,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                       tooltip: '收藏',
                       onPressed: state.busy ? null : controller.toggleFavorite,
                       icon: Icon(
-                        state.marks.isFavorite ? Icons.favorite : Icons.favorite_border,
+                        state.marks.isFavorite ? McIcons.heart2Fill : McIcons.heart2,
                         color: state.marks.isFavorite ? Colors.redAccent : null,
                       ),
                     ),
@@ -148,7 +149,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                       tooltip: '已看',
                       onPressed: state.busy ? null : controller.togglePlayed,
                       icon: Icon(
-                        state.marks.played ? Icons.check_circle : Icons.check_circle_outline,
+                        state.marks.played ? McIcons.checkCircleFill : McIcons.checkCircle,
                         color: state.marks.played ? Colors.green : null,
                       ),
                     ),
@@ -158,7 +159,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                     child: IconButton(
                       tooltip: '更多',
                       onPressed: () => _showActionMenu(controller),
-                      icon: const Icon(Icons.more_horiz),
+                      icon: const Icon(McIcons.moreFill),
                     ),
                   ),
                 ],
@@ -265,7 +266,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                       episode: state.resume?.episode ??
                                           entry.resumeEpisode,
                                     ),
-                                    icon: const Icon(Icons.play_arrow_rounded),
+                                    icon: const Icon(McIcons.play2Fill),
                                     label: Text(playButtonLabel(state)),
                                   ),
                                 ),
@@ -282,8 +283,8 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                           : controller.toggleFavorite,
                                       icon: Icon(
                                         state.marks.isFavorite
-                                            ? Icons.favorite
-                                            : Icons.favorite_border,
+                                            ? McIcons.heart2Fill
+                                            : McIcons.heart2,
                                         color: state.marks.isFavorite
                                             ? Colors.redAccent
                                             : null,
@@ -299,8 +300,8 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                           : controller.togglePlayed,
                                       icon: Icon(
                                         state.marks.played
-                                            ? Icons.check_circle
-                                            : Icons.check_circle_outline,
+                                            ? McIcons.checkCircleFill
+                                            : McIcons.checkCircle,
                                         color: state.marks.played
                                             ? Colors.green
                                             : null,
@@ -313,7 +314,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                       tooltip: '更多',
                                       onPressed: () =>
                                           _showActionMenu(controller),
-                                      icon: const Icon(Icons.more_horiz),
+                                      icon: const Icon(McIcons.moreFill),
                                     ),
                                   ),
                                 ],

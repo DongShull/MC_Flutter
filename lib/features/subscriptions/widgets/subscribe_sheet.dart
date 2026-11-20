@@ -7,6 +7,7 @@ import '../state/models.dart';
 import '../state/rule_set_spec.dart';
 import '../state/subscription_events.dart';
 import '../state/subscription_index.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 订阅创建弹层的种子（对齐 SubscribeSheetHost.Seed：卡片上本来就有，
 /// 抽屉立刻显示标题/海报，不必先转圈等 title-preview）。
@@ -183,7 +184,7 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close),
+                  icon: const Icon(McIcons.close2),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],

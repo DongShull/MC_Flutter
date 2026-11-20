@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../state/controllers.dart';
 import '../widgets/settings_ui.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 播放设置页（对应安卓 PlaybackSectionScreen）：
 /// 三个意愿开关 + 硬件转码能力卡。
@@ -51,21 +52,21 @@ class _PlaybackPageState extends ConsumerState<PlaybackPage> {
               children: [
                 const SettingsGroupLabel('转码'),
                 SwitchListTile(
-                  secondary: const Icon(Icons.memory_outlined),
+                  secondary: const Icon(McIcons.transcoding2),
                   title: const Text('允许软件转码'),
                   subtitle: const Text('硬件转码不可用时，用 CPU 兜底转码'),
                   value: policy.softwareTranscodeEnabled,
                   onChanged: (v) => _toggle('sw', v),
                 ),
                 SwitchListTile(
-                  secondary: const Icon(Icons.fast_forward_outlined),
+                  secondary: const Icon(McIcons.fastForward),
                   title: const Text('生成进度条预览图'),
                   subtitle: const Text('拖动进度条时显示缩略图（trickplay）'),
                   value: policy.trickplayEnabled,
                   onChanged: (v) => _toggle('trick', v),
                 ),
                 SwitchListTile(
-                  secondary: const Icon(Icons.save_outlined),
+                  secondary: const Icon(McIcons.save),
                   title: const Text('保留转码产物'),
                   subtitle: const Text('转码结果缓存下来，下次播放免转'),
                   value: policy.transcodeCacheEnabled,
@@ -73,7 +74,7 @@ class _PlaybackPageState extends ConsumerState<PlaybackPage> {
                 ),
                 const SettingsGroupLabel('硬件能力'),
                 SettingsInfoCard(
-                  icon: Icons.verified_outlined,
+                  icon: McIcons.shieldCheck,
                   text: policy.hardwareAvailable
                       ? '服务器检测到可用硬件转码后端：${policy.hwBackends.join('、')}'
                       : '服务器未检测到可用的硬件转码后端；如已允许，将回退到软件转码。',

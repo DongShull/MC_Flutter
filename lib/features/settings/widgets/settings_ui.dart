@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 设置域内部小部件：统一分组卡 / 行 / 确认弹窗 / 危险操作二次确认。
 
@@ -65,7 +66,7 @@ class SettingsRow extends StatelessWidget {
       subtitle: subtitle == null || subtitle!.isEmpty
           ? null
           : Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: trailing ?? const Icon(Icons.chevron_right),
+      trailing: trailing ?? const Icon(McIcons.chevronRight),
     );
   }
 }

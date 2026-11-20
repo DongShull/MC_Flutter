@@ -8,6 +8,7 @@ import '../state/collection_detail_controller.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../widgets/library_widgets.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 合集详情页（对齐 Kotlin LibraryCollectionScreen.kt）：封面拼贴头 + 条目墙 + 本地排序。
 class CollectionDetailPage extends ConsumerStatefulWidget {
@@ -38,7 +39,7 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
         title: Text(c?.name ?? '合集'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.sort),
+            icon: const Icon(McIcons.sort),
             onPressed: () => _openSortSheet(context, state),
           ),
         ],
@@ -162,7 +163,7 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
             for (final (value, label) in options)
               ListTile(
                 title: Text(label),
-                trailing: state.sort == value ? const Icon(Icons.check, size: 18) : null,
+                trailing: state.sort == value ? const Icon(McIcons.check, size: 18) : null,
                 onTap: () {
                   ref.read(collectionDetailProvider(_arg).notifier).setSort(value);
                   Navigator.of(sheetContext).pop();

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/format.dart';
 import '../state/models.dart';
 import '../state/offline_state.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 下载中单元行（1:1 对齐 Kotlin DownloadingRow）：
 /// 海报 + 片名 + 季集 · 档位 + 状态文本 + 速度 + 4dp 进度条；长按弹菜单。
@@ -45,7 +46,7 @@ class DownloadingRow extends StatelessWidget {
                 child: poster ??
                     ColoredBox(
                       color: scheme.surfaceContainerHighest,
-                      child: const Icon(Icons.movie_outlined),
+                      child: const Icon(McIcons.movie),
                     ),
               ),
             ),
@@ -113,8 +114,8 @@ class DownloadingRow extends StatelessWidget {
             ),
             ListTile(
               leading: Icon(unit.status == OfflineUnitStatus.running
-                  ? Icons.pause
-                  : Icons.play_arrow),
+                  ? McIcons.pause
+                  : McIcons.play2Fill),
               title:
                   Text(unit.status == OfflineUnitStatus.running ? '暂停' : '继续'),
               onTap: () {
@@ -123,7 +124,7 @@ class DownloadingRow extends StatelessWidget {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.close),
+              leading: const Icon(McIcons.close2),
               title: const Text('取消下载'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
@@ -163,7 +164,7 @@ class StorageCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.storage_outlined, size: 18),
+              const Icon(McIcons.databaseFill, size: 18),
               const SizedBox(width: 8),
               Text(
                 '可用 $availGb GB / 共 $totalGb GB',

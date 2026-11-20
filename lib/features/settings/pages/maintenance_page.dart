@@ -7,6 +7,7 @@ import '../../../core/models/format.dart';
 import '../state/controllers.dart';
 import '../state/models.dart';
 import '../widgets/settings_ui.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 服务器维护页（对应安卓 MaintenanceSectionScreen）：版本 / 重启 / 存储清理。
 class MaintenancePage extends ConsumerStatefulWidget {
@@ -63,7 +64,7 @@ class _MaintenancePageState extends ConsumerState<MaintenancePage> {
                   children: [
                     const SettingsGroupLabel('版本'),
                     SettingsRow(
-                      icon: Icons.info_outline,
+                      icon: McIcons.information,
                       title: '当前版本',
                       subtitle: [
                         if (data?.status?.currentVersion.isNotEmpty ?? false)
@@ -80,14 +81,14 @@ class _MaintenancePageState extends ConsumerState<MaintenancePage> {
                     ),
                     const SettingsGroupLabel('运行'),
                     SettingsRow(
-                      icon: Icons.restart_alt,
+                      icon: McIcons.restart,
                       title: '重启服务器',
                       subtitle: '重启 MovieClaw 服务进程',
                       onTap: _restart,
                     ),
                     const SettingsGroupLabel('存储'),
                     SettingsInfoCard(
-                      icon: Icons.storage_outlined,
+                      icon: McIcons.hardDisk,
                       text: data?.storage == null
                           ? '计算中…'
                           : '磁盘共 ${mcFormatBytes(data!.storage!.diskTotal)}，'
@@ -99,10 +100,10 @@ class _MaintenancePageState extends ConsumerState<MaintenancePage> {
                         SettingsRow(
                           icon: dir.group == 'cache'
                               ? Icons.cleaning_services_outlined
-                              : Icons.folder_outlined,
+                              : McIcons.folder,
                           title: dir.title,
                           subtitle: dir.summary,
-                          trailing: const Icon(Icons.delete_outline),
+                          trailing: const Icon(McIcons.trash2),
                           onTap: () => _clean(dir),
                         ),
                     const SizedBox(height: 24),

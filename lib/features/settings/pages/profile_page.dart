@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../state/controllers.dart';
 import '../widgets/settings_ui.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 个人信息页（对应安卓 ProfileSectionScreen：头像 / 昵称 / 改密码 / 退出登录）。
 class ProfilePage extends ConsumerStatefulWidget {
@@ -103,14 +104,14 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                   onTap: () => _rename(session?.nickname ?? ''),
                 ),
                 SettingsRow(
-                  icon: Icons.key_outlined,
+                  icon: McIcons.key,
                   title: '修改密码',
                   onTap: _changePassword,
                 ),
                 // TODO(avatar): 头像上传需要 multipart（McClient 暂缺）。
                 const SizedBox(height: 16),
                 SettingsRow(
-                  icon: Icons.logout,
+                  icon: McIcons.logout,
                   title: '退出登录',
                   destructive: true,
                   trailing: const SizedBox.shrink(),

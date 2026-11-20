@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/format.dart';
 import '../state/models.dart';
 import 'activity_cards.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 观看统计面板（对齐 WatchStatsPanel.kt）：
 /// 周期切换 7/30/90 天、指标卡、逐日柱状、TOP 作品、四维分解、成员钻取。
@@ -55,7 +56,7 @@ class WatchStatsPanel extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: ActionChip(
-              avatar: const Icon(Icons.close, size: 16),
+              avatar: const Icon(McIcons.close2, size: 16),
               label: const Text('取消成员筛选'),
               onPressed: () => onMemberSelected(null),
             ),
@@ -95,7 +96,7 @@ class WatchStatsPanel extends StatelessWidget {
           for (final row in stats.topTitles.take(3))
             ListTile(
               dense: true,
-              leading: const Icon(Icons.movie_outlined, size: 20),
+              leading: const Icon(McIcons.movie, size: 20),
               title: Text(row.media.title, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Text(
                 '${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}'
@@ -109,7 +110,7 @@ class WatchStatsPanel extends StatelessWidget {
           for (final row in stats.byMember)
             ListTile(
               dense: true,
-              leading: const Icon(Icons.person_outline, size: 20),
+              leading: const Icon(McIcons.user, size: 20),
               title: Text(row.memberName),
               subtitle: Text('${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}'),
               onTap: () => onMemberSelected(row.memberId),
@@ -121,7 +122,7 @@ class WatchStatsPanel extends StatelessWidget {
           for (final row in stats.byClient)
             ListTile(
               dense: true,
-              leading: const Icon(Icons.devices_other, size: 20),
+              leading: const Icon(McIcons.device2, size: 20),
               title: Text(row.client.isEmpty ? '未知客户端' : row.client),
               subtitle: Text('${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}'),
             ),
@@ -177,7 +178,7 @@ class WatchStatsPanel extends StatelessWidget {
           for (final row in stats.favorites.take(3))
             ListTile(
               dense: true,
-              leading: const Icon(Icons.favorite_outline, size: 20),
+              leading: const Icon(McIcons.heart2, size: 20),
               title: Text(row.media.title, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Text('${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}'),
             ),

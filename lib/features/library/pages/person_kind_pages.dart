@@ -5,6 +5,7 @@ import '../state/person_kind_controllers.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../widgets/library_widgets.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 人物下钻页（对齐 Kotlin LibraryPersonScreen.kt）：
 /// GET /search/library?person_id 游标分页的网格；待建索引时显示提示；滚动加载。
@@ -136,7 +137,7 @@ class _KindWallPageState extends ConsumerState<KindWallPage> {
               PopupMenuItem(value: 'all', child: Text('全部')),
               PopupMenuItem(value: 'unwatched', child: Text('未看')),
             ],
-            child: const Icon(Icons.remove_red_eye_outlined),
+            child: const Icon(McIcons.eyeOpen),
           ),
           PopupMenuButton<String>(
             tooltip: '排序',
@@ -149,7 +150,7 @@ class _KindWallPageState extends ConsumerState<KindWallPage> {
               PopupMenuItem(value: 'rating', child: Text('按评分')),
               PopupMenuItem(value: 'random', child: Text('随机')),
             ],
-            child: const Icon(Icons.sort),
+            child: const Icon(McIcons.sort),
           ),
         ],
       ),

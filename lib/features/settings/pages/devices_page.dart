@@ -5,6 +5,7 @@ import '../../../core/designsystem/state_views.dart';
 import '../state/controllers.dart';
 import '../state/models.dart';
 import '../widgets/settings_ui.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 我的设备页（对应安卓 DevicesSectionScreen）：
 /// 当前设备 badge / 转码专用 badge / 改名 / 注销 / 清理 sheet（7/30/90 天）。
@@ -114,8 +115,8 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
                     for (final d in data?.items ?? const <LoginDevice>[])
                       SettingsRow(
                         icon: d.current
-                            ? Icons.smartphone
-                            : Icons.devices_other,
+                            ? McIcons.iphone
+                            : McIcons.device,
                         title: d.title,
                         subtitle: d.subtitle,
                         trailing: Row(
@@ -142,7 +143,7 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
                               children: [
                                 if (d.renamable)
                                   ListTile(
-                                    leading: const Icon(Icons.edit_outlined),
+                                    leading: const Icon(McIcons.edit),
                                     title: const Text('重命名'),
                                     onTap: () {
                                       Navigator.of(ctx).pop();
@@ -150,7 +151,7 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
                                     },
                                   ),
                                 ListTile(
-                                  leading: const Icon(Icons.logout),
+                                  leading: const Icon(McIcons.logout),
                                   title: const Text('注销'),
                                   onTap: () {
                                     Navigator.of(ctx).pop();

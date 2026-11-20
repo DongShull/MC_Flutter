@@ -8,6 +8,7 @@ import '../state/activity_derive.dart';
 import '../state/controllers.dart';
 import '../widgets/activity_cards.dart';
 import '../widgets/watch_stats_panel.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 活动中心页（对齐 ActivityScreen.kt 与设计文档 04 §6）：
 /// 观看视角（正在播放 / 整文件下载 / 观看统计 / 最近播放）与
@@ -51,7 +52,7 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
           McFocusRing(
             borderRadius: 24,
             child: IconButton(
-              icon: const Icon(Icons.refresh),
+              icon: const Icon(McIcons.refreshS),
               onPressed: () => _guard(_controller.refresh),
             ),
           ),
@@ -75,8 +76,8 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         child: SegmentedButton<bool>(
                       segments: const [
-                        ButtonSegment(value: true, label: Text('观看'), icon: Icon(Icons.play_circle_outline)),
-                        ButtonSegment(value: false, label: Text('任务'), icon: Icon(Icons.task_outlined)),
+                        ButtonSegment(value: true, label: Text('观看'), icon: Icon(McIcons.playCircle)),
+                        ButtonSegment(value: false, label: Text('任务'), icon: Icon(McIcons.task2)),
                       ],
                         selected: {_watchView},
                         onSelectionChanged: (v) => setState(() => _watchView = v.first),

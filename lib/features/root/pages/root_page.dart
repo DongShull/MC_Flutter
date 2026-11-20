@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../state/main_tab_bus.dart';
 import '../state/shell_badges.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 五 Tab 主壳（对齐 feature/root 的 MainTabScreen.kt）：
 /// 悬浮胶囊底栏（图标-only、当前格白 15% 药丸、末格账号头像）+ IndexedStack 保活；
@@ -25,11 +26,11 @@ class _RootPageState extends ConsumerState<RootPage> {
 
   static const _labels = ['发现', '媒体库', '订阅', '活动', '我的'];
   static const _icons = [
-    Icons.explore_outlined,
-    Icons.video_library_outlined,
+    McIcons.compass,
+    McIcons.mediaLibraryFill,
     Icons.subscriptions_outlined,
-    Icons.notifications_outlined,
-    Icons.person_outline,
+    McIcons.bellOn,
+    McIcons.accountCircle,
   ];
 
   /// 各页签对应的真实路由（页面由各 feature 域实现挂载）。
@@ -76,11 +77,11 @@ class _RootPageState extends ConsumerState<RootPage> {
   }
 
   static const _filledIcons = [
-    Icons.explore,
-    Icons.video_library,
+    McIcons.compassFill,
+    McIcons.mediaLibraryFill,
     Icons.subscriptions,
-    Icons.notifications,
-    Icons.person,
+    McIcons.bellOnFill,
+    McIcons.accountCircleFill,
   ];
 
   @override

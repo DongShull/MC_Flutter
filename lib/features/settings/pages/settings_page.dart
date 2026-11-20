@@ -10,6 +10,7 @@ import 'maintenance_page.dart';
 import 'playback_page.dart';
 import 'profile_page.dart';
 import 'web_managed_page.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 设置索引页（对应安卓 feature/settings 的 SettingsSectionScreen：
 /// 分组「账号 / 播放 / 服务器」，超管多一组维护入口）。
@@ -49,35 +50,35 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   List<_SettingsEntry> _entries(bool isAdmin, String? displayName) => [
         _SettingsEntry(
           group: '账号',
-          icon: Icons.person_outline,
+          icon: McIcons.accountCircle,
           title: '个人信息',
           subtitle: displayName,
           detail: const ProfilePage(),
         ),
         const _SettingsEntry(
           group: '账号',
-          icon: Icons.devices_other,
+          icon: McIcons.device,
           title: '我的设备',
           subtitle: '已配对的登录设备与播放器',
           detail: DevicesPage(),
         ),
         const _SettingsEntry(
           group: '账号',
-          icon: Icons.notifications_none,
+          icon: McIcons.bellOn,
           title: '通知与提醒',
           subtitle: '服务器公告与告警',
           route: '/notices',
         ),
         const _SettingsEntry(
           group: '播放',
-          icon: Icons.play_circle_outline,
+          icon: McIcons.playCircle,
           title: '播放设置',
           subtitle: '转码 / 预览图 / 缓存',
           detail: PlaybackPage(),
         ),
         const _SettingsEntry(
           group: '服务器',
-          icon: Icons.public,
+          icon: McIcons.globe,
           title: '网页托管',
           subtitle: '在浏览器里打开服务器管理页',
           detail: WebManagedPage(),
@@ -85,7 +86,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         if (isAdmin)
           const _SettingsEntry(
             group: '服务器',
-            icon: Icons.build_outlined,
+            icon: McIcons.tools,
             title: '服务器维护',
             subtitle: '版本 / 重启 / 存储清理',
             detail: MaintenancePage(),

@@ -8,6 +8,7 @@ import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
 import '../state/search_controller.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 库内搜索页：搜索框（350ms 防抖）+ 历史记录 + 输入联想 +
 /// 结果列表（相关度平铺）+ 人物行（下钻）+ 游标分页。
@@ -59,11 +60,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
             decoration: InputDecoration(
               isDense: true,
               hintText: '搜索库内影片、剧集与影人',
-              prefixIcon: const Icon(Icons.search, size: 20),
+              prefixIcon: const Icon(McIcons.search, size: 20),
               suffixIcon: s.query.isEmpty
                   ? null
                   : IconButton(
-                      icon: const Icon(Icons.close, size: 18),
+                      icon: const Icon(McIcons.close2, size: 18),
                       onPressed: () {
                         _input.clear();
                         ref.read(searchProvider.notifier).onQuery('');
@@ -105,7 +106,7 @@ class _HistorySection extends ConsumerWidget {
       children: [
         Row(
           children: [
-            const Icon(Icons.history, size: 16, color: Colors.white54),
+            const Icon(McIcons.history1, size: 16, color: Colors.white54),
             const SizedBox(width: 6),
             const Text('搜索历史', style: TextStyle(fontWeight: FontWeight.w600)),
             const Spacer(),
@@ -181,7 +182,7 @@ class _ResultBody extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: ActionChip(
-                avatar: const Icon(Icons.close, size: 16),
+                avatar: const Icon(McIcons.close2, size: 16),
                 label: Text('只看「${s.selectedPerson!.name}」的作品'),
                 onPressed: () => ref.read(searchProvider.notifier).clearPerson(),
               ),
@@ -359,7 +360,7 @@ class _PersonCell extends ConsumerWidget {
         width: 64,
         height: 64,
         color: McColors.surfaceDark,
-        child: const Icon(Icons.person, color: Colors.white38),
+        child: const Icon(McIcons.user, color: Colors.white38),
       );
 }
 
@@ -434,7 +435,7 @@ class _HitTile extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, color: Colors.white24),
+              const Icon(McIcons.arrowRight, color: Colors.white24),
             ],
           ),
         ),
@@ -447,6 +448,6 @@ class _HitTile extends StatelessWidget {
         width: 52,
         height: 78,
         color: McColors.surfaceDark,
-        child: const Icon(Icons.movie, color: Colors.white24, size: 20),
+        child: const Icon(McIcons.movie, color: Colors.white24, size: 20),
       );
 }

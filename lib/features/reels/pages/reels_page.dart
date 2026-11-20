@@ -8,6 +8,7 @@ import '../state/controllers.dart';
 import '../state/models.dart';
 import '../widgets/reel_page.dart';
 import '../widgets/reel_filter_sheet.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 刷片页（对应 Android ReelsScreen.kt 竖屏主界面）：
 /// 上下整页滑动，每页一条片段。播放引擎由 player 域负责，本页只做
@@ -123,7 +124,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Row(
                 children: [
-                  _GlassIconButton(icon: Icons.arrow_back, onTap: _back),
+                  _GlassIconButton(icon: McIcons.arrowLeft, onTap: _back),
                   const SizedBox(width: 8),
                   Expanded(child: Center(child: _titleCapsule(state))),
                   const SizedBox(width: 8),

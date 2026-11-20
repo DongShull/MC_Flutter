@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/designsystem/adaptive.dart';
 import '../state/detail_controller.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 演职员横滚（cast 前 40，人物卡点进人物页；人物页属于 library 域，这里只留导航意图）。
 class CastRow extends StatelessWidget {
@@ -79,6 +80,6 @@ class _FallbackAvatar extends StatelessWidget {
         width: 64,
         height: 64,
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: const Icon(Icons.person_outline, size: 28),
+        child: const Icon(McIcons.user, size: 28),
       );
 }

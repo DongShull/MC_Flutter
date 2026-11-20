@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import 'theme.dart';
+import 'mc_icons.dart';
 
 /// 海报卡片（全 App 唯一实现，审核重构 #3）：
 /// 四份实现（library McPosterCard / discover McDiscoverPosterCard /
@@ -119,7 +120,7 @@ class McPosterCard extends StatelessWidget {
   Widget _poster(BuildContext context) {
     final empty = Container(
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Icon(Icons.movie_outlined,
+      child: Icon(McIcons.movie,
           color: Theme.of(context)
               .colorScheme
               .onSurface

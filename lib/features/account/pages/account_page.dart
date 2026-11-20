@@ -6,6 +6,7 @@ import '../../../core/designsystem/adaptive.dart';
 
 import '../state/account_state.dart';
 import '../widgets/account_row.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 账号切换页（1:1 对齐 Kotlin AccountSwitcherScreen）：
 /// 本机已登录账号分组展示，点一下即可切换不用再输密码；
@@ -94,7 +95,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
             borderRadius: 24,
             child: IconButton(
               tooltip: '设备管理',
-              icon: const Icon(Icons.devices_other),
+              icon: const Icon(McIcons.device),
               onPressed: () => context.push('$routeAccountLocal/devices'),
             ),
           ),
@@ -204,7 +205,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
               borderRadius: 20,
               child: OutlinedButton.icon(
                 onPressed: () => context.go('/onboarding'),
-                icon: const Icon(Icons.person_add_alt_1),
+                icon: const Icon(McIcons.userAdd),
                 label: const Text('添加账号'),
               ),
             ),
@@ -220,7 +221,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                   side: BorderSide(color: scheme.error.withValues(alpha: 0.4)),
                 ),
                 onPressed: () => _confirmLogoutAll(ui),
-                icon: const Icon(Icons.logout),
+                icon: const Icon(McIcons.logout),
                 label: const Text('退出全部账号'),
               ),
             ),

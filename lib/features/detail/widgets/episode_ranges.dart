@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/detail_controller.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 缺集区间提示（对齐 EpisodeRanges.kt：连续分集号之间有空洞时列出缺集区间）。
 /// 返回形如 "缺 4-6" 的区间文案列表。
@@ -32,7 +33,7 @@ class EpisodeRanges extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Row(
         children: [
-          Icon(Icons.warning_amber_rounded,
+          Icon(McIcons.alert,
               size: 16, color: Theme.of(context).colorScheme.error),
           const SizedBox(width: 6),
           Expanded(

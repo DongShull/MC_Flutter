@@ -7,6 +7,7 @@ import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/theme.dart';
 import '../state/onboarding_controller.dart';
 import '../routes.dart' as feat_onboarding;
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 登录/接入页：输入服务器地址 → 探测 → bootstrap → device login。
 class OnboardingPage extends ConsumerStatefulWidget {
@@ -86,7 +87,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                   decoration: const InputDecoration(
                     labelText: '服务器地址',
                     hintText: 'https://example.com',
-                    prefixIcon: Icon(Icons.dns),
+                    prefixIcon: Icon(McIcons.server),
                   ),
                 ),
                 const SizedBox(height: 16),

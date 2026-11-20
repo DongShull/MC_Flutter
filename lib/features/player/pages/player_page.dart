@@ -18,6 +18,8 @@ import '../widgets/player_episode_picker.dart';
 import '../widgets/player_gesture_layer.dart';
 import '../widgets/player_progress_bar.dart';
 import '../widgets/player_settings_panel.dart';
+import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/mc_strings.dart';
 
 /// 播放页（Android PlayerScreen 1:1）：强制横屏 + 沉浸式、黑底满屏画面、
 /// 手势（横向定位 / 纵向亮度音量 / 双击 ±10s / 长按 2×）、锁屏、倍速、
@@ -252,7 +254,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    _levelHud!.brightness ? Icons.brightness_6 : Icons.volume_up,
+                    _levelHud!.brightness ? Icons.brightness_6 : McIcons.volumeUp,
                     color: Colors.white,
                     size: 16,
                   ),
@@ -373,7 +375,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                           _chromeVisible = false;
                         });
                       },
-                      icon: const Icon(Icons.lock_outline, color: Colors.white),
+                      icon: const Icon(McIcons.lock, color: Colors.white),
                       tooltip: '锁屏',
                     ),
                   ),
@@ -383,7 +385,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                         setState(() => _settingsOpen = true);
                         _noteActivity();
                       },
-                      icon: const Icon(Icons.more_vert, color: Colors.white),
+                      icon: const Icon(McIcons.more, color: Colors.white),
                       tooltip: '更多',
                     ),
                   ),
@@ -447,16 +449,16 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       context: context,
       barrierDismissible: true,
       builder: (ctx) => AlertDialog(
-        title: Text(decision == SessionDecision.rejected ? '无法直接播放' : '需要转码确认'),
+        title: Text(decision == SessionDecision.rejected ? McStrings.rejectedByServer : McStrings.needTranscodeConfirm),
         content: Text(
           decision == SessionDecision.rejected
-              ? '服务器拒绝了本次播放请求（可能无可用转码通道），已尝试按原始链接播放。'
-              : '该片源需要服务器转码后播放，可能增加延迟与功耗。要继续吗？',
+              ? McStrings.rejectedByServer
+              : McStrings.needTranscodeConfirm,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('继续播放'),
+            child: const Text(McStrings.continuePlay),
           ),
         ],
       ),
@@ -573,7 +575,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                         _locked = false;
                         _chromeVisible = true;
                       }),
-                      icon: const Icon(Icons.lock_open),
+                      icon: const Icon(McIcons.lockOpen),
                       tooltip: '解锁',
                     ),
                     if (_lockHint)
@@ -698,7 +700,7 @@ class CenterGlassButton extends StatelessWidget {
           color: Colors.black.withValues(alpha: 0.38),
         ),
         child: Icon(
-          playing ? Icons.pause : Icons.play_arrow,
+          playing ? McIcons.pauseS : McIcons.play2Fill,
           color: accent,
           size: 36,
         ),

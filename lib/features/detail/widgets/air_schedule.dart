@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/detail_controller.dart';
+import '../../../core/designsystem/mc_icons.dart';
 
 /// 在播档期横幅（对齐 AirSchedule.kt：只有「每周 x · 时间 · 下集 / 下次播出」时显示）。
 class AirSchedule extends StatelessWidget {
@@ -22,7 +23,7 @@ class AirSchedule extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const Icon(Icons.schedule_rounded, size: 16),
+            const Icon(McIcons.clockFill, size: 16),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
