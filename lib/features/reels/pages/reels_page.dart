@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/player/player_page_args.dart';
 import 'package:go_router/go_router.dart';
@@ -266,13 +267,10 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
     ));
   }
 
+  /// 系统分享：媒体详情页链接（对齐 detail 分享的服务端链接语义）。
   void _share(ReelItemView item) {
-    // TODO(share): 系统分享（Android 用 share_plus），先给个可复制的提示。
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(content: Text('分享：${item.title.name}')),
-      );
+    final t = item.title;
+    Share.share('MovieClaw · ${t.name} /detail/${t.libraryId}/${t.mediaItemId}');
   }
 }
 

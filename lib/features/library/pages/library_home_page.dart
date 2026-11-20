@@ -150,9 +150,7 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
               subtitle: 'S${e.seasonNumber} E${e.episodeNumber} · ${e.episodeTitle ?? ''}',
               progress: e.progressPercent / 100,
               width: 160,
-              onTap: () {
-                // TODO(播放导航): 跳 detail/player 路由名。
-              },
+              onTap: () => context.push('/detail/${e.libraryId}/${e.mediaItemId}'),
             ),
           ),
       ];

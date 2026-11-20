@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:go_router/go_router.dart';
+
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../state/models.dart';
@@ -21,7 +23,8 @@ Widget mcItemCard(BuildContext context, LibraryItemView item, {double width = 12
       badge: badge,
       width: width,
       onTap: () {
-        // TODO(播放导航): 跳 detail/player 路由名（播放相关一律只做导航意图）。
+        final lid = item.libraryId;
+        if (lid != null) context.push('/detail/$lid/${item.mediaItemId}');
       },
     ),
   );
