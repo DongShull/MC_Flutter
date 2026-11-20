@@ -201,3 +201,18 @@
 - 基建：McClient.postMultipart + image_picker 头像上传（POST /auth/avatar）；url_launcher（update 发布页/服务器管理页）；share_plus 引入；导航意图清扫（discover/search/person/more 分叉跳新会话/agent 复制反馈）。
 - 验收：analyze No issues；test 30/30；commits cefd73a/c88ee72/8d4909d 推送 main。
 - 剩余：activity SSE 任务事件、7×24 热力图自绘、Android 原生 download 通道、DLNA/QR 真机验证。
+
+
+## Round 19（2026-11-20，goal Round 1，commits 3f89d81/cd4f96e/09a2a01/b3a07e1）
+
+上一轮剩余 18 处 TODO 中 Dart 侧 8 项全部清零（analyze No issues + test 30/30 全绿，已推 main）：
+
+- library：海报卡/继续观看跳 /detail/{libraryId}/{mediaItemId}
+- reels：share_plus 系统分享
+- activity：jobs 接 SSE（/api/v1/jobs/stream，ready→全量、job→120ms 防抖刷新，SSE 不可用回退 15s 轮询）；7×24 观看热力图（CustomPaint 自绘，色深=时长占比）
+- share：访客播放（core/api/guest_playback_api.dart，POST /api/v1/share/{slug}/playback/sessions → PlayerPageArgs 续播跳 /player）；分享海报 CachedNetworkImage
+- player：skipSegments 琥珀跳过区间（PlaybackSkipSegment，segments 顶层/decision 兜底解析，重开/切集清空防串）
+- update：MC_BUILD_NUMBER 构建注入（--dart-define）
+- session：多账号令牌快照 mc_token:<origin>:<user>（snapshotAccountToken/switchAccount/deleteAccountToken，兼容旧 mc_token 单键迁移；顺带修复 restore() 模板串转义错误）
+
+剩余：原生 download 通道（Kotlin）、离线容量统计与账号删文件（依赖原生通道）、DLNA/QR 真机验证、打包链路（图标/启动图/签名）。
