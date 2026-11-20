@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../session/session_store.dart';
 import 'api_exception.dart';
@@ -9,6 +12,9 @@ import 'retry_interceptor.dart';
 /// - live：低延迟实时请求
 /// - playback：播放链路专用（与播放会话共享连接语义）
 enum Channel { general, live, playback }
+
+/// compute() 包装：jsonDecode 签名带可选参数，不能直接当 ComputeCallback 用。
+Map<String, dynamic> _decodeJson(String raw) => jsonDecode(raw) as Map<String, dynamic>;
 
 class McClient {
   McClient({required SessionStore session, this.ua = 'MovieClaw-Flutter/0.1.0'})
@@ -94,6 +100,11 @@ class McClient {
     Map<String, dynamic>? query,
   }) async {
     final res = await _send(channel, method, path, body: body, query: query);
+    // 服务器 content-type 不规范时 dio 不反序列化（data 是 String）：
+    // 大响应丢 compute() 在 isolate 里解析，主线程不卡（飞牛 Go 传输层的 Dart 侧对应物）。
+    if (res.data is String) {
+      res.data = await compute(_decodeJson, res.data as String);
+    }
     final data = res.data;
     if (data == null) {
       throw ApiException('network.empty', '服务器返回为空', httpStatus: res.statusCode);

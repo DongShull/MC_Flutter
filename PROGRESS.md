@@ -151,3 +151,9 @@
 - 崩溃兜底：BootstrapErrorLog 环形缓冲 50 条 + main runZonedGuarded 记录。
 - 预取扩展：discover 筛选网格接入 CoverPreloader。
 - 验收：analyze No issues (2.3s)、test +5 全绿。
+
+## Round 11（飞牛回填第三轮：服务器会话协商 + isolate 解析）
+- playback_session_api.dart：PlaybackSessionApi{start/ping/stop/resume}（McApi.kt /playback/sessions 全口径，decision 三态）。
+- PlayerController.open 接协商：stream_url/start_ms 消费、30s ping 心跳、detach DELETE 会话；TODO(playback-session) 主体关闭。
+- mc_client unwrap：String 响应体 compute() isolate 解析（_decodeJson 包装）。
+- 验收：analyze No issues (7.6s)、test +5 全绿。

@@ -77,3 +77,24 @@ trim_playback_session_plugin：注册参与者→激活抢占→心跳→命令�
 | 6 | Go 引擎传输层 → 重试/自愈拦截器 | ✅（isolate 解析仍待接） |
 | — | 启动直达（session restore + redirect） | ✅ 新增 |
 | — | 错误环形缓冲 | ✅ 新增 |
+
+## 六、第三轮落地（服务器侧会话协商 + isolate 解析收尾）
+
+- **播放会话服务器协商**（1:1 对齐 MovieClaw McApi.kt /playback/sessions 口径）：
+  lib/core/player/session/playback_session_api.dart——PlaybackSessionApi{start/ping/stop/resume}，
+  协商三态 decision=plan|consent|rejected；请求体字段全量（file_id/media_item_id/season/episode/
+  capability/failed_tiers/audio_track/subtitle_track/device_id/downlink_bps/start_ms/attempt_id/client）。
+  PlayerPageArgs 增加 mediaItemId/fileId/seasonNumber/episodeNumber；PlayerController.open：
+  有正式参数即走协商（返回 stream_url 可播、start_ms 补续播点），30s ping 心跳保活，
+  detach 时 DELETE 会话；consent/rejected 兜底原 url（弹窗 UI 见 docs/design/08 §4 待做）。
+  这关闭了 player_controller.dart 的 TODO(playback-session) 主体（选集接口取数仍留 TODO）。
+- **isolate 大 JSON 解析**（对应飞牛 Go 传输层的 Dart 侧对应物）：
+  mc_client.unwrap 对 String 响应体走 compute() 在 isolate 解析（_decodeJson 顶层包装满足 ComputeCallback 签名）。
+
+### 回填清单终态
+| # | 技术 | 状态 |
+|---|---|---|
+| 1-5,7,8 | 启动/预取/保活/会话协议/图标 | ✅（第一、二轮） |
+| 6 | Go 引擎传输层 → 重试拦截器 + isolate 解析 | ✅ 全部落地 |
+| 3 | consent/rejected 协商结果弹窗 UI | 🟨 兜底已做，弹窗待做 |
+| 9-10 | 性能模式 / mmkv | ⬜ 不抄 |

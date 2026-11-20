@@ -1,13 +1,22 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/mc_client.dart';
+import '../../../core/api/session_providers.dart';
 import '../../../core/player/player_service.dart';
+import '../../../core/player/session/playback_session_api.dart';
 
 /// 播放参数：详情页等入口通过 go_router extra 传进来。
 /// 对应 Android PlayingSurface 的 active.target（演示路径：网络 url 直出）。
 class PlayerPageArgs {
   const PlayerPageArgs({
     required this.url,
+    this.mediaItemId,
+    this.fileId,
+    this.seasonNumber,
+    this.episodeNumber,
     this.title,
     this.subtitle,
     this.startPosition,
@@ -18,6 +27,11 @@ class PlayerPageArgs {
   });
 
   final String url;
+  /// 非 null 时走服务器会话协商（POST /playback/sessions），null 为演示直连路径。
+  final int? mediaItemId;
+  final int? fileId;
+  final int? seasonNumber;
+  final int? episodeNumber;
   final String? title;
   final String? subtitle;
   final Duration? startPosition;
@@ -99,16 +113,64 @@ class PlayerController extends Notifier<PlayerPlayback> {
 
   PlayerService get _service => ref.read(playerServiceProvider);
 
+  PlaybackSessionApi? _sessionApi;
+  String? _serverSessionId;
+  Timer? _pingTimer;
+
+  /// 30s 心跳（服务器口径；本地协调器心跳独立 5s）。
+  void _startPing() {
+    _pingTimer?.cancel();
+    final id = _serverSessionId;
+    if (id == null) return;
+    _pingTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _sessionApi?.ping(id).catchError((_) {});
+    });
+  }
+
+  Future<void> _stopSession() async {
+    _pingTimer?.cancel();
+    _pingTimer = null;
+    final id = _serverSessionId;
+    _serverSessionId = null;
+    if (id != null) {
+      await _sessionApi?.stop(id).catchError((_) {});
+    }
+  }
+
   @override
   PlayerPlayback build() => const PlayerPlayback(status: PlayerStatus.idle);
 
   Future<void> open(PlayerPageArgs args) async {
     state = state.copyWith(status: PlayerStatus.opening, clearError: true);
     try {
+      // 服务器会话协商（正式路径）：mediaItemId/fileId 在才走；演示路径直连 url。
+      var url = args.url;
+      var startPosition = args.startPosition;
+      if (args.mediaItemId != null || args.fileId != null) {
+        _sessionApi = PlaybackSessionApi(McClient(session: ref.read(sessionStoreProvider)));
+        final session = await _sessionApi!.start(
+          fileId: args.fileId,
+          mediaItemId: args.mediaItemId,
+          seasonNumber: args.seasonNumber,
+          episodeNumber: args.episodeNumber,
+          startMs: args.startPosition?.inMilliseconds,
+        );
+        if (session.playable) {
+          _serverSessionId = session.sessionId;
+          url = session.streamUrl!;
+          if (args.startPosition == null && session.startMs > 0) {
+            startPosition = Duration(milliseconds: session.startMs);
+          }
+          _startPing();
+        } else {
+          // decision = consent | rejected：先按原 url 兜底，正式 UI 弹窗见 docs/design/08 §4。
+          debugPrint('playback session decision=${session.decision}');
+        }
+      }
       await _service.open(PlayerRequest(
-        url: args.url,
+        url: url,
         title: args.title,
-        startPosition: args.startPosition,
+        startPosition: startPosition,
         headers: args.headers,
       ));
       state = state.copyWith(status: PlayerStatus.ready);
@@ -134,6 +196,7 @@ class PlayerController extends Notifier<PlayerPlayback> {
       state = state.copyWith(duration: _service.duration.value);
 
   void detach() {
+    _stopSession();
     _service.position.removeListener(_onPosition);
     _service.playing.removeListener(_onPlaying);
     _service.duration.removeListener(_onDuration);
