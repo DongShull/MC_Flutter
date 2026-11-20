@@ -24,10 +24,14 @@ import '../features/more/routes.dart' as feat_more;
 /// 全部路由：每个功能模块只导出自己的 routes.dart，这里统一挂载。
 final mcRouter = GoRouter(
   initialLocation: feat_onboarding.routeOnboarding,
-  // 启动已恢复会话（main 里 appSession.restore）→ 跳过 onboarding 直达主界面。
+  // 启动已恢复会话（main 里 appSession.restore）→ 先过启动页（展示身份）再进主界面；
+  // 未登录时启动页/主界面不可直达，回登录页。
   redirect: (context, state) {
-    final onOnboarding = state.matchedLocation == feat_onboarding.routeOnboarding;
-    if (onOnboarding && appSession.isReady) return feat_root.routeRoot;
+    final loc = state.matchedLocation;
+    final onOnboarding = loc == feat_onboarding.routeOnboarding;
+    final onSplash = loc == feat_onboarding.routeSplash;
+    if (onOnboarding && appSession.isReady) return feat_onboarding.routeSplash;
+    if (onSplash && !appSession.isReady) return feat_onboarding.routeOnboarding;
     return null;
   },
   routes: [

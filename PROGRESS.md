@@ -162,3 +162,10 @@
 - playback_session_api.reportProgress（POST /playback/progress 全口径）+ player_controller 15s 节流上报。
 - PlayerPlayback.pendingDecision + SessionDecision 枚举；player_page 协商结果弹窗（consent 确认/rejected 说明），acknowledgeDecision 清状态。
 - 验收：analyze No issues (3.2s)、test +5 全绿。09 文档终态表：飞牛静态可回填 13 项全部落地。
+
+## Round 13（飞牛式启动页）
+- SplashPage /splash：已登录直达，展示 MovieClaw 标题 + 用户名 + 设备名 + 三点省略号上下跳动（单 AnimationController 三段错相 Interval），1.6s 后进主界面。
+- SessionStore 增 username/deviceName 持久化（mc_username/mc_device_name）+ saveProfile；login 支持身份参数。
+- onboarding_controller.login：保存 device.name，登录后 GET /auth/me 回填 nickname/username（失败不阻断）。
+- 路由重定向：isReady && /onboarding → /splash（先启动页再主界面）；未登录访问 /splash → 回登录页。
+- 验收：analyze No issues (4.9s)、test +5 全绿。

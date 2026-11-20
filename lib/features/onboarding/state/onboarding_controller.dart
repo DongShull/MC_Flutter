@@ -81,7 +81,25 @@ class OnboardingController extends Notifier<OnboardingState> {
         '/api/v1/auth/device/login',
         body: {'client': 'flutter-phone'},
       );
-      await session.login(baseUrl: base, token: body['token'].toString());
+      await session.login(
+        baseUrl: base,
+        token: body['token'].toString(),
+        deviceName: ((body['device'] as Map<String, dynamic>?)?['name'] ?? '').toString(),
+      );
+      // 登录身份（启动页展示用）：GET /auth/me → username/nickname。
+      try {
+        final me = await _client!.unwrap<Map<String, dynamic>>(
+          Channel.general,
+          'GET',
+          '/api/v1/auth/me',
+        );
+        final name = (me['nickname']?.toString().isNotEmpty == true)
+            ? me['nickname'].toString()
+            : (me['username'] ?? '').toString();
+        await session.saveProfile(username: name);
+      } catch (_) {
+        // 拿不到身份不阻断登录。
+      }
       state = state.copyWith(busy: false, done: true);
     } on ApiException catch (e) {
       state = state.copyWith(busy: false, error: e.friendlyMessage);
