@@ -175,3 +175,8 @@
 - McStrings 文案令牌表（core/designsystem/mc_strings.dart）：启动/连接/播放/通用四组，player 弹窗与 splash 已接。
 - 图标对齐：两个并行子代理替换 192 处 Material Icons → McIcons（TrimIcons 字体，54 文件），语义不贴切的保留 Material 不硬凑。
 - 验收：analyze No issues (2.2s)、test +5 全绿。
+
+## Round 15（抄飞牛三端适配策略）
+- lib/core/platform/mc_platform.dart：McPlatformTarget 探测（HarmonyUtilApi 口径，MethodChannel mc/base/platform + MissingPluginException 降级）+ GlobalEventBus 通道位。
+- docs/design/10-platform-adaptation.md：飞牛三端适配逆向证据（HarmonyUtilApi/mmkv_ohos/独立 CI/Pigeon 化插件）+ mc_flutter 落地对照表 + 三条铁律（业务禁编译期分叉/差异全通道化/鸿蒙只动 SDK+overrides+CI）。
+- 验收：analyze No issues (6.6s)、test +5 全绿。
