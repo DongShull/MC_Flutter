@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
+import '../../../core/api/guest_playback_api.dart';
+import '../../../core/player/player_page_args.dart';
 import 'mc_api.dart';
 import 'models.dart';
 
@@ -67,6 +69,8 @@ class ShareController extends FamilyNotifier<ShareUiState, String> {
   }
 
   GuestShareApi get _api => GuestShareApi(ref.read(shareOriginProvider));
+
+  GuestPlaybackApi get _playback => GuestPlaybackApi(ref.read(shareOriginProvider));
 
   void onPassword(String value) {
     state = state.copyWith(password: value);
@@ -136,15 +140,51 @@ class ShareController extends FamilyNotifier<ShareUiState, String> {
     }
   }
 
-  /// 访客播放：player 模块外只做导航意图（铁律 4），实际播放走 core/player 的
-  /// ShareBackend（接口基址 /api/v1/share/{slug}/playback/…），见设计文档 05 §4.3。
-  void play(int episodeNumber) {
+  /// 访客播放：player 模块外只做导航意图（铁律 4）。经访客播放接口
+  /// POST /api/v1/share/{slug}/playback/sessions（对齐 Kotlin McApi.sharePlaybackSessionStart）
+  /// 换取直连流地址，返回 PlayerPageArgs 交由页面跳 /player；失败置 error 返回 null。
+  /// 续播点用服务端 startMs（访客进度记本机、不写成员进度）。
+  Future<PlayerPageArgs?> play(int episodeNumber) async {
     final item = state.item;
-    if (item == null) return;
-    state = state.copyWith(opening: true);
-    // TODO(player): 经 PlayTarget(mSlug=arg, episodeNumber) 打开 PlayerService 访客会话；
-    // 续播点记本机（secure storage，键含 slug 与季集），不写成员进度。
-    state = state.copyWith(opening: false);
+    if (item == null) return null;
+    final isTv = item.kind == 'tv';
+    final season = state.selectedSeason;
+    state = state.copyWith(opening: true, error: null);
+    try {
+      final session = await _playback.start(
+        slug: arg,
+        mediaItemId: item.mediaItemId,
+        seasonNumber: isTv ? season : null,
+        episodeNumber: isTv ? episodeNumber : null,
+      );
+      var streamUrl = session.streamUrl;
+      if (streamUrl == null || streamUrl.isEmpty) {
+        state = state.copyWith(opening: false, error: '无法获取播放流，请稍后重试');
+        return null;
+      }
+      // 服务器可能回相对路径，拼分享通道基址。
+      if (streamUrl.startsWith('/')) {
+        streamUrl = ref.read(shareOriginProvider) + streamUrl;
+      }
+      final subtitle = isTv ? '第 $season 季 第 $episodeNumber 集' : null;
+      state = state.copyWith(opening: false);
+      return PlayerPageArgs(
+        url: streamUrl,
+        title: item.title,
+        subtitle: subtitle,
+        seasonNumber: isTv ? season : null,
+        episodeNumber: isTv ? episodeNumber : null,
+        isEpisode: isTv,
+        startPosition:
+            session.startMs > 0 ? Duration(milliseconds: session.startMs) : null,
+      );
+    } on ApiException catch (e) {
+      state = state.copyWith(opening: false, error: e.friendlyMessage);
+      return null;
+    } catch (_) {
+      state = state.copyWith(opening: false, error: '无法开始访客播放，请稍后重试');
+      return null;
+    }
   }
 }
 

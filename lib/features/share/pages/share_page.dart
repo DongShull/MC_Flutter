@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,6 +9,7 @@ import '../../../core/designsystem/state_views.dart';
 import '../state/models.dart';
 import '../state/share_controller.dart';
 import '../../../core/designsystem/mc_icons.dart';
+import '../state/mc_api.dart';
 
 /// 访客分享页（对齐 Kotlin ShareScreen）：探测 → 密码门 → 条目详情 / 合集列表。
 /// 独立壳：无底栏、无侧栏、无站内入口（设计文档 05 §4.3）。
@@ -103,7 +105,12 @@ class _SharePageState extends ConsumerState<SharePage> {
     }
     final item = state.item;
     if (item != null) {
-      return _SharedItemDetail(state: state, controller: controller, item: item);
+      return _SharedItemDetail(
+        state: state,
+        controller: controller,
+        item: item,
+        posterUrl: GuestShareApi(ref.read(shareOriginProvider)).imageUrl(item.posterUrl),
+      );
     }
     return const SizedBox.shrink();
   }
@@ -202,11 +209,23 @@ class _SharedItemDetail extends StatelessWidget {
     required this.state,
     required this.controller,
     required this.item,
+    this.posterUrl,
   });
 
   final ShareUiState state;
   final ShareController controller;
   final SharedItem item;
+
+  /// 分享通道海报完整地址（GuestShareApi.imageUrl 拼基址，null = 无图占位）。
+  final String? posterUrl;
+
+  /// 访客播放：换流成功后跳 /player（core/player 的 PlayerPageArgs 直连路径）。
+  Future<void> _play(BuildContext context, int episodeNumber) async {
+    final args = await controller.play(episodeNumber);
+    if (args != null && context.mounted) {
+      await context.push('/player', extra: args);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -236,8 +255,17 @@ class _SharedItemDetail extends StatelessWidget {
                       color: Theme.of(context).cardColor,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    // TODO: RemoteImage 加载分享通道海报（路径经 GuestShareApi.imageUrl 拼基址）。
-                    child: const Icon(McIcons.movie),
+                    child: (posterUrl == null || posterUrl!.isEmpty)
+                        ? const Icon(McIcons.movie)
+                        : ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: CachedNetworkImage(
+                              imageUrl: posterUrl!,
+                              fit: BoxFit.cover,
+                              placeholder: (_, __) => const Icon(McIcons.movie),
+                              errorWidget: (_, __, ___) => const Icon(McIcons.movie),
+                            ),
+                          ),
                   ),
                   const SizedBox(width: 12),
                   Column(
@@ -268,7 +296,8 @@ class _SharedItemDetail extends StatelessWidget {
               child: FilledButton.icon(
                 onPressed: state.opening
                     ? null
-                    : () => controller.play(
+                    : () => _play(
+                        context,
                         item.kind == 'tv'
                             ? (state.episodes.firstWhere((e) => e.owned,
                                     orElse: () => const ShareEpisodeView(episodeNumber: 0))
@@ -314,7 +343,7 @@ class _SharedItemDetail extends StatelessWidget {
             McFocusRing(
               borderRadius: 10,
               child: InkWell(
-              onTap: episode.owned ? () => controller.play(episode.episodeNumber) : null,
+              onTap: episode.owned ? () => _play(context, episode.episodeNumber) : null,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
                 child: Row(
