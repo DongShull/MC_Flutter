@@ -68,6 +68,39 @@ class PlaybackSessionApi {
     );
   }
 
+  /// 上报观看进度（POST /playback/progress，PlaybackProgressRequest 口径）。
+  /// event: started | progress | paused | resumed | finished 等（服务器宽松）。
+  Future<void> reportProgress({
+    required int mediaItemId,
+    int? seasonNumber,
+    int? episodeNumber,
+    String? event,
+    int? positionMs,
+    bool? paused,
+    int? fileId,
+    String? audioTrack,
+    String? subtitleTrack,
+    String? deviceId,
+  }) async {
+    await _client.unwrap<Map<String, dynamic>>(
+      Channel.playback,
+      'POST',
+      '/playback/progress',
+      body: {
+        'media_item_id': mediaItemId,
+        if (seasonNumber != null) 'season_number': seasonNumber,
+        if (episodeNumber != null) 'episode_number': episodeNumber,
+        if (event != null) 'event': event,
+        if (positionMs != null) 'position_ms': positionMs,
+        if (paused != null) 'paused': paused,
+        if (fileId != null) 'file_id': fileId,
+        if (audioTrack != null) 'audio_track': audioTrack,
+        if (subtitleTrack != null) 'subtitle_track': subtitleTrack,
+        if (deviceId != null) 'device_id': deviceId,
+      },
+    );
+  }
+
   /// 续播点与记忆轨（PlaybackStateView）。
   Future<Map<String, dynamic>> resume({
     required int mediaItemId,

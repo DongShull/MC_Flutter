@@ -157,3 +157,8 @@
 - PlayerController.open 接协商：stream_url/start_ms 消费、30s ping 心跳、detach DELETE 会话；TODO(playback-session) 主体关闭。
 - mc_client unwrap：String 响应体 compute() isolate 解析（_decodeJson 包装）。
 - 验收：analyze No issues (7.6s)、test +5 全绿。
+
+## Round 12（飞牛回填第四轮：进度上报 + 协商结果 UI，收口）
+- playback_session_api.reportProgress（POST /playback/progress 全口径）+ player_controller 15s 节流上报。
+- PlayerPlayback.pendingDecision + SessionDecision 枚举；player_page 协商结果弹窗（consent 确认/rejected 说明），acknowledgeDecision 清状态。
+- 验收：analyze No issues (3.2s)、test +5 全绿。09 文档终态表：飞牛静态可回填 13 项全部落地。

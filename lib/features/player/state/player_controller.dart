@@ -60,6 +60,9 @@ class EpisodeItem {
 
 enum PlayerStatus { idle, opening, ready, failed }
 
+/// 服务器协商结果（decision != plan 时挂在状态上等 UI 弹窗）。
+enum SessionDecision { plan, consent, rejected }
+
 /// 播放页可观察状态（对应 Android PlaybackSessionHolder.State + 引擎 state 的 UI 子集）。
 @immutable
 class PlayerPlayback {
@@ -70,6 +73,7 @@ class PlayerPlayback {
     this.position = Duration.zero,
     this.duration,
     this.speed = 1.0,
+    this.pendingDecision,
   });
 
   final PlayerStatus status;
@@ -79,6 +83,9 @@ class PlayerPlayback {
   final Duration? duration;
   final double speed;
 
+  /// consent：需用户确认转码；rejected：服务器拒绝。null = 无待处理协商结果。
+  final SessionDecision? pendingDecision;
+
   PlayerPlayback copyWith({
     PlayerStatus? status,
     String? error,
@@ -86,7 +93,9 @@ class PlayerPlayback {
     Duration? position,
     Duration? duration,
     double? speed,
+    SessionDecision? pendingDecision,
     bool clearError = false,
+    bool clearDecision = false,
   }) {
     return PlayerPlayback(
       status: status ?? this.status,
@@ -95,6 +104,7 @@ class PlayerPlayback {
       position: position ?? this.position,
       duration: duration ?? this.duration,
       speed: speed ?? this.speed,
+      pendingDecision: clearDecision ? null : (pendingDecision ?? this.pendingDecision),
     );
   }
 }
@@ -116,6 +126,8 @@ class PlayerController extends Notifier<PlayerPlayback> {
   PlaybackSessionApi? _sessionApi;
   String? _serverSessionId;
   Timer? _pingTimer;
+  DateTime _lastProgressReport = DateTime.fromMillisecondsSinceEpoch(0);
+  PlayerPageArgs? _currentArgs;
 
   /// 30s 心跳（服务器口径；本地协调器心跳独立 5s）。
   void _startPing() {
@@ -147,6 +159,7 @@ class PlayerController extends Notifier<PlayerPlayback> {
       var url = args.url;
       var startPosition = args.startPosition;
       if (args.mediaItemId != null || args.fileId != null) {
+        _currentArgs = args;
         _sessionApi = PlaybackSessionApi(McClient(session: ref.read(sessionStoreProvider)));
         final session = await _sessionApi!.start(
           fileId: args.fileId,
@@ -163,8 +176,14 @@ class PlayerController extends Notifier<PlayerPlayback> {
           }
           _startPing();
         } else {
-          // decision = consent | rejected：先按原 url 兜底，正式 UI 弹窗见 docs/design/08 §4。
+          // consent = 需用户确认转码；rejected = 服务器拒绝。挂状态给 UI 弹窗，
+          // 同时先按原 url 兜底直播（不因协商失败黑屏）。
           debugPrint('playback session decision=${session.decision}');
+          state = state.copyWith(
+            pendingDecision: session.decision == 'rejected'
+                ? SessionDecision.rejected
+                : SessionDecision.consent,
+          );
         }
       }
       await _service.open(PlayerRequest(
@@ -189,8 +208,27 @@ class PlayerController extends Notifier<PlayerPlayback> {
     }
   }
 
-  void _onPosition() =>
-      state = state.copyWith(position: _service.position.value);
+  void _onPosition() {
+    state = state.copyWith(position: _service.position.value);
+    // 观看进度上报：15s 节流（POST /playback/progress）。
+    final args = _currentArgs;
+    final now = DateTime.now();
+    if (args?.mediaItemId != null &&
+        state.status == PlayerStatus.ready &&
+        now.difference(_lastProgressReport) >= const Duration(seconds: 15)) {
+      _lastProgressReport = now;
+      _sessionApi
+          ?.reportProgress(
+            mediaItemId: args!.mediaItemId!,
+            seasonNumber: args.seasonNumber,
+            episodeNumber: args.episodeNumber,
+            event: 'progress',
+            positionMs: state.position.inMilliseconds,
+            paused: !state.playing,
+          )
+          .catchError((_) {});
+    }
+  }
   void _onPlaying() => state = state.copyWith(playing: _service.playing.value);
   void _onDuration() =>
       state = state.copyWith(duration: _service.duration.value);
@@ -200,6 +238,11 @@ class PlayerController extends Notifier<PlayerPlayback> {
     _service.position.removeListener(_onPosition);
     _service.playing.removeListener(_onPlaying);
     _service.duration.removeListener(_onDuration);
+  }
+
+  /// 用户在协商弹窗点了「继续播放」（consent 确认，或 rejected 仍要看）。
+  Future<void> acknowledgeDecision() async {
+    state = state.copyWith(clearDecision: true);
   }
 
   Future<void> togglePlay() async {

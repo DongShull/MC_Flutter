@@ -98,3 +98,19 @@ trim_playback_session_plugin：注册参与者→激活抢占→心跳→命令�
 | 6 | Go 引擎传输层 → 重试拦截器 + isolate 解析 | ✅ 全部落地 |
 | 3 | consent/rejected 协商结果弹窗 UI | 🟨 兜底已做，弹窗待做 |
 | 9-10 | 性能模式 / mmkv | ⬜ 不抄 |
+
+## 七、第四轮落地（进度上报 + 协商结果 UI，回填清单 3 收口）
+
+- **观看进度上报**（1:1 McApi.kt POST /playback/progress，PlaybackProgressRequest 全口径）：
+  playback_session_api.dart 加 reportProgress；player_controller._onPosition 15s 节流上报
+  event='progress'+position_ms+paused（仅正式协商路径）。
+- **consent/rejected 协商结果弹窗**（回填清单 #3 收口）：
+  PlayerPlayback.pendingDecision（SessionDecision 枚举，clearDecision copyWith 语义）；
+  open() 协商分支非 plan 时挂状态并原 url 兜底直播（不因协商失败黑屏）；
+  player_page build postFrame 检查 pendingDecision → showDialog（consent=转码确认说明，
+  rejected=拒绝说明），确认即 acknowledgeDecision 清状态。对齐飞牛协商三态的前端口径。
+
+### 回填清单终态（四轮，15 项）
+✅ 落地 13：分阶段启动/进即用重定向/崩溃兜底/封面预取(library+discover)/播放保活+中断恢复/屏幕常亮/
+   重试拦截器/isolate 解析/本地会话协调器/服务器会话协商/观看进度上报/协商结果 UI/McIcons 1068。
+⬜ 不抄 2：mmkv、性能模式。飞牛静态可回填技术全部收口。

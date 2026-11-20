@@ -437,8 +437,35 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     );
   }
 
+  /// 协商结果弹窗（consent=转码确认；rejected=服务器拒绝提示）。
+  void _maybeShowDecisionDialog(BuildContext context) {
+    final controller = ref.read(playerControllerProvider);
+    final decision = controller.pendingDecision;
+    if (decision == null) return;
+    ref.read(playerControllerProvider.notifier).acknowledgeDecision();
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        title: Text(decision == SessionDecision.rejected ? '无法直接播放' : '需要转码确认'),
+        content: Text(
+          decision == SessionDecision.rejected
+              ? '服务器拒绝了本次播放请求（可能无可用转码通道），已尝试按原始链接播放。'
+              : '该片源需要服务器转码后播放，可能增加延迟与功耗。要继续吗？',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('继续播放'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowDecisionDialog(context));
     final playback = ref.watch(playerControllerProvider);
     // 播放会话：状态变化立即上报，位置推进按 4s 节流。
     ref.listen(playerControllerProvider, (_, next) => _reportSessionState(next));
