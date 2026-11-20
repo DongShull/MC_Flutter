@@ -216,3 +216,12 @@
 - session：多账号令牌快照 mc_token:<origin>:<user>（snapshotAccountToken/switchAccount/deleteAccountToken，兼容旧 mc_token 单键迁移；顺带修复 restore() 模板串转义错误）
 
 剩余：原生 download 通道（Kotlin）、离线容量统计与账号删文件（依赖原生通道）、DLNA/QR 真机验证、打包链路（图标/启动图/签名）。
+
+## Round 21（2026-11-20）— 原生通道 + 打包链路收口
+- Kotlin 原生下载通道（MainActivity.kt McDownloadPlugin）编译通过；删残留草稿 McDownloadPlugin.kt、修 Long/Int 比较
+- 离线容量/删除接通原生的 capacity/delete；多账号令牌快照；跳过片段；访客分享播放（Round 19-20）
+- 构建链路：国内镜像（腾讯 gradle + 阿里 maven）、签名配置、debug.keystore、关 release lint（image_picker lint 崩溃）
+- 资产：程序化生成 logo.png → launcher icons + native splash
+- 产出：build/app/outputs/flutter-apk/app-release.apk (91.2MB, debug 签名)
+- commits: 18b2531 / 3afbc59 / 9b22cd0 / b317c6b
+- 待办：DLNA/QR 真机验证（需设备）；正式签名需提供 release keystore
