@@ -8,6 +8,7 @@ import '../../../core/designsystem/theme.dart';
 import '../state/onboarding_controller.dart';
 import '../routes.dart' as feat_onboarding;
 import '../../../core/designsystem/mc_icons.dart';
+import 'qr_scan_page.dart';
 
 /// 登录/接入页：输入服务器地址 → 探测 → bootstrap → device login。
 class OnboardingPage extends ConsumerStatefulWidget {
@@ -24,6 +25,16 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
   void dispose() {
     _hostCtrl.dispose();
     super.dispose();
+  }
+
+  /// 扫码连接（task6）：扫码页解析成功 → 预填服务器地址。
+  Future<void> _scanConnect() async {
+    final host = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const QrScanPage()),
+    );
+    if (host != null && host.isNotEmpty && mounted) {
+      setState(() => _hostCtrl.text = host);
+    }
   }
 
   Future<void> _connect() async {
@@ -98,6 +109,12 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                   ),
                   const SizedBox(height: 12),
                 ],
+                TextButton.icon(
+                  onPressed: state.busy ? null : _scanConnect,
+                  icon: const Icon(Icons.qr_code_scanner),
+                  label: const Text('扫码连接'),
+                ),
+                const SizedBox(height: 8),
                 McFocusRing(
                   borderRadius: 20,
                   child: FilledButton(
