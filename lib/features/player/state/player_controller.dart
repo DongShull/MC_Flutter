@@ -28,6 +28,7 @@ class PlayerPlayback {
     this.duration,
     this.speed = 1.0,
     this.pendingDecision,
+    this.skipSegments = const [],
   });
 
   final PlayerStatus status;
@@ -40,6 +41,9 @@ class PlayerPlayback {
   /// consent：需用户确认转码；rejected：服务器拒绝。null = 无待处理协商结果。
   final SessionDecision? pendingDecision;
 
+  /// 服务器会话下发的可跳区间（片头/片尾；进度条琥珀色标出）。
+  final List<PlaybackSkipSegment> skipSegments;
+
   PlayerPlayback copyWith({
     PlayerStatus? status,
     String? error,
@@ -50,6 +54,8 @@ class PlayerPlayback {
     SessionDecision? pendingDecision,
     bool clearError = false,
     bool clearDecision = false,
+    List<PlaybackSkipSegment>? skipSegments,
+    bool clearSkipSegments = false,
   }) {
     return PlayerPlayback(
       status: status ?? this.status,
@@ -59,6 +65,7 @@ class PlayerPlayback {
       duration: duration ?? this.duration,
       speed: speed ?? this.speed,
       pendingDecision: clearDecision ? null : (pendingDecision ?? this.pendingDecision),
+      skipSegments: clearSkipSegments ? const [] : (skipSegments ?? this.skipSegments),
     );
   }
 }
@@ -123,7 +130,12 @@ class PlayerController extends Notifier<PlayerPlayback> {
 
   Future<void> open(PlayerPageArgs args) async {
     _lastUrl = args.url;
-    state = state.copyWith(status: PlayerStatus.opening, clearError: true);
+    // 切集/重开时清掉上一集的可跳区间（新会话响应再刷新）。
+    state = state.copyWith(
+      status: PlayerStatus.opening,
+      clearError: true,
+      clearSkipSegments: true,
+    );
     try {
       // 服务器会话协商（正式路径）：mediaItemId/fileId 在才走；演示路径直连 url。
       var url = args.url;
@@ -145,6 +157,7 @@ class PlayerController extends Notifier<PlayerPlayback> {
           url = session.streamUrl!;
           _audioTracks = session.audioTracks;
           _subtitles = session.subtitles;
+          state = state.copyWith(skipSegments: session.skipSegments);
           _selectedAudioTrack ??= _firstDefault(
               [for (final t in session.audioTracks) if (t.isDefault) t.ref]);
           _selectedSubtitleTrack ??= _subtitles.isEmpty

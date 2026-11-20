@@ -547,6 +547,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
             PlayerProgressBar(
               position: playback.position,
               duration: playback.duration ?? Duration.zero,
+              skipSegments: playback.skipSegments,
               onSeek: (t) {
                 _controller.seekTo(t);
                 _noteActivity();

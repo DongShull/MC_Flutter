@@ -229,6 +229,28 @@ class PlaybackSubtitleTrack {
   }
 }
 
+/// 一个可跳过区间（PlaybackSegmentView 的 Flutter 侧子集，docs/design/skip-intro.md）。
+/// start/end 毫秒；type：intro 片头 / outro 片尾 / ad 广告 / preview 预告 / other。
+class PlaybackSkipSegment {
+  const PlaybackSkipSegment({
+    required this.type,
+    required this.startMs,
+    required this.endMs,
+  });
+
+  factory PlaybackSkipSegment.fromJson(Map<String, dynamic> json) {
+    return PlaybackSkipSegment(
+      type: (json['type'] ?? 'other').toString(),
+      startMs: (json['start_ms'] as num?)?.toInt() ?? 0,
+      endMs: (json['end_ms'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  final String type;
+  final int startMs;
+  final int endMs;
+}
+
 /// 开会话结果（PlaybackSessionView 的 Flutter 侧子集）。
 class PlaybackSession {
   const PlaybackSession({
@@ -241,6 +263,7 @@ class PlaybackSession {
     this.hwBackend,
     this.audioTracks = const [],
     this.subtitles = const [],
+    this.skipSegments = const [],
   });
 
   final String decision; // plan | consent | rejected
@@ -255,11 +278,17 @@ class PlaybackSession {
   final List<PlaybackAudioTrack> audioTracks;
   final List<PlaybackSubtitleTrack> subtitles;
 
+  /// 片头/片尾等可跳区间（旧服务端无此字段时为空表，解码不炸）。
+  final List<PlaybackSkipSegment> skipSegments;
+
   bool get playable => decision == 'plan' && streamUrl != null;
 
   factory PlaybackSession.fromJson(Map<String, dynamic> json) {
     final d = json['decision'];
     final dMap = d is Map<String, dynamic> ? d : null;
+    final segList = json['segments'] as List? ??
+        dMap?['segments'] as List? ??
+        const [];
     return PlaybackSession(
       decision: (dMap?['outcome'] ?? json['decision'] ?? '').toString(),
       audioTracks: [
@@ -278,6 +307,11 @@ class PlaybackSession {
       ],
       masterUrl: json['master_url']?.toString(),
       hwBackend: json['hw_backend']?.toString(),
+      skipSegments: [
+        // 服务器把 segments 挂在 PlaybackSessionView 顶层；decision 内兜底一份。
+        for (final s in segList)
+          if (s is Map<String, dynamic>) PlaybackSkipSegment.fromJson(s),
+      ],
     );
   }
 }

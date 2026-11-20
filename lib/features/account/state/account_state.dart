@@ -282,13 +282,21 @@ class AccountController extends Notifier<AccountUiState> {
     return null;
   }
 
-  /// 切换账号（对齐 switchTo）：恢复该账号会话并刷新 me。
+  /// 切换账号（对齐 switchTo）：快照当前令牌 → 恢复目标账号令牌并刷新 me。
   Future<void> switchTo(String origin, String username) async {
     if (state.busy) return;
     state = state.copyWith(busy: true);
-    // TODO(多账号令牌)：core SessionStore 落 mc_token:<origin>:<user> 快照后，
-    // 切换即恢复对应令牌，无需重新输密码；当前先恢复现有会话。
-    await _session.restore();
+    // 先把当前会话令牌快照回 mc_token:<origin>:<user>，再取目标账号令牌。
+    final curOrigin = _session.baseUrl;
+    final curUser = state.currentUsername;
+    if (curOrigin != null && curUser != null && curUser.isNotEmpty) {
+      await _session.snapshotAccountToken(origin: curOrigin, username: curUser);
+    }
+    final ok = await _session.switchAccount(origin: origin, username: username);
+    if (!ok) {
+      // 目标账号没有本机令牌（从未在这台设备登录过）：退回重开会话的旧行为。
+      await _session.restore();
+    }
     state = state.copyWith(
       busy: false,
       currentOrigin: origin,
@@ -313,6 +321,8 @@ class AccountController extends Notifier<AccountUiState> {
     }
     state = state.copyWith(servers: next);
     _persist(next);
+    // 本机快照删了，对应令牌也一并清（不动服务器端）。
+    await _session.deleteAccountToken(origin: origin, username: username);
   }
 
   /// 退出全部账号：清 sessionStore 令牌 + 清本机快照；界面随后跳 /onboarding。

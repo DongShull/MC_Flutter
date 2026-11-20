@@ -24,11 +24,15 @@ class SessionStore {
   String get deviceName => _deviceName ?? '';
   bool get isReady => _baseUrl != null && _token != null;
 
+  /// 多账号令牌键：mc_token:<origin>:<username>（旧版只有 mc_token:<origin>）。
+  String _accountKey(String origin, String username) =>
+      'mc_token:$origin:$username';
+
   Future<void> restore() async {
     final base = await _storage.read(key: 'mc_active_base');
     _baseUrl = base;
     if (base != null) {
-      _token = await _storage.read(key: 'mc_token:\${base}');
+      _token = await _storage.read(key: 'mc_token:$base');
       _username = await _storage.read(key: 'mc_username');
       _deviceName = await _storage.read(key: 'mc_device_name');
     }
@@ -46,6 +50,11 @@ class SessionStore {
     if (deviceName != null) _deviceName = deviceName;
     await _storage.write(key: 'mc_active_base', value: baseUrl);
     await _storage.write(key: 'mc_token:$baseUrl', value: token);
+    // 同时落账号级快照（mc_token:<origin>:<user>），供切换账号免重登恢复。
+    if (_username != null) {
+      await _storage.write(
+          key: _accountKey(baseUrl, _username!), value: token);
+    }
     if (_username != null) {
       await _storage.write(key: 'mc_username', value: _username!);
     }
@@ -64,6 +73,48 @@ class SessionStore {
       _deviceName = deviceName;
       await _storage.write(key: 'mc_device_name', value: deviceName);
     }
+  }
+
+  /// 快照当前会话令牌到 mc_token:<origin>:<user>（切换账号前先存，避免丢失）。
+  Future<void> snapshotAccountToken({
+    required String origin,
+    required String username,
+  }) async {
+    final token = _token;
+    if (token == null || username.isEmpty) return;
+    await _storage.write(key: _accountKey(origin, username), value: token);
+  }
+
+  /// 切换到 <origin>:<username> 的已存令牌：命中账号键即激活会话；
+  /// 向后兼容迁移——旧数据只有 mc_token:<origin> 单键时读它并回写到账号键。
+  /// 没有任何令牌返回 false（调用方维持现状 / 走重新登录）。
+  Future<bool> switchAccount({
+    required String origin,
+    required String username,
+  }) async {
+    var token = await _storage.read(key: _accountKey(origin, username));
+    if (token == null || token.isEmpty) {
+      token = await _storage.read(key: 'mc_token:$origin');
+      if (token != null && token.isNotEmpty) {
+        // 迁移：旧单键令牌补写账号键，之后两种键都在。
+        await _storage.write(key: _accountKey(origin, username), value: token);
+      }
+    }
+    if (token == null || token.isEmpty) return false;
+    _baseUrl = origin;
+    _token = token;
+    _username = username;
+    await _storage.write(key: 'mc_active_base', value: origin);
+    await _storage.write(key: 'mc_username', value: username);
+    return true;
+  }
+
+  /// 本机移除账号时清对应令牌快照（不动当前会话）。
+  Future<void> deleteAccountToken({
+    required String origin,
+    required String username,
+  }) async {
+    await _storage.delete(key: _accountKey(origin, username));
   }
 
   Future<void> logout() async {

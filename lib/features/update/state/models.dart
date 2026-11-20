@@ -70,10 +70,13 @@ class ClientReleaseView {
 
 /// 更新策略（对齐原 core/update UpdatePolicy 的纯函数部分）。
 abstract final class UpdatePolicy {
-  /// Flutter 端当前 build 号。Flutter shell 尚无版本注入通道，
-  /// 暂以 1 为基线；接入构建版本注入后改为读取真实 versionCode。
-  // TODO(infra): 从构建注入的版本常量读取（对应 Kotlin BuildInfo.BUILD_NUMBER）。
-  static const int currentBuild = 1;
+  /// Flutter 端当前 build 号（对应 Kotlin BuildInfo.BUILD_NUMBER）。
+  /// 构建时经 --dart-define 注入，未注入时回退 1（本地 debug 基线）：
+  /// ```sh
+  /// flutter build apk --dart-define=MC_BUILD_NUMBER=42
+  /// ```
+  static const int currentBuild =
+      int.fromEnvironment('MC_BUILD_NUMBER', defaultValue: 1);
   static const String currentDisplayVersion = '0.1.0';
   static const String product = 'android';
 
