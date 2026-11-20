@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/designsystem/state_views.dart';
 import '../state/controllers.dart';
+import '../state/mc_api.dart';
 import '../widgets/settings_ui.dart';
 import '../../../core/designsystem/mc_icons.dart';
 
@@ -51,8 +53,25 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     await ref.read(profileProvider.notifier).logout();
     if (!mounted) return;
     showSettingsToast(context, '已退出登录');
-    // TODO(login): 登录路由落定后跳转登录页。
-    context.pop();
+    // 未登录由 router redirect 统一落回 /onboarding。
+    context.go('/');
+  }
+
+  /// 选图并 POST /auth/avatar（multipart；成功后刷新 /auth/me）。
+  Future<void> _uploadAvatar() async {
+    final picker = ImagePicker();
+    final x = await picker.pickImage(
+        source: ImageSource.gallery, maxWidth: 512, imageQuality: 85);
+    if (x == null) return;
+    try {
+      await ref.read(settingsApiProvider).uploadAvatar(x.path);
+      await ref.read(profileProvider.notifier).load();
+      if (!mounted) return;
+      showSettingsToast(context, '头像已更新');
+    } catch (_) {
+      if (!mounted) return;
+      showSettingsToast(context, '头像上传失败');
+    }
   }
 
   @override
@@ -108,7 +127,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                   title: '修改密码',
                   onTap: _changePassword,
                 ),
-                // TODO(avatar): 头像上传需要 multipart（McClient 暂缺）。
+                SettingsRow(
+                  icon: McIcons.imageAdd,
+                  title: '更换头像',
+                  onTap: _uploadAvatar,
+                ),
                 const SizedBox(height: 16),
                 SettingsRow(
                   icon: McIcons.logout,

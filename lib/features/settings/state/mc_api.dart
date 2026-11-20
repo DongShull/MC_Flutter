@@ -56,7 +56,13 @@ class SettingsApi {
         },
       );
 
-  // TODO(avatar): POST /auth/avatar 需要 multipart 上传，McClient 暂不支持。
+  /// POST /auth/avatar（multipart，对齐 Kotlin McApi.uploadAvatar）。
+  Future<void> uploadAvatar(String filePath) async {
+    await client.postMultipart<dynamic>(
+      Channel.general, '$_prefix/auth/avatar',
+      fileField: 'file', filePath: filePath,
+    );
+  }
 
   // ---- 设备 ----
 

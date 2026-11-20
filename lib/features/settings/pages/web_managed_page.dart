@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/mc_api.dart';
@@ -33,8 +34,13 @@ class WebManagedPage extends ConsumerWidget {
             title: origin.isEmpty ? '未配置服务器' : origin,
             subtitle: '在浏览器中打开服务器管理页',
             trailing: const Icon(Icons.open_in_new),
-            // TODO(browser): 引入 url_launcher 后改为真实拉起浏览器。
-            onTap: () => showSettingsToast(context, '请在浏览器中打开 $origin'),
+            onTap: () {
+              if (origin.isEmpty) {
+                showSettingsToast(context, '未配置服务器地址');
+                return;
+              }
+              launchUrl(Uri.parse(origin), mode: LaunchMode.externalApplication);
+            },
           ),
           const SizedBox(height: 24),
         ],

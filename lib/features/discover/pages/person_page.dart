@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_exception.dart';
 import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
+import '../routes.dart' as feat_discover;
 import '../state/discover_controller.dart' show DiscTitle;
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/poster_card.dart';
@@ -151,8 +152,7 @@ class _PersonPageState extends ConsumerState<PersonPage> {
                         radius: 12,
                         subtitle: [if (t.year != null) t.year.toString()].join(' · '),
                         rating: (t.rating ?? 0) > 0 ? t.rating : null,
-                        // TODO(player/detail): 跳 title 详情路由（导航意图，不做播放）。
-                        onTap: () {},
+                        onTap: () => feat_discover.pushTitle(context, t.ref),
                       ),
                     );
                   },

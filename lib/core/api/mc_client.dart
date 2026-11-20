@@ -92,6 +92,30 @@ class McClient {
   }
 
   /// 信封解包：非 ok 抛 ApiException，ok 返回 data。
+  /// multipart 上传（头像等；对应 Kotlin @Multipart）。返回解包后的 data。
+  Future<T> postMultipart<T>(
+    Channel channel,
+    String path, {
+    required String fileField,
+    required String filePath,
+    String fileName = 'avatar.jpg',
+    String contentType = 'image/jpeg',
+    Map<String, dynamic>? query,
+  }) async {
+    final dio = _dio[channel]!;
+    final form = FormData.fromMap({
+      fileField: await MultipartFile.fromFile(filePath,
+          filename: fileName, contentType: DioMediaType(contentType.split('/')[0], contentType.split('/')[1])),
+    });
+    final res = await dio.post<Map<String, dynamic>>(path,
+        data: form, queryParameters: query);
+    final data = res.data;
+    if (data == null) {
+      throw ApiException('network.empty', '服务器返回为空', httpStatus: res.statusCode);
+    }
+    return unwrapEnvelope<T>(data);
+  }
+
   Future<T> unwrap<T>(
     Channel channel,
     String method,

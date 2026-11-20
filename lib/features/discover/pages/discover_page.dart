@@ -36,7 +36,6 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
           IconButton(
             icon: const Icon(McIcons.search),
             tooltip: '搜索',
-            // TODO(player/detail): 跳 search 路由（导航意图）。
             onPressed: () => context.go(feat_discover.routeSearchEntry),
           ),
           if (state.source.toLowerCase() == 'tmdb')
@@ -215,7 +214,6 @@ class _HeroCarousel extends StatelessWidget {
             child: McFocusRing(
               borderRadius: 14,
               child: GestureDetector(
-              // TODO(player/detail): 跳 title 详情路由（导航意图，不做播放）。
               onTap: () => feat_discover.pushTitle(context, t.ref),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
@@ -304,8 +302,7 @@ class _SectionRow extends StatelessWidget {
                       ].join(' · '),
                       rating: (t.rating ?? 0) > 0 ? t.rating : null,
                         badge: t.owned ? '在库' : null,
-                        // TODO(player/detail): 跳 title 详情路由（导航意图，不做播放）。
-                        onTap: () => feat_discover.pushTitle(context, t.ref),
+                                  onTap: () => feat_discover.pushTitle(context, t.ref),
                       ),
                     ),
                   ),

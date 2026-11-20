@@ -112,7 +112,9 @@ class BubbleView extends StatelessWidget {
               title: const Text('复制'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
-                // TODO(剪贴板确认反馈)：内容已进系统剪贴板。
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('已复制到剪贴板')),
+                );
               },
             ),
             if (onEdit != null)

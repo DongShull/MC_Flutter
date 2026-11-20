@@ -3,6 +3,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
@@ -380,11 +381,9 @@ class _HitTile extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: () {
-          // 库内条目 → 跳媒体详情/播放（复用全局详情路由；播放一律交播放器域）。
-          // TODO(player): 导航意图，等待 detail/player 路由接入后替换。
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('查看「${hit.itemName}」详情（待接入 detail 路由）')),
-          );
+          // 库内条目 → 全局详情路由（播放一律交播放器域）。
+          if (hit.libraryIds.isEmpty) return;
+          context.push('/detail/${hit.libraryIds.first}/${hit.itemId}');
         },
         child: Padding(
           padding: const EdgeInsets.all(10),

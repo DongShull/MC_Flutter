@@ -77,16 +77,19 @@ class _MorePageState extends ConsumerState<MorePage> {
   }
 
   Future<void> _fork(SessionSummary s) async {
-    final err = await ref.read(moreProvider.notifier).forkSession(s.id);
+    final newId = await ref.read(moreProvider.notifier).forkSession(s.id);
     if (!mounted) return;
+    if (newId != null) {
+      context.push('/agent/session/$newId');
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(err ?? '已创建分叉会话'),
+      const SnackBar(
+        content: Text('分叉会话失败'),
         behavior: SnackBarBehavior.floating,
         width: 360,
       ),
     );
-    // TODO(agent): agent 路由支持会话参数后，直接跳入新会话。
   }
 
   @override

@@ -142,14 +142,14 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
     }
   }
 
-  /// 分叉会话；成功返回 null（列表刷新，新会话在 agent 里可见）。
+  /// 分叉会话；成功返回新会话 id（页面直接跳入），失败返回 null。
   Future<String?> forkSession(String id) async {
     try {
-      await _api.forkSession(id);
+      final newId = await _api.forkSession(id);
       await _refreshSessions();
+      return newId;
+    } catch (_) {
       return null;
-    } catch (e) {
-      return e.toString();
     }
   }
 

@@ -157,7 +157,6 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
               ].join(' · '),
               rating: (t.rating ?? 0) > 0 ? t.rating : null,
               badge: t.owned ? '在库' : null,
-                // TODO(player/detail): 跳 title 详情路由（导航意图，不做播放）。
                 onTap: () => feat_discover.pushTitle(context, t.ref),
               ),
             ),

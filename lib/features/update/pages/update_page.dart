@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/designsystem/adaptive.dart';
@@ -138,14 +139,13 @@ class _UpdateDialog extends ConsumerWidget {
               child: const Text('跳过此版本'),
             ),
             TextButton(
-              // 对齐 Kotlin 端 ACTION_VIEW 发布页；Flutter 侧 url_launcher
-              // 尚未在 pubspec 中，先 TODO 占位。
-              // TODO(share/update): 引入 url_launcher 后改为 launchUrl(release.releaseUrl)。
+              // 对齐 Kotlin 端 ACTION_VIEW 发布页（Custom Tabs / 外部浏览器）。
               onPressed: () {
                 Navigator.of(context).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('发布页：${release.releaseUrl}')),
-                );
+                final url = release.releaseUrl;
+                if (url.isNotEmpty) {
+                  launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+                }
               },
               child: const Text('打开发布页', style: TextStyle(color: McColors.accent)),
             ),
