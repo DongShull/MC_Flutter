@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/player/session/playback_session_api.dart';
 
 /// 进度条上方的工具行（Android PlayerBottomControls）：
 /// 左胶囊 = 音轨 / 字幕（占位菜单），右胶囊 = 下一集 / 选集 / 倍速。
@@ -17,6 +18,12 @@ class PlayerBottomControls extends StatelessWidget {
     required this.speed,
     required this.onPickSpeed,
     required this.onNotice,
+    this.audioTracks = const [],
+    this.subtitles = const [],
+    this.selectedAudioTrack,
+    this.selectedSubtitleTrack,
+    required this.onPickAudio,
+    required this.onPickSubtitle,
   });
 
   final bool isEpisode;
@@ -28,6 +35,14 @@ class PlayerBottomControls extends StatelessWidget {
   final ValueChanged<double> onPickSpeed;
   final ValueChanged<String> onNotice;
 
+  /// 会话响应里的可选轨道（空 = 服务器未提供轨道信息，菜单给提示）。
+  final List<PlaybackAudioTrack> audioTracks;
+  final List<PlaybackSubtitleTrack> subtitles;
+  final String? selectedAudioTrack;
+  final String? selectedSubtitleTrack;
+  final ValueChanged<String> onPickAudio;
+  final ValueChanged<String> onPickSubtitle;
+
   Widget _pill(Widget child) => Container(
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.45),
@@ -37,10 +52,100 @@ class PlayerBottomControls extends StatelessWidget {
         child: child,
       );
 
+  /// 菜单条目统一视图（ref / 主文案 / 副文案）。
+  List<(String, String, String)> _trackEntries({required bool subtitle}) {
+    if (subtitle) {
+      return [for (final t in subtitles) (t.trackRef, t.label, t.detail)];
+    }
+    return [
+      for (final t in audioTracks)
+        (
+          t.ref,
+          t.label,
+          [
+            if (t.codec != null && t.codec!.isNotEmpty) t.codec!,
+            if (t.channels != null) '${t.channels} 声道',
+          ].join(' · '),
+        ),
+    ];
+  }
+
+  /// 音轨/字幕轨菜单：条目来自播放会话响应；换轨走重开会话（PlayerController.switchTrack）。
   void _showTrackMenu(BuildContext context, {required bool subtitle}) {
-    // TODO(playback-session): 音轨/字幕轨列表来自会话响应（audioTracks/subtitles）。
-    // video_player 路线当前只保证内嵌轨由引擎直出，此处先给占位选择。
-    onNotice(subtitle ? '字幕轨选择待会话接口接入（占位）' : '音轨选择待会话接口接入（占位）');
+    final entries = _trackEntries(subtitle: subtitle);
+    final selected = subtitle ? selectedSubtitleTrack : selectedAudioTrack;
+    final primary = Theme.of(context).colorScheme.primary;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xE610121A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                subtitle ? '字幕' : '音轨',
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+            if (entries.isEmpty)
+              const ListTile(
+                dense: true,
+                enabled: false,
+                title: Text('服务器未提供轨道信息',
+                    style: TextStyle(color: Colors.white54)),
+              )
+            else ...[
+              if (subtitle)
+                ListTile(
+                  dense: true,
+                  title: Text(
+                    '关闭字幕',
+                    style: TextStyle(
+                      color: (selected ?? '').isEmpty ? primary : Colors.white,
+                    ),
+                  ),
+                  trailing: (selected ?? '').isEmpty
+                      ? Icon(McIcons.check, color: primary)
+                      : null,
+                  onTap: () {
+                    onPickSubtitle('off');
+                    Navigator.of(context).pop();
+                  },
+                ),
+              for (final (ref, label, detail) in entries)
+                ListTile(
+                  dense: true,
+                  title: Text(
+                    label,
+                    style: TextStyle(color: ref == selected ? primary : Colors.white),
+                  ),
+                  subtitle: detail.isEmpty
+                      ? null
+                      : Text(detail,
+                          style: const TextStyle(
+                              fontSize: 12, color: Colors.white54)),
+                  trailing: ref == selected
+                      ? Icon(McIcons.check, color: primary)
+                      : null,
+                  onTap: () {
+                    if (subtitle) {
+                      onPickSubtitle(ref);
+                    } else {
+                      onPickAudio(ref);
+                    }
+                    Navigator.of(context).pop();
+                  },
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   void _showSpeedMenu(BuildContext context) {

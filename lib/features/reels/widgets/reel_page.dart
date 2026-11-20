@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/models.dart';
+import '../state/network_tier.dart';
 import '../../../core/designsystem/mc_icons.dart';
 
 /// 一页片段（对应 Android ReelPage 竖屏布局）：
@@ -68,10 +69,6 @@ class ReelPage extends StatelessWidget {
                           fit: BoxFit.contain, // 横带里整张封面完整可见，两侧留黑
                           errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                         ),
-                      // TODO(reels-playback): 封面压暗，等接上播放引擎后移除
-                      ColoredBox(
-                        color: Colors.black.withValues(alpha: 0.3),
-                      ),
                       Center(
                         child: IconButton.outlined(
                           onPressed: onPlay,
@@ -94,10 +91,14 @@ class ReelPage extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _OutlinedCapsule(
-                    label: '原画',
-                    onTap: onPlay,
-                  ), // TODO(reels-quality): 按网络环境记档位（原画 / 720p）
+                  // 画质档位：蜂窝网络降 720p，Wi-Fi/有线原画（仅展示当前档）。
+                  FutureBuilder<String>(
+                    future: NetworkTier.current(),
+                    builder: (context, snap) => _OutlinedCapsule(
+                      label: snap.data ?? '原画',
+                      onTap: onPlay,
+                    ),
+                  ),
                   _OutlinedCapsule(
                     label: '全屏观看',
                     onTap: onPlay,

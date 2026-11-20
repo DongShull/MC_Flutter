@@ -249,16 +249,20 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
   }
 
   void _play(ReelItemView item) {
-    // TODO(reels-playback): 片段起播（seek/clip 选路、字幕、预取）在 player 域完成，
-    // 这里只传导航意图，从片段起点接着看（同 Android「看全片」）。
+    // 片段起播：PlayerPageArgs.startPosition = 片段起点（segment.startMs），
+    // 从片段处接着看（同 Android「看全片」）；无片段信息则从 0 开始。
     ref.read(reelsControllerProvider.notifier).event(item, 'open');
     final ep = item.title.episode;
     context.push('/player', extra: PlayerPageArgs(
       mediaItemId: item.title.mediaItemId,
+      fileId: item.segment.fileId > 0 ? item.segment.fileId : null,
       seasonNumber: ep?.season,
       episodeNumber: ep?.episode,
       title: item.title.name,
       isEpisode: ep != null,
+      startPosition: item.segment.startMs > 0
+          ? Duration(milliseconds: item.segment.startMs)
+          : null,
     ));
   }
 

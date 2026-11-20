@@ -120,6 +120,115 @@ class PlaybackSessionApi {
   }
 }
 
+/// 一条可选音轨（AudioTrackView 的 Flutter 侧子集）：菜单展示 + 换轨用。
+class PlaybackAudioTrack {
+  const PlaybackAudioTrack({
+    required this.ref,
+    this.codec,
+    this.channels,
+    this.language,
+    this.isDefault = false,
+  });
+
+  factory PlaybackAudioTrack.fromJson(Map<String, dynamic> json) {
+    return PlaybackAudioTrack(
+      ref: (json['ref'] ?? '').toString(),
+      codec: json['codec']?.toString(),
+      channels: (json['channels'] as num?)?.toInt(),
+      language: json['language']?.toString(),
+      isDefault: json['is_default'] as bool? ?? false,
+    );
+  }
+
+  /// 中性轨引用（embedded:N），换轨时作为 audio_track 回传服务器。
+  final String ref;
+  final String? codec;
+  final int? channels;
+  final String? language;
+  final bool isDefault;
+
+  /// 菜单展示文案（同 Android PlayerTracks.LanguageLabel 的精简口径）。
+  String get label {
+    const labels = <String, String>{
+      'chs': '简体中文', 'cht': '繁体中文', 'chi': '中文', 'zho': '中文',
+      'cmn': '中文', 'yue': '粤语', 'eng': '英语', 'jpn': '日语', 'kor': '韩语',
+      'fre': '法语', 'fra': '法语', 'ger': '德语', 'deu': '德语',
+      'spa': '西班牙语', 'rus': '俄语', 'ita': '意大利语', 'por': '葡萄牙语',
+      'tha': '泰语', 'hin': '印地语',
+    };
+    final lang = language;
+    final langLabel = (lang == null || lang.isEmpty || lang == 'und')
+        ? null
+        : labels[lang.toLowerCase()] ?? lang;
+    final parts = <String>[langLabel ?? '未知语言'];
+    if (codec != null && codec!.isNotEmpty) parts.add(codec!);
+    if (channels != null) parts.add('$channels 声道');
+    return parts.join(' · ');
+  }
+}
+
+/// 一条可选字幕（SubtitlePlanView 的 Flutter 侧子集）。
+class PlaybackSubtitleTrack {
+  const PlaybackSubtitleTrack({
+    required this.trackRef,
+    this.kind = '',
+    this.language,
+    this.isDefault = false,
+    this.isAi = false,
+    this.title,
+    this.isForced = false,
+  });
+
+  factory PlaybackSubtitleTrack.fromJson(Map<String, dynamic> json) {
+    return PlaybackSubtitleTrack(
+      trackRef: (json['track_ref'] ?? '').toString(),
+      kind: json['kind']?.toString() ?? '',
+      language: json['language']?.toString(),
+      isDefault: json['is_default'] as bool? ?? false,
+      isAi: json['is_ai'] as bool? ?? false,
+      title: json['title']?.toString(),
+      isForced: json['is_forced'] as bool? ?? false,
+    );
+  }
+
+
+  /// 中性轨引用（embedded:N / external:文件名），换轨时作为 subtitle_track 回传。
+  final String trackRef;
+
+  /// vtt（文本）/ ass（特效）/ pgs（图形）。
+  final String kind;
+  final String? language;
+  final bool isDefault;
+  final bool isAi;
+  final String? title;
+  final bool isForced;
+
+  /// 菜单展示文案（标题 > 外挂文件名 > ref）。
+  String get label {
+    final t = title?.trim();
+    if (t != null && t.isNotEmpty) return t;
+    const externalPrefix = 'external:';
+    if (trackRef.startsWith(externalPrefix)) {
+      return trackRef.substring(externalPrefix.length);
+    }
+    return trackRef;
+  }
+
+
+  /// 补充说明（格式 + AI/强制/默认标记）。
+  String get detail {
+    const kindLabels = {
+      'vtt': 'WebVTT', 'ass': 'ASS 特效', 'ssa': 'SSA 特效',
+      'pgs': 'PGS 图形', 'srt': 'SRT 文本', 'text': '文本',
+    };
+    final parts = <String>[if (kind.isNotEmpty) kindLabels[kind] ?? kind];
+    if (isAi) parts.add('AI 生成');
+    if (isForced) parts.add('强制');
+    if (isDefault) parts.add('默认');
+    return parts.join(' · ');
+  }
+}
+
 /// 开会话结果（PlaybackSessionView 的 Flutter 侧子集）。
 class PlaybackSession {
   const PlaybackSession({
@@ -130,6 +239,8 @@ class PlaybackSession {
     this.subtitleUrls = const [],
     this.masterUrl,
     this.hwBackend,
+    this.audioTracks = const [],
+    this.subtitles = const [],
   });
 
   final String decision; // plan | consent | rejected
@@ -140,11 +251,25 @@ class PlaybackSession {
   final String? masterUrl;
   final String? hwBackend;
 
+  /// 服务器 decision 内给出的可选音轨/字幕轨（空 = 服务器未提供轨道信息）。
+  final List<PlaybackAudioTrack> audioTracks;
+  final List<PlaybackSubtitleTrack> subtitles;
+
   bool get playable => decision == 'plan' && streamUrl != null;
 
   factory PlaybackSession.fromJson(Map<String, dynamic> json) {
+    final d = json['decision'];
+    final dMap = d is Map<String, dynamic> ? d : null;
     return PlaybackSession(
-      decision: (json['decision'] ?? '').toString(),
+      decision: (dMap?['outcome'] ?? json['decision'] ?? '').toString(),
+      audioTracks: [
+        for (final t in (dMap?['audio_tracks'] as List? ?? []))
+          if (t is Map<String, dynamic>) PlaybackAudioTrack.fromJson(t),
+      ],
+      subtitles: [
+        for (final t in (dMap?['subtitles'] as List? ?? []))
+          if (t is Map<String, dynamic>) PlaybackSubtitleTrack.fromJson(t),
+      ],
       sessionId: json['session_id']?.toString(),
       streamUrl: json['stream_url']?.toString(),
       startMs: (json['start_ms'] as num?)?.toInt() ?? 0,

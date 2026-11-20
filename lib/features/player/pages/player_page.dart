@@ -177,6 +177,30 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     _showNotice('已切换到 S$season E${episode.episode}');
   }
 
+  /// 候选分集：播放侧实时拉到的优先，回退入口方传入的 episodes。
+  List<EpisodeItem> get _episodeCandidates =>
+      _pickerEpisodes.isNotEmpty ? _pickerEpisodes : _args.episodes;
+
+  /// 下一集：按 (season, episode) 找当前之后的最小一集（需已拥有且有文件）。
+  EpisodeItem? get _nextEpisode {
+    final curSeason = _args.seasonNumber ?? 0;
+    final curEpisode = _args.episodeNumber ?? 0;
+    final list = _episodeCandidates
+        .where((e) => e.owned && e.fileId != null)
+        .toList()
+      ..sort((a, b) {
+        if (a.season != b.season) return a.season - b.season;
+        return a.episode - b.episode;
+      });
+    for (final e in list) {
+      if (e.season > curSeason ||
+          (e.season == curSeason && e.episode > curEpisode)) {
+        return e;
+      }
+    }
+    return null;
+  }
+
   /// 播放会话协调（docs/design/08）：注册参与者 + 订阅协调器命令。
   /// 后到抢占时旧 active 收 pause；synchronize 下发 seek。
   void _joinPlaybackSession() {
@@ -486,8 +510,26 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
             // 工具行（音轨/字幕/下一集/选集/倍速）
             PlayerBottomControls(
               isEpisode: _args.isEpisode,
-              hasNext: false, // TODO(playback-session): 下一集来自会话响应
-              onNext: () => _showNotice('下一集待会话接口接入（占位）'),
+              // 下一集：分集数据可定位到当前之后的最小一集才显示按钮。
+              hasNext: _nextEpisode != null,
+              onNext: () {
+                final next = _nextEpisode;
+                if (next != null) _switchEpisode(next.season, next);
+              },
+              audioTracks: _controller.audioTracks,
+              subtitles: _controller.subtitles,
+              selectedAudioTrack: _controller.selectedAudioTrack,
+              selectedSubtitleTrack: _controller.selectedSubtitleTrack,
+              onPickAudio: (trackRef) {
+                _noteActivity();
+                _controller.switchTrack(audioTrack: trackRef);
+              },
+              onPickSubtitle: (trackRef) {
+                _noteActivity();
+                // 'off' = 关闭字幕（switchTrack 里以 '' 传服务器）。
+                _controller.switchTrack(
+                    subtitleTrack: trackRef == 'off' ? '' : trackRef);
+              },
               onEpisodes: () {
                 setState(() => _episodePickerOpen = true);
                 _loadPickerEpisodes();

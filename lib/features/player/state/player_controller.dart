@@ -83,6 +83,17 @@ class PlayerController extends Notifier<PlayerPlayback> {
   DateTime _lastProgressReport = DateTime.fromMillisecondsSinceEpoch(0);
   PlayerPageArgs? _currentArgs;
 
+  /// 服务器会话给出的可选轨道（open 时刷新；空 = 服务器未提供轨道信息）。
+  List<PlaybackAudioTrack> _audioTracks = const [];
+  List<PlaybackSubtitleTrack> _subtitles = const [];
+  String? _selectedAudioTrack;
+  String? _selectedSubtitleTrack;
+
+  List<PlaybackAudioTrack> get audioTracks => _audioTracks;
+  List<PlaybackSubtitleTrack> get subtitles => _subtitles;
+  String? get selectedAudioTrack => _selectedAudioTrack;
+  String? get selectedSubtitleTrack => _selectedSubtitleTrack;
+
   /// 30s 心跳（服务器口径；本地协调器心跳独立 5s）。
   void _startPing() {
     _pingTimer?.cancel();
@@ -126,10 +137,22 @@ class PlayerController extends Notifier<PlayerPlayback> {
           seasonNumber: args.seasonNumber,
           episodeNumber: args.episodeNumber,
           startMs: args.startPosition?.inMilliseconds,
+          audioTrack: _selectedAudioTrack,
+          subtitleTrack: _selectedSubtitleTrack,
         );
         if (session.playable) {
           _serverSessionId = session.sessionId;
           url = session.streamUrl!;
+          _audioTracks = session.audioTracks;
+          _subtitles = session.subtitles;
+          _selectedAudioTrack ??= _firstDefault(
+              [for (final t in session.audioTracks) if (t.isDefault) t.ref]);
+          _selectedSubtitleTrack ??= _subtitles.isEmpty
+              ? null
+              : (_firstDefault(
+                    [for (final t in _subtitles) if (t.isDefault) t.trackRef],
+                  ) ??
+                  _subtitles.first.trackRef);
           if (args.startPosition == null && session.startMs > 0) {
             startPosition = Duration(milliseconds: session.startMs);
           }
@@ -197,6 +220,40 @@ class PlayerController extends Notifier<PlayerPlayback> {
     _service.position.removeListener(_onPosition);
     _service.playing.removeListener(_onPlaying);
     _service.duration.removeListener(_onDuration);
+  }
+
+  /// 取第一个默认轨引用（不引 collection 包，手写 firstOrNull 口径）。
+  String? _firstDefault(List<String> refs) =>
+      refs.isEmpty ? null : refs.first;
+
+  /// 换音轨/字幕轨：对齐切集路径（detach → 带轨参数重开会话 → 续播当前进度）。
+  /// subtitleTrack 传 '' 表示关闭字幕；null 表示保持不变。
+  Future<void> switchTrack({String? audioTrack, String? subtitleTrack}) async {
+    final args = _currentArgs;
+    if (args == null || _sessionApi == null) return;
+    final pos = _service.position.value;
+    detach();
+    if (audioTrack != null) _selectedAudioTrack = audioTrack;
+    if (subtitleTrack != null) _selectedSubtitleTrack = subtitleTrack;
+    await open(_copyArgsAt(args, pos));
+  }
+
+  /// 以当前进度续播复制 args（换轨/换集共用口径：startPosition = 当前进度）。
+  PlayerPageArgs _copyArgsAt(PlayerPageArgs args, Duration position) {
+    return PlayerPageArgs(
+      url: args.url,
+      mediaItemId: args.mediaItemId,
+      fileId: args.fileId,
+      seasonNumber: args.seasonNumber,
+      episodeNumber: args.episodeNumber,
+      title: args.title,
+      subtitle: args.subtitle,
+      startPosition: position,
+      headers: args.headers,
+      isEpisode: args.isEpisode,
+      seasons: args.seasons,
+      episodes: args.episodes,
+    );
   }
 
   /// 用户在协商弹窗点了「继续播放」（consent 确认，或 rejected 仍要看）。
