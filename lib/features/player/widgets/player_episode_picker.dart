@@ -17,6 +17,8 @@ class PlayerEpisodePicker extends StatefulWidget {
     required this.currentEpisode,
     required this.onSelect,
     required this.onDismiss,
+    this.onSeasonChanged,
+    this.loading = false,
     this.asDrawer = false,
   });
 
@@ -25,6 +27,12 @@ class PlayerEpisodePicker extends StatefulWidget {
   final int currentEpisode;
   final void Function(int season, EpisodeItem episode) onSelect;
   final VoidCallback onDismiss;
+
+  /// 换季：面板只管 UI，数据刷新由入口方拉取（播放侧分集接口）。
+  final ValueChanged<int>? onSeasonChanged;
+
+  /// 分集加载中（播放侧接口拉取时置灰列表区）。
+  final bool loading;
 
   /// 平板横屏：右侧抽屉式面板（不遮挡画面主体）；false = 居中对话框。
   final bool asDrawer;
@@ -66,7 +74,10 @@ class _PlayerEpisodePickerState extends State<PlayerEpisodePicker> {
                       labelStyle: TextStyle(
                           color: number == _season ? accent : Colors.white),
                       selectedColor: Colors.white24,
-                      onSelected: (_) => setState(() => _season = number),
+                      onSelected: (_) {
+                        setState(() => _season = number);
+                        widget.onSeasonChanged?.call(number);
+                      },
                     ),
                   ),
               ],
@@ -74,11 +85,13 @@ class _PlayerEpisodePickerState extends State<PlayerEpisodePicker> {
           ),
         const SizedBox(height: 12),
         if (episodes.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 32),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 32),
             child: Center(
-              child: Text('本季暂无剧集数据（待会话接口接入）',
-                  style: TextStyle(color: Colors.white54)),
+              child: widget.loading
+                  ? const CircularProgressIndicator(strokeWidth: 2)
+                  : const Text('本季暂无剧集数据',
+                      style: TextStyle(color: Colors.white54)),
             ),
           )
         else

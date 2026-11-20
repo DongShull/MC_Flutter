@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/player/player_page_args.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/adaptive.dart';
+import '../../../core/effects/mc_stretch.dart';
 
 import '../state/controllers.dart';
 import '../state/models.dart';
@@ -95,7 +98,10 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
               onAction: state.filter.isActive ? controller.clearFilter : null,
             )
           else
-            PageView.builder(
+            // 果冻拉伸：上下滑越界时整页呈冻拉伸并回弹（对应飞牛 stretch_effect）。
+            McStretchContainer(
+              axis: Axis.vertical,
+              child: PageView.builder(
               controller: _pageController,
               scrollDirection: Axis.vertical,
               itemCount: state.items.length,
@@ -116,6 +122,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
                   onPlay: () => _play(item),
                 );
               },
+            ),
             ),
 
           // ── 顶栏：返回键 / 片名胶囊 / 筛选胶囊 ──
@@ -245,14 +252,14 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
     // TODO(reels-playback): 片段起播（seek/clip 选路、字幕、预取）在 player 域完成，
     // 这里只传导航意图，从片段起点接着看（同 Android「看全片」）。
     ref.read(reelsControllerProvider.notifier).event(item, 'open');
-    context.push('/player', extra: {
-      'libraryId': item.title.libraryId,
-      'itemId': item.title.mediaItemId,
-      if (item.title.episode != null)
-        'season': item.title.episode!.season,
-      if (item.title.episode != null)
-        'episode': item.title.episode!.episode,
-    });
+    final ep = item.title.episode;
+    context.push('/player', extra: PlayerPageArgs(
+      mediaItemId: item.title.mediaItemId,
+      seasonNumber: ep?.season,
+      episodeNumber: ep?.episode,
+      title: item.title.name,
+      isEpisode: ep != null,
+    ));
   }
 
   void _share(ReelItemView item) {

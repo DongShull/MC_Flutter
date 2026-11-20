@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
 import '../../../core/api/session_providers.dart';
+import '../../../core/api/episodes_api.dart';
 import '../../../core/api/mc_client.dart';
 
 /// JSON 容错读取工具（服务端字段名历史上有多种拼法）。
@@ -184,6 +185,8 @@ class EpisodeEntry {
     this.stillUrl,
     this.played = false,
     this.resumeMs = 0,
+    this.owned = false,
+    this.fileIds = const [],
   });
 
   final int seasonNumber;
@@ -197,6 +200,15 @@ class EpisodeEntry {
   final bool played;
   final int resumeMs;
 
+  /// 该集台账文件 id（选集接口 file_ids）；起播取首个。
+  final List<int> fileIds;
+
+  /// false = 缺集/文件缺失（前端置灰）；服务端未回该字段时默认在位。
+  final bool owned;
+
+  /// 起播用 fileId（首个台账文件），无在位文件时 null。
+  int? get playFileId => fileIds.isEmpty ? null : fileIds.first;
+
   factory EpisodeEntry.fromJson(Map<String, dynamic> j) => EpisodeEntry(
         seasonNumber: J.i(j, ['season_number']) ?? 0,
         episodeNumber: J.i(j, ['episode_number', 'number', 'index_number']) ?? 0,
@@ -208,6 +220,12 @@ class EpisodeEntry {
         stillUrl: J.s(j, ['still_url', 'still', 'thumb_url']),
         played: j['played'] == true,
         resumeMs: J.i(j, ['resume_ms', 'position_ms']) ?? 0,
+        owned: j['owned'] as bool? ?? true,
+        fileIds: (j['file_ids'] as List?)
+                ?.map((e) => e is num ? e.toInt() : int.tryParse(e.toString()))
+                .whereType<int>()
+                .toList() ??
+            const [],
       );
 }
 
@@ -433,17 +451,28 @@ class DetailController extends FamilyNotifier<DetailState, String> {
     return entry.seasons.first.number;
   }
 
-  /// 拉某一季的分集：GET /libraries/{id}/items/{id}/episodes?season_number=
+  /// 拉某一季的分集（选集数据接口化：core/api/episodes_api.dart 封装端点，
+  /// EpisodeRef 携带 owned / file_ids / played，点集起播由 fileId 驱动）。
   Future<void> loadSeason(int seasonNumber) async {
     state = state.copyWith(selectedSeason: seasonNumber);
     try {
-      final body = await _api.unwrap<Map<String, dynamic>>(
-        Channel.general,
-        'GET',
-        '/api/v1/libraries/$_libraryId/items/$_itemId/episodes',
-        query: {'season_number': seasonNumber},
+      final season = await EpisodesApi.of(ref).libraryItemEpisodes(
+        _libraryId, _itemId, seasonNumber,
       );
-      final list = J.listOfMap(body, ['episodes']).map(EpisodeEntry.fromJson).toList();
+      final list = season.episodes
+          .map((e) => EpisodeEntry(
+                seasonNumber: seasonNumber,
+                episodeNumber: e.episodeNumber,
+                name: e.name ?? '第 ${e.episodeNumber} 集',
+                overview: e.overview,
+                airDate: e.airDate,
+                stillUrl: e.stillUrl,
+                played: e.played,
+                resumeMs: e.positionMs,
+                owned: e.owned,
+                fileIds: e.fileIds,
+              ))
+          .toList();
       state = state.copyWith(episodes: {...state.episodes, seasonNumber: list});
     } catch (_) {
       // 分集拉取失败不阻塞详情页

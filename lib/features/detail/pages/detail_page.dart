@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/adaptive.dart';
+import '../../../core/player/player_page_args.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
 import '../state/detail_controller.dart';
@@ -40,14 +41,93 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     });
   }
 
-  void _play({int? season, int? episode}) {
-    // TODO(player): 播放决策（流选择 / 预检 / 起播）在 player 域完成，这里只传导航意图。
-    context.push('/player', extra: {
-      'libraryId': widget.libraryId,
-      'itemId': widget.itemId,
-      if (season != null) 'season': season,
-      if (episode != null) 'episode': episode,
-    });
+  /// 播放导航（选集数据接口化）：只传 mediaItemId + fileId（选集接口数据来），
+  /// 不再手传 season/episode。TV 入口先按接口分集数据解析出起播集。
+  void _playEpisode(EpisodeEntry e) {
+    if (!e.owned || e.fileIds.isEmpty) {
+      _toast('第 ${e.episodeNumber} 集缺文件，无法播放');
+      return;
+    }
+    _pushPlayer(
+      fileId: e.fileIds.first,
+      title: '第 ${e.seasonNumber} 季第 ${e.episodeNumber} 集',
+      subtitle: e.name,
+      startPosition: e.resumeMs > 0 ? Duration(milliseconds: e.resumeMs) : null,
+      resumeSeason: e.seasonNumber,
+      resumeEpisode: e.episodeNumber,
+    );
+  }
+
+  void _play() {
+    final state = ref.read(detailControllerProvider(_key));
+    final entry = state.entry;
+    if (entry == null) return;
+    if (entry.isTv) {
+      // TV：优先服务端续播锚点，其次当前季第一个可播集（全部由接口分集数据解析）。
+      final resume = state.resume;
+      final season = resume?.season ?? state.selectedSeason;
+      final episode = resume?.episode ?? entry.resumeEpisode;
+      final list = state.episodes[season] ?? const <EpisodeEntry>[];
+      EpisodeEntry? target;
+      for (final e in list) {
+        if (e.episodeNumber == episode) {
+          target = e;
+          break;
+        }
+      }
+      target ??= list.isEmpty ? null : list.first;
+      if (target == null || !target.owned || target.fileIds.isEmpty) {
+        _toast('该集暂无在位文件，无法播放');
+        return;
+      }
+      _pushPlayer(
+        fileId: target.fileIds.first,
+        title: '第 ${target.seasonNumber} 季第 ${target.episodeNumber} 集',
+        subtitle: target.name,
+        startPosition:
+            (resume?.positionMs ?? target.resumeMs) > 0
+                ? Duration(milliseconds: resume?.positionMs ?? target.resumeMs)
+                : null,
+        resumeSeason: target.seasonNumber,
+        resumeEpisode: target.episodeNumber,
+      );
+      return;
+    }
+    _pushPlayer(); // 电影：整条一个 mediaItemId，fileId 交由会话协商解析。
+  }
+
+  void _pushPlayer({
+    int? fileId,
+    String? title,
+    String? subtitle,
+    Duration? startPosition,
+    int? resumeSeason,
+    int? resumeEpisode,
+  }) {
+    // 播放决策（流选择 / 预检 / 起播）在 player 域完成，这里只传导航意图。
+    final state = ref.read(detailControllerProvider(_key));
+    final entry = state.entry;
+    context.push(
+      '/player',
+      extra: PlayerPageArgs(
+        mediaItemId: widget.itemId,
+        fileId: fileId,
+        title: entry?.title,
+        subtitle: subtitle ?? title,
+        startPosition: startPosition,
+        isEpisode: entry?.isTv ?? false,
+        seasons: [for (final s in entry?.seasons ?? const <SeasonInfo>[]) s.number],
+        episodes: [
+          for (final seasonEntry in state.episodes.entries)
+            for (final e in seasonEntry.value)
+              EpisodeItem(
+                season: e.seasonNumber,
+                episode: e.episodeNumber,
+                name: e.name,
+              ),
+        ],
+      ),
+    );
   }
 
   void _toast(String msg) {
@@ -122,10 +202,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                     child: McFocusRing(
                       borderRadius: 20,
                       child: FilledButton.icon(
-                      onPressed: () => _play(
-                        season: state.resume?.season ?? state.selectedSeason,
-                        episode: state.resume?.episode ?? entry.resumeEpisode,
-                      ),
+                      onPressed: _play,
                         icon: const Icon(McIcons.play2Fill),
                         label: Text(playButtonLabel(state)),
                       ),
@@ -221,7 +298,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
               EpisodeRanges(episodes: episodes),
               EpisodeList(
                 episodes: episodes,
-                onEpisodeTap: (e) => _play(season: e.seasonNumber, episode: e.episodeNumber),
+                onEpisodeTap: _playEpisode,
               ),
             ],
             // —— 系列一行（按上映顺序列全，有这一行时相似推荐已排除同系列）——
@@ -260,12 +337,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                 child: SizedBox(
                                   width: double.infinity,
                                   child: FilledButton.icon(
-                                    onPressed: () => _play(
-                                      season: state.resume?.season ??
-                                          state.selectedSeason,
-                                      episode: state.resume?.episode ??
-                                          entry.resumeEpisode,
-                                    ),
+                                    onPressed: _play,
                                     icon: const Icon(McIcons.play2Fill),
                                     label: Text(playButtonLabel(state)),
                                   ),
@@ -385,9 +457,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                 EpisodeRanges(episodes: episodes),
                                 EpisodeList(
                                   episodes: episodes,
-                                  onEpisodeTap: (e) => _play(
-                                      season: e.seasonNumber,
-                                      episode: e.episodeNumber),
+                                  onEpisodeTap: _playEpisode,
                                 ),
                               ],
                               if (state.related.seriesParts.length > 1)

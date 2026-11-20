@@ -5,58 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
+import '../../../core/player/player_page_args.dart';
 import '../../../core/player/player_service.dart';
 import '../../../core/player/session/playback_session_api.dart';
 
-/// 播放参数：详情页等入口通过 go_router extra 传进来。
-/// 对应 Android PlayingSurface 的 active.target（演示路径：网络 url 直出）。
-class PlayerPageArgs {
-  const PlayerPageArgs({
-    required this.url,
-    this.mediaItemId,
-    this.fileId,
-    this.seasonNumber,
-    this.episodeNumber,
-    this.title,
-    this.subtitle,
-    this.startPosition,
-    this.headers = const {},
-    this.isEpisode = false,
-    this.seasons = const [],
-    this.episodes = const [],
-  });
-
-  final String url;
-  /// 非 null 时走服务器会话协商（POST /playback/sessions），null 为演示直连路径。
-  final int? mediaItemId;
-  final int? fileId;
-  final int? seasonNumber;
-  final int? episodeNumber;
-  final String? title;
-  final String? subtitle;
-  final Duration? startPosition;
-  final Map<String, String> headers;
-
-  /// 剧集元信息：true 时底栏出现「选集」入口（Android state.unit.isEpisode）。
-  final bool isEpisode;
-
-  /// 选集面板数据。TODO(playback-session): 正式路径走 McClient(Channel.playback)
-  /// 的会话协商与条目接口取季/集，当前先由入口方直接传入。
-  final List<int> seasons;
-  final List<EpisodeItem> episodes;
-}
-
-class EpisodeItem {
-  const EpisodeItem({
-    required this.season,
-    required this.episode,
-    required this.name,
-  });
-
-  final int season;
-  final int episode;
-  final String name;
-}
+// PlayerPageArgs / EpisodeItem 已下沉 core（detail 等入口可构造，禁跨 feature import）。
+export '../../../core/player/player_page_args.dart';
 
 enum PlayerStatus { idle, opening, ready, failed }
 
@@ -152,7 +106,12 @@ class PlayerController extends Notifier<PlayerPlayback> {
   @override
   PlayerPlayback build() => const PlayerPlayback(status: PlayerStatus.idle);
 
+  /// 当前/最近一次播放的流地址（cast 投屏复用；DLNA 直连不走会话）。
+  String? get lastStreamUrl => _lastUrl;
+  String? _lastUrl;
+
   Future<void> open(PlayerPageArgs args) async {
+    _lastUrl = args.url;
     state = state.copyWith(status: PlayerStatus.opening, clearError: true);
     try {
       // 服务器会话协商（正式路径）：mediaItemId/fileId 在才走；演示路径直连 url。

@@ -22,4 +22,9 @@ abstract final class McStrings {
   static const loading = '加载中…';
   static const empty = '暂无内容';
   static const networkError = '网络错误，请检查地址后重试';
+  // —— 投屏 ——
+  static const castToDevice = '投放到设备';
+  static const stopCast = '停止投屏';
+  static const noCastDevice = '未发现局域网内的 DLNA 设备';
+  static const castingNow = '正在投屏';
 }

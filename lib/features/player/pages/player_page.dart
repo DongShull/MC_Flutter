@@ -9,6 +9,8 @@ import 'package:go_router/go_router.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/models/format.dart';
+import '../../../core/api/episodes_api.dart';
+import '../../../core/api/session_providers.dart';
 import '../../../core/player/session/playback_session.dart';
 import '../../../core/player/session/playback_session_providers.dart';
 
@@ -19,6 +21,7 @@ import '../widgets/player_gesture_layer.dart';
 import '../widgets/player_progress_bar.dart';
 import '../widgets/player_settings_panel.dart';
 import '../../../core/designsystem/mc_icons.dart';
+import '../widgets/cast_sheet.dart';
 import '../../../core/designsystem/mc_strings.dart';
 
 /// 播放页（Android PlayerScreen 1:1）：强制横屏 + 沉浸式、黑底满屏画面、
@@ -48,6 +51,11 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   bool _adjusting = false;
   bool _settingsOpen = false;
   bool _episodePickerOpen = false;
+  // 选集接口数据（播放侧 EpisodesApi.playbackItemEpisodes，切集真实重开会话）
+  List<EpisodeItem> _pickerEpisodes = const [];
+  List<int> _pickerSeasons = const [];
+  int _pickerSeason = 1;
+  bool _pickerLoading = false;
   String _displayMode = 'fit';
   String? _notice;
   static const _participantId = 'player-page';
@@ -111,6 +119,64 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     );
   }
 
+  /// 拉播放侧分集（GET /playback/items/{id}/episodes?season_number=），
+  /// 供选集面板真实数据驱动；失败静默保留入口方传入的演示数据。
+  Future<void> _loadPickerEpisodes() async {
+    final id = _args.mediaItemId;
+    if (id == null) return;
+    setState(() => _pickerLoading = true);
+    try {
+      final season = await EpisodesApi(ref.read(mcClientProvider)).playbackItemEpisodes(id, _pickerSeason);
+      if (!mounted) return;
+      setState(() {
+        _pickerSeason = season.seasonNumber;
+        _pickerEpisodes = [
+          for (final e in season.episodes)
+            EpisodeItem(
+              season: season.seasonNumber,
+              episode: e.episodeNumber,
+              name: e.name ?? '第 ${e.episodeNumber} 集',
+              fileId: e.playFileId,
+              owned: e.owned,
+            ),
+        ];
+        _pickerSeasons = _args.seasons.isNotEmpty
+            ? _args.seasons
+            : [season.seasonNumber];
+        _pickerLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _pickerLoading = false);
+    }
+  }
+
+  /// 切集：detach 旧会话（DELETE /playback/sessions/{id}）→ 用新 fileId 重开。
+  Future<void> _switchEpisode(int season, EpisodeItem episode) async {
+    if (!episode.owned || episode.fileId == null) {
+      _showNotice('第 ${episode.episode} 集缺文件，无法播放');
+      return;
+    }
+    _controller.detach();
+    final newArgs = PlayerPageArgs(
+      mediaItemId: _args.mediaItemId,
+      fileId: episode.fileId,
+      seasonNumber: season,
+      episodeNumber: episode.episode,
+      title: _args.title,
+      subtitle: 'S$season E${episode.episode} · ${episode.name}',
+      isEpisode: true,
+      seasons: _args.seasons,
+      episodes: _pickerEpisodes,
+    );
+    setState(() {
+      _args = newArgs;
+      _pickerSeason = season;
+    });
+    await _controller.open(newArgs);
+    _joinPlaybackSession();
+    _showNotice('已切换到 S$season E${episode.episode}');
+  }
+
   /// 播放会话协调（docs/design/08）：注册参与者 + 订阅协调器命令。
   /// 后到抢占时旧 active 收 pause；synchronize 下发 seek。
   void _joinPlaybackSession() {
@@ -168,6 +234,17 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   }
 
   void _noteActivity() => _lastUserActivity = DateTime.now();
+
+  /// DLNA 投屏：复用当前会话流地址直连渲染器（不走 MC 服务器）。
+  void _showCastSheet() {
+    final url = _controller.lastStreamUrl;
+    if (url == null || url.isEmpty) {
+      _showNotice('当前无可投屏的媒体流');
+      return;
+    }
+    CastSheet.show(context, streamUrl: url, title: _args.title);
+    _noteActivity();
+  }
 
   void _showNotice(String text) {
     setState(() => _notice = text);
@@ -413,8 +490,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
               onNext: () => _showNotice('下一集待会话接口接入（占位）'),
               onEpisodes: () {
                 setState(() => _episodePickerOpen = true);
+                _loadPickerEpisodes();
                 _noteActivity();
               },
+              onCast: () => _showCastSheet(),
               speed: playback.speed,
               onPickSpeed: (s) {
                 _controller.setSpeed(s);
@@ -610,14 +689,24 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
             if (_episodePickerOpen)
               PlayerEpisodePicker(
                 asDrawer: McFormWatch.of(context) == McDeviceForm.tablet,
-                args: _args,
-                currentSeason: 1,
-                currentEpisode: 1,
+                args: PlayerPageArgs(
+                  mediaItemId: _args.mediaItemId,
+                  isEpisode: _args.isEpisode,
+                  seasons: _pickerSeasons,
+                  episodes: _pickerEpisodes,
+                ),
+                currentSeason: _pickerSeason,
+                currentEpisode: _args.episodeNumber ?? 1,
+                loading: _pickerLoading,
                 onSelect: (season, episode) {
                   setState(() => _episodePickerOpen = false);
-                  _showNotice('选集重开播放待会话接口接入（占位）：S$season E${episode.episode}');
+                  _switchEpisode(season, episode);
                 },
                 onDismiss: () => setState(() => _episodePickerOpen = false),
+                onSeasonChanged: (season) {
+                  _pickerSeason = season;
+                  _loadPickerEpisodes();
+                },
               ),
           ],
         ),

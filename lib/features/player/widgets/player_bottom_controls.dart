@@ -13,6 +13,7 @@ class PlayerBottomControls extends StatelessWidget {
     required this.hasNext,
     required this.onNext,
     required this.onEpisodes,
+    required this.onCast,
     required this.speed,
     required this.onPickSpeed,
     required this.onNotice,
@@ -22,6 +23,7 @@ class PlayerBottomControls extends StatelessWidget {
   final bool hasNext;
   final VoidCallback onNext;
   final VoidCallback onEpisodes;
+  final VoidCallback onCast;
   final double speed;
   final ValueChanged<double> onPickSpeed;
   final ValueChanged<String> onNotice;
@@ -116,6 +118,12 @@ class PlayerBottomControls extends StatelessWidget {
             ))),
             const SizedBox(width: 8),
           ],
+          _pill(McFocusRing(child: IconButton(
+              onPressed: onCast,
+              icon: const Icon(McIcons.cast, color: Colors.white),
+              tooltip: '投屏',
+            ))),
+          const SizedBox(width: 8),
           _pill(McFocusRing(child: TextButton(
             onPressed: () => _showSpeedMenu(context),
             child: Text(
