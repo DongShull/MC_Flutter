@@ -184,3 +184,13 @@
 ## Round 16（深度探测二轮 + 现状总结）
 - fl_chart 接入：activity 逐日柱状 BarChart（飞牛同款图表库），analyze/test 全绿。
 - docs/design/11-status-deepdive.md：新挖技术（stretch shader/liquid_glass/spring/lottie/zxing 评估表）+ mc_flutter 现状总结（18/18、多设备、三端、飞牛对齐清单、遗留 TODO 六项）。
+
+## Round 17（2026-11-20）：六 TODO 清零——选集接口化/SSE 流式/离线通道/DLNA 投屏/stretch 动效/扫码连接
+- 方式：6 并行子代理半数中断后由 captain 逐一收尾（教训：子代理并发同文件互踩，失败后改为顺序亲自补）。
+- ① 选集接口化：core/api/episodes_api.dart（libraryItemEpisodes + playbackItemEpisodes）；detail 真实季集数据驱动；播放页选集热切换（detach→新 fileId→open→joinSession）。
+- ② agent SSE 流式：core/api/agent_sse_client.dart（\n\n 分帧、Last-Event-ID 重连≤5、404 回退轮询）；ChatController 流式渲染。
+- ③ 离线平台通道：core/platform/download_channel.dart（mc/native/download 通道 + 缺省降级 64KB 分块/.part 断点续传）；offline_state 接线会话 streamUrl 下载。
+- ④ DLNA 投屏：core/cast/（SSDP M-SEARCH 发现 MediaRenderer、SOAP AVTransport SetAVTransportURI/Play/Pause/Stop、CastController）；播放页 cast 按钮 + 设备面板 cast_sheet.dart。
+- ⑤ stretch 动效：assets/shaders/mc_stretch.frag + core/effects/mc_stretch.dart（SPIR-V shader + 临界阻尼弹簧 + 回退）；reels 接入。
+- ⑥ 扫码连接：mobile_scanner；onboarding 扫码页解析 JSON/URL 二维码预填 host；AndroidManifest CAMERA 权限。
+- 验收：flutter analyze No issues；flutter test 30/30 全绿；按 feature 分 6 commit（ea83ff1/f48c6b5/d5f63e5/8e40388/66553ff）推送 main（注：cast 文件因提前 stage 混入 ea83ff1 episodes commit）。
