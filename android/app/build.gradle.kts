@@ -29,11 +29,37 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        // Release 签名从环境变量读取（CI/本地注入）：
+        //   MC_KEYSTORE_PATH / MC_KEYSTORE_PASSWORD / MC_KEY_ALIAS / MC_KEY_PASSWORD
+        // 任一关键变量缺失时回落 debug 签名，保证构建不中断（正式发布需设置全部变量）。
+        create("release") {
+            val ksPath = System.getenv("MC_KEYSTORE_PATH")
+            val ksPass = System.getenv("MC_KEYSTORE_PASSWORD")
+            val envAlias = System.getenv("MC_KEY_ALIAS")
+            val keyPass = System.getenv("MC_KEY_PASSWORD")
+            if (ksPath != null && ksPass != null && envAlias != null && keyPass != null) {
+                storeFile = file(ksPath)
+                storePassword = ksPass
+                keyAlias = envAlias
+                keyPassword = keyPass
+            } else {
+                // Fallback: 使用 debug 签名（缺省回落，注释说明见上）。
+                storeFile = signingConfigs.getByName("debug").storeFile
+                storePassword = signingConfigs.getByName("debug").storePassword
+                keyAlias = signingConfigs.getByName("debug").keyAlias
+                keyPassword = signingConfigs.getByName("debug").keyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // 使用上面的 release 签名配置（未设置环境变量时实际为 debug 密钥）。
+            signingConfig = signingConfigs.getByName("release")
+            // 代码压缩/资源收缩默认关闭；正式发布前可打开评估混淆影响。
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }

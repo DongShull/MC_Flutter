@@ -11,6 +11,10 @@ pluginManagement {
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
     repositories {
+        // 国内直连 dl.google.com / mavenCentral 常超时，镜像优先。
+        maven("https://maven.aliyun.com/repository/google")
+        maven("https://maven.aliyun.com/repository/central")
+        maven("https://maven.aliyun.com/repository/gradle-plugin")
         google()
         mavenCentral()
         gradlePluginPortal()
@@ -24,3 +28,13 @@ plugins {
 }
 
 include(":app")
+
+// 依赖仓库同样镜像优先（PREFER_SETTINGS 模式下依赖解析也读这里）。
+dependencyResolutionManagement {
+    repositories {
+        maven("https://maven.aliyun.com/repository/google")
+        maven("https://maven.aliyun.com/repository/central")
+        google()
+        mavenCentral()
+    }
+}
