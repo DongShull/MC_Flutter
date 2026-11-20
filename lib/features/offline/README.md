@@ -3,7 +3,10 @@
 
 - 原 Kotlin 模块：apps/android .../feature/offline（DownloadsScreen.kt / DownloadProfileSheet.kt / OfflineViewModel）
 - 设计文档：docs/design/05-misc-features.md
-- 状态：✅ 已实现（页面与状态机 1:1；真实字节搬运为 TODO 平台通道）
+- 状态：✅ 已实现（页面与状态机 1:1；真实字节搬运接 core/platform/download_channel.dart ——
+  原生 MethodChannel mc/native/download 未实现时自动降级纯 Dart http 分块下载保底，
+  Range 断点续传跨重启：.part 半成品 + .part.meta 续传元数据，任务清单持久化在
+  shared_preferences 键 offline_tasks_v2，重启后未完成任务自动续传/重下）
   - pages/offline_page.dart：sections 1:1 —— 下载中（活动单元行 + waitingForWiFi 提示条 +
     「使用蜂窝网络下载」一键开）→ 建议（已看完 + 删除确认「只删本机副本，观看进度会保留」）→
     已下载 → 其他账号 → 容量条（StorageCard，扣 2GB 预留）最后；右上角设置菜单蜂窝开关
