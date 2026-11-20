@@ -194,3 +194,10 @@
 - ⑤ stretch 动效：assets/shaders/mc_stretch.frag + core/effects/mc_stretch.dart（SPIR-V shader + 临界阻尼弹簧 + 回退）；reels 接入。
 - ⑥ 扫码连接：mobile_scanner；onboarding 扫码页解析 JSON/URL 二维码预填 host；AndroidManifest CAMERA 权限。
 - 验收：flutter analyze No issues；flutter test 30/30 全绿；按 feature 分 6 commit（ea83ff1/f48c6b5/d5f63e5/8e40388/66553ff）推送 main（注：cast 文件因提前 stage 混入 ea83ff1 episodes commit）。
+
+## Round 18（2026-11-20）：遗留缺口收口——detail 六操作/播放轨道/基建补课
+- detail 六操作：SubscriptionsApi（title-preview/create 端点经 Kotlin 确认）+ 三步订阅弹层 subscribe_sheet.dart；下载 4 档档位弹层；share_plus 服务端分享链接；AI 字幕预检+提交；删除确认；人物页路由跳转。
+- 播放域：音轨/字幕轨真实化（PlaybackSession.decision 的 audio_tracks/subtitles 解析+switchTrack 重开会话续播）；下一集 hasNext 真实化（owned+fileId 过滤）；reels 片段 startMs 起点续播+NetworkTier 网络档展示。
+- 基建：McClient.postMultipart + image_picker 头像上传（POST /auth/avatar）；url_launcher（update 发布页/服务器管理页）；share_plus 引入；导航意图清扫（discover/search/person/more 分叉跳新会话/agent 复制反馈）。
+- 验收：analyze No issues；test 30/30；commits cefd73a/c88ee72/8d4909d 推送 main。
+- 剩余：activity SSE 任务事件、7×24 热力图自绘、Android 原生 download 通道、DLNA/QR 真机验证。
