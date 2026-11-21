@@ -2,13 +2,11 @@ import 'package:go_router/go_router.dart';
 
 import 'pages/subscription_detail_page.dart';
 import 'pages/subscription_wall_page.dart';
-import 'pages/subscriptions_page.dart';
 
 /// subscriptions 模块路由（挂载到 core/router.dart）。
 const routeSubscriptions = '/subscriptions';
 
 final List<GoRoute> routes = [
-  GoRoute(path: routeSubscriptions, builder: (context, state) => const SubscriptionsPage()),
   GoRoute(
     path: '$routeSubscriptions/wall',
     builder: (context, state) => SubscriptionWallPage(

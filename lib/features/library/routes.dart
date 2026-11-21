@@ -2,7 +2,6 @@ import 'package:go_router/go_router.dart';
 
 import 'pages/collection_pages.dart';
 import 'pages/library_detail_page.dart';
-import 'pages/library_home_page.dart';
 import 'pages/library_customize_page.dart';
 import 'pages/person_kind_pages.dart';
 
@@ -20,10 +19,6 @@ String routeLibraryPerson(int personId, {String? name}) =>
 String routeLibraryKind(String kind) => '/library/kind/$kind';
 
 final List<GoRoute> routes = [
-  GoRoute(
-    path: routeLibrary,
-    builder: (context, state) => const LibraryHomePage(),
-  ),
   GoRoute(
     path: routeLibraryCollections,
     builder: (context, state) => const LibraryCollectionsPage(),

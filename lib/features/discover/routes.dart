@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import 'pages/discover_page.dart';
 import 'pages/person_page.dart';
 import 'pages/title_detail_page.dart';
 
@@ -18,7 +17,6 @@ const routeDiscoverTitle = '/discover/title';
 const routeDiscoverPerson = '/discover/person';
 
 final List<GoRoute> routes = [
-  GoRoute(path: routeDiscover, builder: (context, state) => const DiscoverPage()),
   GoRoute(
     path: routeDiscoverTitle,
     builder: (context, state) =>

@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import '../../../core/designsystem/mc_strings.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/session/session_store.dart';
-import '../../root/routes.dart' as feat_root;
 
 /// 启动页（对齐飞牛 App）：已登录时短暂展示「用户名 + 设备名 + 跳动省略号」，
 /// 预热完成后进主界面；未登录由路由重定向回登录页。
@@ -31,7 +30,7 @@ class _SplashPageState extends State<SplashPage>
     )..repeat();
     // 最短停留：让用户看到启动页（对齐飞牛的「正在连接…」仪式感）。
     Timer(const Duration(milliseconds: 1600), () {
-      if (mounted) context.go(feat_root.routeRoot);
+      if (mounted) context.go('/library');
     });
   }
 
