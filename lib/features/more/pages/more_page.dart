@@ -11,6 +11,7 @@ import '../state/controllers.dart';
 import '../widgets/account_switcher_sheet.dart';
 import '../widgets/conversations_section.dart';
 import '../widgets/downloads_section.dart';
+import '../widgets/profile_actions_row.dart';
 import '../widgets/profile_card.dart';
 import '../widgets/section_picker.dart';
 import '../widgets/server_section.dart';
@@ -92,6 +93,8 @@ class _MorePageState extends ConsumerState<MorePage> {
                       avatarUrl: appSession.avatarUrl,
                       onSwitchAccount: () => showAccountSwitcherSheet(context),
                     ),
+                    const ProfileActionsRow(),
+                    const SizedBox(height: 8),
                     if (sections.length > 1)
                       SectionPicker(
                         labels: [

@@ -62,6 +62,8 @@ abstract final class McStrings {
   static const moreTab = '我的';
   static const notLoggedIn = '未登录';
   static const switchAccount = '切换账号';
+  static const approveLogin = '批准登录';
+  static const logout = '退出登录';
   static const sectionConversations = '会话';
   static const sectionDownloads = '下载';
   static const sectionServer = '服务器';
