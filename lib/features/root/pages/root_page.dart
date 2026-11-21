@@ -155,21 +155,24 @@ class _RootShellState extends ConsumerState<RootShell> {
   Widget _tabSlot(int i, ShellBadges badges) {
     final selected = i == _index;
     final showDot = _dotColor(i, badges) != null;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final iconColor = selected
+        ? (dark ? Colors.white : const Color(0xFF141A21))
+        : (dark ? Colors.white.withValues(alpha: 0.62) : const Color(0xFF5A6673));
+    final pillColor = dark
+        ? Colors.white.withValues(alpha: 0.15)
+        : const Color(0xFF141A21).withValues(alpha: 0.08);
 
     Widget iconWidget;
     if (i == _labels.length - 1) {
       // 末格 = 账号头像
       iconWidget = CircleAvatar(
         radius: 13,
-        backgroundColor:
-            selected ? Colors.white.withValues(alpha: 0.15) : Colors.white24,
-        child: Icon(_icons[i],
-            size: 16, color: selected ? Colors.white : Colors.white70),
+        backgroundColor: selected ? pillColor : (dark ? Colors.white24 : Colors.black12),
+        child: Icon(_icons[i], size: 16, color: iconColor),
       );
     } else {
-      iconWidget = Icon(_icons[i],
-          size: 22,
-          color: selected ? Colors.white : Colors.white.withValues(alpha: 0.62));
+      iconWidget = Icon(_icons[i], size: 22, color: iconColor);
     }
 
     return Tooltip(
@@ -182,10 +185,8 @@ class _RootShellState extends ConsumerState<RootShell> {
             width: 46,
             height: 34,
             decoration: BoxDecoration(
-              // 当前格白 15% 药丸
-              color: selected
-                  ? Colors.white.withValues(alpha: 0.15)
-                  : Colors.transparent,
+              // 当前格药丸（深色白 15%，浅色墨 8%）
+              color: selected ? pillColor : Colors.transparent,
               borderRadius: BorderRadius.circular(999),
             ),
             child: Stack(
