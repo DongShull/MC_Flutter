@@ -5,6 +5,8 @@ import '../../../core/designsystem/adaptive.dart';
 import '../state/shell_badges.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
+import '../../../core/shell/tab_collapse.dart';
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/image/image_urls.dart';
 import '../../../core/session/session_store.dart';
@@ -49,10 +51,13 @@ class RootShell extends ConsumerWidget {
     // 手机：悬浮胶囊底栏。
     if (form == McDeviceForm.phone) {
       // extendBody：页面内容延伸到胶囊底栏背后（悬浮胶囊透出海报，对齐飞牛悬浮底栏）。
+      final collapsed = ref.watch(tabCollapseProvider).collapsed;
       return Scaffold(
         extendBody: true,
         body: body,
-        bottomNavigationBar: _phoneBottomBar(context, badges),
+        bottomNavigationBar: collapsed
+            ? _collapseKnob(context)
+            : _phoneBottomBar(context, badges),
       );
     }
 
@@ -123,6 +128,30 @@ class RootShell extends ConsumerWidget {
               for (var i = 0; i < _labels.length; i++)
                 Expanded(child: _tabSlot(i, badges, dark)),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 收起态：底栏缩成一枚 54 圆形玻璃钮（点它放回整条胶囊，对齐鸿蒙 TabBarCollapse）。
+  Widget _collapseKnob(BuildContext context) {
+    return SafeArea(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        heightFactor: 1,
+        child: Container(
+          width: 54,
+          height: 54,
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: McGlass.decoration(McGlassTone.secondary, radius: 27),
+          child: IconButton(
+            onPressed: () => TabCollapseBus.instance.expand(),
+            icon: Icon(
+              McIcons.arrowUpS,
+              size: 22,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
           ),
         ),
       ),

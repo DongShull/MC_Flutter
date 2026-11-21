@@ -9,6 +9,7 @@ import '../../features/more/pages/more_page.dart';
 import '../../features/root/pages/root_page.dart';
 import '../../features/root/state/main_tab_bus.dart';
 import '../../features/root/state/shell_badges.dart';
+import 'tab_collapse.dart';
 
 /// 主壳组合根（唯一允许 import 各 feature 页面的地方，对齐 core/router.dart 职责）：
 /// 页签状态与五个真实页面在此持有，IndexedStack 保活；本文件属于 core 组合层，
@@ -47,13 +48,22 @@ class _MainShellState extends ConsumerState<MainShell> {
   }
 
   void _onSelect(int i) {
+    TabCollapseBus.instance.reset();
     setState(() => _index = i);
     if (i == 3) ref.read(shellBadgesProvider.notifier).refresh();
   }
 
   @override
   Widget build(BuildContext context) {
-    return RootShell(
+    // 滚动上报（对齐鸿蒙各页签 onDidScroll → TabBarCollapse）：内容下滑收底栏，回滑放回。
+    return NotificationListener<ScrollNotification>(
+      onNotification: (n) {
+        if (n.metrics.axis == Axis.vertical) {
+          TabCollapseBus.instance.onScroll(n.metrics.pixels);
+        }
+        return false;
+      },
+      child: RootShell(
       index: _index,
       onSelect: _onSelect,
       pages: const [
@@ -63,6 +73,7 @@ class _MainShellState extends ConsumerState<MainShell> {
         ActivityPage(),
         MorePage(),
       ],
+      ),
     );
   }
 }

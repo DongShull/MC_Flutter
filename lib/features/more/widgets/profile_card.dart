@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/image/image_urls.dart';
 
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
 
@@ -133,23 +134,16 @@ class ProfileCard extends StatelessWidget {
               // 整宽「切换账号」（对齐鸿蒙 ProfileCard：person 图标+文字横排玻璃按钮）。
               SizedBox(
                 width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: onSwitchAccount,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: muted,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    side: BorderSide(color: scheme.outlineVariant),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  icon: const Icon(McIcons.userSwitch, size: 16),
-                  label: const Text(
-                    McStrings.switchAccount,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                    ),
+                child: McGlassButton(
+                  onTap: onSwitchAccount,
+                  tone: McGlassTone.secondary,
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(McIcons.userSwitch, size: 16),
+                      SizedBox(width: 8),
+                      Text(McStrings.switchAccount),
+                    ],
                   ),
                 ),
               ),

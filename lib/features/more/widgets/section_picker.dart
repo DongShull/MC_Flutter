@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/designsystem/mc_glass.dart';
+
 /// 三段胶囊分段选择器（对齐鸿蒙 SectionPicker）：
 /// 圆角 27 容器内等宽分段按钮，选中高亮；服务器段可带提醒红点。
 class SectionPicker extends StatelessWidget {
@@ -40,12 +42,15 @@ class SectionPicker extends StatelessWidget {
                 onTap: () => onSelect(i),
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 8),
-                  decoration: BoxDecoration(
-                    color: i == selected
-                        ? scheme.primaryContainer
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(22),
-                  ),
+                  decoration: i == selected
+                      ? McGlass.decoration(
+                          McGlassTone.strong,
+                          radius: 22,
+                        )
+                      : BoxDecoration(
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(22),
+                        ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -56,7 +61,7 @@ class SectionPicker extends StatelessWidget {
                                 Icon(icons[i],
                                     size: 16,
                                     color: i == selected
-                                        ? scheme.onPrimaryContainer
+                                        ? scheme.onSurface
                                         : scheme.onSurfaceVariant),
                                 Positioned(
                                   right: -3,
@@ -84,7 +89,7 @@ class SectionPicker extends StatelessWidget {
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                           color: i == selected
-                              ? scheme.onPrimaryContainer
+                              ? scheme.onSurface
                               : scheme.onSurfaceVariant,
                         ),
                       ),
