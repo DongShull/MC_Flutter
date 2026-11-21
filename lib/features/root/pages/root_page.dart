@@ -92,8 +92,11 @@ class RootShell extends ConsumerWidget {
   /// 悬浮胶囊底栏：348×54、圆角 999、图标-only（仅手机形态使用）。
   Widget _phoneBottomBar(BuildContext context, ShellBadges badges) {
     final dark = Theme.of(context).brightness == Brightness.dark;
+    // 注意：不能包 Center——它会把 bottomNavigationBar 撑成整屏高，把 body 挤成 0（真机白屏元凶）。
     return SafeArea(
-      child: Center(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        heightFactor: 1,
         child: Container(
           width: 348,
           height: 54,
