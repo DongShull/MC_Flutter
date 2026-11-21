@@ -18,18 +18,14 @@ class ProfileCard extends StatelessWidget {
     required this.username,
     required this.roleLabel,
     this.avatarUrl,
-    required this.onApproveLogin,
     required this.onSwitchAccount,
-    required this.onLogout,
   });
 
   final String nickname;
   final String username;
   final String roleLabel;
   final String? avatarUrl;
-  final VoidCallback onApproveLogin;
   final VoidCallback onSwitchAccount;
-  final VoidCallback onLogout;
 
   @override
   Widget build(BuildContext context) {
@@ -134,75 +130,31 @@ class ProfileCard extends StatelessWidget {
                 ),
               ],
               Divider(height: 24, color: scheme.outlineVariant),
-              // 卡内三动作（对齐鸿蒙 ProfilePage 底部操作行）。
-              Row(
-                children: [
-                  Expanded(
-                    child: _CardAction(
-                      icon: McIcons.shieldCheck,
-                      label: McStrings.approveLogin,
-                      onPressed: onApproveLogin,
+              // 整宽「切换账号」（对齐鸿蒙 ProfileCard：person 图标+文字横排玻璃按钮）。
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onSwitchAccount,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: muted,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    side: BorderSide(color: scheme.outlineVariant),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  Expanded(
-                    child: _CardAction(
-                      icon: McIcons.userSwitch,
-                      label: McStrings.switchAccount,
-                      onPressed: onSwitchAccount,
+                  icon: const Icon(McIcons.userSwitch, size: 16),
+                  label: const Text(
+                    McStrings.switchAccount,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                  Expanded(
-                    child: _CardAction(
-                      icon: McIcons.logout,
-                      label: McStrings.logout,
-                      onPressed: onLogout,
-                      danger: true,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 卡内单个小动作按钮（竖排图标+文字，鸿蒙 ProfileCard 底部样式）。
-class _CardAction extends StatelessWidget {
-  const _CardAction({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-    this.danger = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
-  final bool danger;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = danger ? const Color(0xFFE5615B) : Theme.of(context).colorScheme.onSurfaceVariant;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onPressed,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 20, color: color),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: color),
-            ),
-          ],
         ),
       ),
     );

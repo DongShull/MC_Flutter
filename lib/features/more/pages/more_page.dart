@@ -92,11 +92,8 @@ class _MorePageState extends ConsumerState<MorePage> {
                       // 实时优先：me() 拉到的 avatar_url 覆盖登录快照，改头像无需重登。
                       avatarUrl: (data?.session?['avatar_url'] ?? appSession.avatarUrl)
                           ?.toString(),
-                      onApproveLogin: () =>
-                          ProfileActions.approveLogin(context, ref),
                       onSwitchAccount: () =>
                           ProfileActions.switchAccount(context),
-                      onLogout: () => ProfileActions.logout(context, ref),
                     ),
                     if (sections.length > 1)
                       SectionPicker(
@@ -140,7 +137,17 @@ class _MorePageState extends ConsumerState<MorePage> {
               );
 
     return Scaffold(
-      appBar: AppBar(title: const Text(McStrings.moreTab)),
+      appBar: AppBar(
+        title: const Text(McStrings.moreTab),
+        // 对齐鸿蒙 MoreNavHost 顶栏扫码钮：扫码/输码批准设备登录。
+        actions: [
+          IconButton(
+            tooltip: '批准登录',
+            icon: const Icon(McIcons.scan, size: 22),
+            onPressed: () => ProfileActions.approveLogin(context, ref),
+          ),
+        ],
+      ),
       body: form == McDeviceForm.phone
           ? body
           // 平板/TV：内容限宽居中（外壳由根 McAdaptiveScaffold 负责）。
