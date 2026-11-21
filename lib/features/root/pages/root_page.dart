@@ -44,7 +44,12 @@ class RootShell extends ConsumerWidget {
 
     // 手机：悬浮胶囊底栏。
     if (form == McDeviceForm.phone) {
-      return Scaffold(body: body, bottomNavigationBar: _phoneBottomBar(context, badges));
+      // extendBody：页面内容延伸到胶囊底栏背后（悬浮胶囊透出海报，对齐飞牛悬浮底栏）。
+      return Scaffold(
+        extendBody: true,
+        body: body,
+        bottomNavigationBar: _phoneBottomBar(context, badges),
+      );
     }
 
     // 平板/TV：左侧 Rail。
