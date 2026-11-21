@@ -7,65 +7,14 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/api/device_requests_api.dart';
 import '../../../core/api/session_providers.dart';
-import '../../../core/designsystem/mc_strings.dart';
 import 'account_switcher_sheet.dart';
 
-/// ProfileCard 下的动作排：批准登录 · 切换账号 · 退出登录 · 占位（对齐鸿蒙端入口布局）。
-class ProfileActionsRow extends ConsumerWidget {
-  const ProfileActionsRow({super.key});
+/// 个人卡内动作（对齐鸿蒙 ProfilePage 底部操作）：
+/// 批准登录（配对码审批）/ 切换账号（弹层）/ 退出登录（确认后清本机账号）。
+class ProfileActions {
+  ProfileActions._();
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    Widget slot(Widget? child, {VoidCallback? onTap, bool placeholder = false}) =>
-        Expanded(
-          child: placeholder
-              ? const SizedBox.shrink()
-              : OutlinedButton(
-                  onPressed: onTap,
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    side: BorderSide(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.18),
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: child ?? const SizedBox.shrink(),
-                ),
-        );
-
-    return Row(
-      children: [
-        slot(
-          Text(McStrings.approveLogin,
-              style: Theme.of(context).textTheme.labelMedium),
-          onTap: () => _showApprovalDialog(context, ref),
-        ),
-        const SizedBox(width: 10),
-        slot(
-          Text(McStrings.switchAccount,
-              style: Theme.of(context).textTheme.labelMedium),
-          onTap: () => showAccountSwitcherSheet(context),
-        ),
-        const SizedBox(width: 10),
-        slot(
-          Text(McStrings.logout,
-              style: Theme.of(context).textTheme.labelMedium
-                  ?.copyWith(color: const Color(0xFFE5615B))),
-          onTap: () => _confirmLogout(context, ref),
-        ),
-        const SizedBox(width: 10),
-        // 鸿蒙端动作排的第四格空占位（保持四等分节奏）。
-        slot(null, placeholder: true),
-      ],
-    );
-  }
-
-  void _showApprovalDialog(BuildContext context, WidgetRef ref) {
+  static void approveLogin(BuildContext context, WidgetRef ref) {
     final controller = TextEditingController();
     final api = ref.read(deviceRequestsApiProvider);
     DeviceRequestView? request;
@@ -83,8 +32,7 @@ class ProfileActionsRow extends ConsumerWidget {
               error = null;
             });
             try {
-              final r =
-                  await api.request(controller.text.trim());
+              final r = await api.request(controller.text.trim());
               setState(() {
                 request = r;
                 busy = false;
@@ -155,12 +103,14 @@ class ProfileActionsRow extends ConsumerWidget {
             ),
             actions: [
               TextButton(
-                onPressed: busy ? null : () => Navigator.of(dialogContext).pop(),
+                onPressed:
+                    busy ? null : () => Navigator.of(dialogContext).pop(),
                 child: const Text('取消'),
               ),
               if (request == null)
                 FilledButton(
-                  onPressed: busy || controller.text.trim().isEmpty ? null : load,
+                  onPressed:
+                      busy || controller.text.trim().isEmpty ? null : load,
                   child: const Text('查询'),
                 )
               else ...[
@@ -180,12 +130,12 @@ class ProfileActionsRow extends ConsumerWidget {
     );
   }
 
-  Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {
+  static Future<void> logout(BuildContext context, WidgetRef ref) async {
     final session = ref.read(sessionStoreProvider);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text(McStrings.logout),
+        title: const Text('退出登录'),
         content: const Text('退出后本机不再保留这个账号的登录状态，再回来需要重新输入密码。'),
         actions: [
           TextButton(
@@ -215,7 +165,8 @@ class ProfileActionsRow extends ConsumerWidget {
   }
 
   /// 本机快照移除当前账号（mc_servers 只留仍然有效的账号）。
-  Future<void> _removeAccountSnapshot(String origin, String username) async {
+  static Future<void> _removeAccountSnapshot(
+      String origin, String username) async {
     try {
       const storage = FlutterSecureStorage(
         aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -229,8 +180,7 @@ class ProfileActionsRow extends ConsumerWidget {
       for (final server in servers) {
         if (server['origin']?.toString() != origin) continue;
         final accounts = ((server['accounts'] ?? const []) as List<dynamic>)
-            .where((a) =>
-                a is Map && a['username']?.toString() != username)
+            .where((a) => a is Map && a['username']?.toString() != username)
             .toList();
         if (accounts.isEmpty) {
           servers.remove(server);
@@ -239,12 +189,12 @@ class ProfileActionsRow extends ConsumerWidget {
         }
         break;
       }
-      await storage.write(
-        key: 'mc_servers',
-        value: jsonEncode(servers),
-      );
+      await storage.write(key: 'mc_servers', value: jsonEncode(servers));
     } catch (_) {
       // 快照清理失败不阻断登出。
     }
   }
+
+  static void switchAccount(BuildContext context) =>
+      showAccountSwitcherSheet(context);
 }

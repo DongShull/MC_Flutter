@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/session/session_store.dart';
 import 'mc_api.dart';
 import 'models.dart';
 
@@ -120,6 +121,11 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
     state = const AsyncValue.loading();
     try {
       final session = await _api.me();
+      // 头像实时回写（根 Tab / 启动页共用会话快照），改头像无需重登。
+      final liveAvatar = session?['avatar_url']?.toString() ?? '';
+      if (liveAvatar.isNotEmpty && liveAvatar != appSession.avatarUrl) {
+        await appSession.saveProfile(avatarUrl: liveAvatar);
+      }
       final results = await Future.wait<Object?>([
         _safeNotices(),
         _api.pendingUpdate(),

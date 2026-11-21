@@ -8,10 +8,9 @@ import '../../../core/designsystem/mc_strings.dart';
 import '../../../core/session/session_store.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../state/controllers.dart';
-import '../widgets/account_switcher_sheet.dart';
 import '../widgets/conversations_section.dart';
 import '../widgets/downloads_section.dart';
-import '../widgets/profile_actions_row.dart';
+import '../widgets/profile_actions.dart';
 import '../widgets/profile_card.dart';
 import '../widgets/section_picker.dart';
 import '../widgets/server_section.dart';
@@ -90,11 +89,15 @@ class _MorePageState extends ConsumerState<MorePage> {
                       nickname: nickname,
                       username: username,
                       roleLabel: roleLabel,
-                      avatarUrl: appSession.avatarUrl,
-                      onSwitchAccount: () => showAccountSwitcherSheet(context),
+                      // 实时优先：me() 拉到的 avatar_url 覆盖登录快照，改头像无需重登。
+                      avatarUrl: (data?.session?['avatar_url'] ?? appSession.avatarUrl)
+                          ?.toString(),
+                      onApproveLogin: () =>
+                          ProfileActions.approveLogin(context, ref),
+                      onSwitchAccount: () =>
+                          ProfileActions.switchAccount(context),
+                      onLogout: () => ProfileActions.logout(context, ref),
                     ),
-                    const ProfileActionsRow(),
-                    const SizedBox(height: 8),
                     if (sections.length > 1)
                       SectionPicker(
                         labels: [
