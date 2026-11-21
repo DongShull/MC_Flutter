@@ -502,6 +502,21 @@ class OfflineController extends Notifier<OfflineState> {
     );
   }
 
+  /// 已下载副本的字节数（按任务 id），供容量卡与已下载行取「占用」
+  /// （对应鸿蒙 store.doneBytes / bytesOfItem 的数据来源：落盘文件大小）。
+  Future<Map<String, int>> downloadedFileBytes() async {
+    final out = <String, int>{};
+    for (final u in state.doneUnits) {
+      final task = _tasks[u.id];
+      if (task == null) continue;
+      final file = File(task.savePath);
+      if (await file.exists()) {
+        out[u.id] = await file.length();
+      }
+    }
+    return out;
+  }
+
   /// 更新容量（实际数字由平台通道返回，先占位 TODO）。
   void updateStorage(StorageInfo info) {
     state = state.copyWith(storage: info);
