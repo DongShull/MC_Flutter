@@ -5,7 +5,10 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../state/qr_connect.dart';
 
 class QrScanPage extends StatefulWidget {
-  const QrScanPage({super.key});
+  const QrScanPage({super.key, this.popRaw = false});
+
+  /// true = 任何二维码原样带回（配对码扫码用；false = 只认服务器分享码）。
+  final bool popRaw;
 
   @override
   State<QrScanPage> createState() => _QrScanPageState();
@@ -26,10 +29,16 @@ class _QrScanPageState extends State<QrScanPage> {
   void _onDetect(BarcodeCapture capture) {
     if (_handled) return;
     for (final barcode in capture.barcodes) {
-      final info = parseServerQr(barcode.rawValue ?? '');
+      final raw = barcode.rawValue ?? '';
+      final info = parseServerQr(raw);
       if (info != null) {
         _handled = true;
         Navigator.of(context).pop(info.baseUrl);
+        return;
+      }
+      if (widget.popRaw && raw.isNotEmpty) {
+        _handled = true;
+        Navigator.of(context).pop(raw);
         return;
       }
     }

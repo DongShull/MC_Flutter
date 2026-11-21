@@ -94,6 +94,9 @@ class _MorePageState extends ConsumerState<MorePage> {
                           ?.toString(),
                       onSwitchAccount: () =>
                           ProfileActions.switchAccount(context),
+                      onApproveLogin: () =>
+                          ProfileActions.approveLogin(context, ref),
+                      onLogout: () => ProfileActions.logout(context, ref),
                     ),
                     if (sections.length > 1)
                       SectionPicker(

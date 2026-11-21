@@ -15,4 +15,9 @@ final List<GoRoute> routes = [
   GoRoute(path: routeOnboarding, builder: (context, state) => const OnboardingPage()),
   GoRoute(path: routeSplash, builder: (context, state) => const SplashPage()),
   GoRoute(path: routeQrScan, builder: (context, state) => const QrScanPage()),
+  // 原样带回任何二维码（批准登录配对码扫码用，对齐鸿蒙 scanFirst）。
+  GoRoute(
+    path: '/onboarding/qr-scan/raw',
+    builder: (context, state) => const QrScanPage(popRaw: true),
+  ),
 ];
