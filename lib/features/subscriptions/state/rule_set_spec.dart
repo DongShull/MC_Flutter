@@ -63,9 +63,13 @@ String specSummary(Map<String, dynamic>? spec) {
   if (spec['exclude_hr'] == true) parts.add('排除 H&R');
 
   final groups = spec['release_groups'];
-  if (groups is List && groups.isNotEmpty) parts.add('制作组白名单 ${groups.length} 个');
+  if (groups is List && groups.isNotEmpty) {
+    parts.add('制作组白名单 ${groups.length} 个');
+  }
   final banned = spec['banned_groups'];
-  if (banned is List && banned.isNotEmpty) parts.add('制作组黑名单 ${banned.length} 个');
+  if (banned is List && banned.isNotEmpty) {
+    parts.add('制作组黑名单 ${banned.length} 个');
+  }
 
   return parts.isEmpty ? '自定义规则' : parts.join(' · ');
 }

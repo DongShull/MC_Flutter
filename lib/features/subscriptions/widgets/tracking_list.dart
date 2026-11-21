@@ -16,7 +16,8 @@ class TrackingList extends StatelessWidget {
         child: Center(
           child: Text(
             sub.media.kind == 'movie' ? '影片暂无追踪明细' : '暂无追踪工单',
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12),
+            style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.45), fontSize: 12),
           ),
         ),
       );

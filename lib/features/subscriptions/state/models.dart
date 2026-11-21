@@ -158,6 +158,8 @@ class SubscriptionView {
     this.wanted = const [],
     this.canManage = true,
     this.selectionMode = 'rules',
+    this.createdAt,
+    this.updatedAt,
   })  : media = media ?? MediaBrief(),
         progress = progress ?? ProgressView();
 
@@ -174,9 +176,14 @@ class SubscriptionView {
   final bool canManage;
   final String selectionMode;
 
+  /// 横滑行与海报墙的歇着区排序用（updated_at 降序）。
+  final String? createdAt;
+  final String? updatedAt;
+
   factory SubscriptionView.fromJson(Map<String, dynamic> j) => SubscriptionView(
         id: (j['id'] as num?)?.toInt() ?? 0,
-        media: MediaBrief.fromJson((j['media'] as Map<String, dynamic>?) ?? const {}),
+        media: MediaBrief.fromJson(
+            (j['media'] as Map<String, dynamic>?) ?? const {}),
         status: j['status'] as String? ?? '',
         selectedSeasons: (j['selected_seasons'] as List<dynamic>? ?? const [])
             .whereType<num>()
@@ -185,7 +192,8 @@ class SubscriptionView {
         followFuture: j['follow_future'] as bool? ?? false,
         ruleSetId: (j['rule_set_id'] as num?)?.toInt(),
         libraryId: (j['library_id'] as num?)?.toInt(),
-        progress: ProgressView.fromJson((j['progress'] as Map<String, dynamic>?) ?? const {}),
+        progress: ProgressView.fromJson(
+            (j['progress'] as Map<String, dynamic>?) ?? const {}),
         seasonCollection: (j['season_collection'] as List<dynamic>? ?? const [])
             .whereType<Map<String, dynamic>>()
             .map(SeasonOverview.fromJson)
@@ -196,12 +204,15 @@ class SubscriptionView {
             .toList(),
         canManage: j['can_manage'] as bool? ?? true,
         selectionMode: j['selection_mode'] as String? ?? 'rules',
+        createdAt: j['created_at'] as String?,
+        updatedAt: j['updated_at'] as String?,
       );
 }
 
 /// GET /subscriptions/{id}/activities → SubActivityView
 class SubActivityView {
-  SubActivityView({this.id = 0, this.type = '', this.message = '', this.createdAt});
+  SubActivityView(
+      {this.id = 0, this.type = '', this.message = '', this.createdAt});
 
   final int id;
   final String type;
@@ -268,7 +279,8 @@ class PrepareView {
             .whereType<Map<String, dynamic>>()
             .map(SeasonOverview.fromJson)
             .toList(),
-        existingSubscriptionId: (j['existing_subscription_id'] as num?)?.toInt(),
+        existingSubscriptionId:
+            (j['existing_subscription_id'] as num?)?.toInt(),
         movieOwned: j['movie_owned'] as bool? ?? false,
         suggestedSeasons: (j['suggested_seasons'] as List<dynamic>? ?? const [])
             .whereType<num>()
@@ -284,7 +296,8 @@ class WallItem {
   final Map<String, dynamic> raw;
 
   String get title => raw['title'] as String? ?? raw['name'] as String? ?? '';
-  String? get posterUrl => raw['poster_url'] as String? ?? raw['poster'] as String?;
+  String? get posterUrl =>
+      raw['poster_url'] as String? ?? raw['poster'] as String?;
   String? get kind => raw['kind'] as String?;
   int? get seasonNumber => (raw['season_number'] as num?)?.toInt();
 }
@@ -353,4 +366,186 @@ String wantedStatusNote(WantedView w) {
     default:
       return w.airDate == null ? '正在寻找资源' : '等待资源出现';
   }
+}
+
+// ── 订阅首页/日程/入库数据口径（对齐鸿蒙 SubscriptionsHomeModel.ets） ──
+
+/// WantedModel.ReleaseForecast 的 Flutter 对应物（出种预测）。
+class ReleaseForecastView {
+  ReleaseForecastView({
+    this.targetAirDate,
+    this.predictedAt,
+    this.windowStart,
+    this.windowEnd,
+    this.confidence = '',
+  });
+
+  final String? targetAirDate;
+  final String? predictedAt;
+  final String? windowStart;
+  final String? windowEnd;
+  final String confidence;
+
+  /// volatile = 不可用（对齐 usable=confidence!='volatile'）。
+  bool get usable => confidence != 'volatile';
+
+  factory ReleaseForecastView.fromJson(Map<String, dynamic> j) =>
+      ReleaseForecastView(
+        targetAirDate: j['target_air_date'] as String?,
+        predictedAt: j['predicted_at'] as String?,
+        windowStart: j['window_start'] as String?,
+        windowEnd: j['window_end'] as String?,
+        confidence: j['confidence'] as String? ?? '',
+      );
+}
+
+/// GET /subscriptions/today-arrivals?window=week → TodayArrivalView。
+class TodayArrivalView {
+  TodayArrivalView({
+    this.subscriptionId = 0,
+    this.wantedId = 0,
+    this.mediaTitle = '',
+    this.mediaKind = 'movie',
+    this.seasonNumber = 0,
+    this.episodeNumber = 0,
+    this.status = 'wanted',
+    this.airDate,
+    this.expectedDay,
+    this.daysAhead = 0,
+    this.forecast,
+    this.nextProbeAt,
+    this.infoHash,
+    this.grabbedAt,
+    this.downloadedAt,
+    this.estimatedReleaseToImportMinutes = 0,
+    this.estimatedDownloadToImportMinutes = 0,
+  });
+
+  final int subscriptionId;
+  final int wantedId;
+  final String mediaTitle;
+  final String mediaKind;
+  final int seasonNumber;
+  final int episodeNumber;
+  final String status;
+  final String? airDate;
+  final String? expectedDay;
+  final int daysAhead;
+  final ReleaseForecastView? forecast;
+  final String? nextProbeAt;
+  final String? infoHash;
+  final String? grabbedAt;
+  final String? downloadedAt;
+  final int estimatedReleaseToImportMinutes;
+  final int estimatedDownloadToImportMinutes;
+
+  factory TodayArrivalView.fromJson(Map<String, dynamic> j) => TodayArrivalView(
+        subscriptionId: (j['subscription_id'] as num?)?.toInt() ?? 0,
+        wantedId: (j['wanted_id'] as num?)?.toInt() ?? 0,
+        mediaTitle: j['media_title'] as String? ?? '',
+        mediaKind: j['media_kind'] as String? ?? 'movie',
+        seasonNumber: (j['season_number'] as num?)?.toInt() ?? 0,
+        episodeNumber: (j['episode_number'] as num?)?.toInt() ?? 0,
+        status: j['status'] as String? ?? 'wanted',
+        airDate: j['air_date'] as String?,
+        expectedDay: j['expected_day'] as String?,
+        daysAhead: (j['days_ahead'] as num?)?.toInt() ?? 0,
+        forecast: j['release_forecast'] is Map<String, dynamic>
+            ? ReleaseForecastView.fromJson(
+                j['release_forecast'] as Map<String, dynamic>)
+            : null,
+        nextProbeAt: j['next_probe_at'] as String?,
+        infoHash: j['info_hash'] as String?,
+        grabbedAt: j['grabbed_at'] as String?,
+        downloadedAt: j['downloaded_at'] as String?,
+        estimatedReleaseToImportMinutes:
+            (j['estimated_release_to_import_minutes'] as num?)?.toInt() ?? 0,
+        estimatedDownloadToImportMinutes:
+            (j['estimated_download_to_import_minutes'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// RecentArrivalView.units[]（这一批新到集）。
+class RecentArrivalUnit {
+  RecentArrivalUnit({this.seasonNumber = 0, this.episodeNumber = 0});
+
+  final int seasonNumber;
+  final int episodeNumber;
+
+  factory RecentArrivalUnit.fromJson(Map<String, dynamic> j) =>
+      RecentArrivalUnit(
+        seasonNumber: (j['season_number'] as num?)?.toInt() ?? 0,
+        episodeNumber: (j['episode_number'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// GET /subscriptions/recent-arrivals?days=&limit= → RecentArrivalView。
+class RecentArrivalView {
+  RecentArrivalView({
+    this.subscriptionId = 0,
+    MediaBrief? media,
+    this.seasonNumber = 0,
+    this.episodeNumber = 0,
+    this.episodeName,
+    this.stillUrl,
+    this.units = const [],
+    this.progressPercent,
+    this.importedAt,
+  }) : media = media ?? MediaBrief();
+
+  final int subscriptionId;
+  final MediaBrief media;
+  final int seasonNumber;
+  final int episodeNumber;
+  final String? episodeName;
+  final String? stillUrl;
+  final List<RecentArrivalUnit> units;
+  final int? progressPercent;
+  final String? importedAt;
+
+  factory RecentArrivalView.fromJson(Map<String, dynamic> j) =>
+      RecentArrivalView(
+        subscriptionId: (j['subscription_id'] as num?)?.toInt() ?? 0,
+        media: j['media'] is Map<String, dynamic>
+            ? MediaBrief.fromJson(j['media'] as Map<String, dynamic>)
+            : null,
+        seasonNumber: (j['season_number'] as num?)?.toInt() ?? 0,
+        episodeNumber: (j['episode_number'] as num?)?.toInt() ?? 0,
+        episodeName: j['episode_name'] as String?,
+        stillUrl: j['still_url'] as String?,
+        units: (j['units'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(RecentArrivalUnit.fromJson)
+            .toList(),
+        progressPercent: (j['progress_percent'] as num?)?.toInt(),
+        importedAt: j['imported_at'] as String?,
+      );
+}
+
+/// GET /downloaders/tasks → 拿 ETA（info_hash → eta_seconds，仅管理员可见）。
+class DownloadTaskView {
+  DownloadTaskView({this.infoHash = '', this.etaSeconds = 0});
+
+  final String infoHash;
+  final int etaSeconds;
+
+  factory DownloadTaskView.fromJson(Map<String, dynamic> j) => DownloadTaskView(
+        infoHash: j['info_hash'] as String? ?? '',
+        etaSeconds: (j['eta_seconds'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// GET /libraries?scope=all → 海报墙第三行「规则组→媒体库」的媒体库名。
+class LibraryBrief {
+  LibraryBrief({this.id = 0, this.name = '', this.kind = 'movie'});
+
+  final int id;
+  final String name;
+  final String kind;
+
+  factory LibraryBrief.fromJson(Map<String, dynamic> j) => LibraryBrief(
+        id: (j['id'] as num?)?.toInt() ?? 0,
+        name: j['name'] as String? ?? '',
+        kind: j['kind'] as String? ?? 'movie',
+      );
 }

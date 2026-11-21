@@ -17,7 +17,8 @@ class ActivityTimeline extends StatelessWidget {
         child: Center(
           child: Text(
             '暂无活动记录',
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12),
+            style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.45), fontSize: 12),
           ),
         ),
       );

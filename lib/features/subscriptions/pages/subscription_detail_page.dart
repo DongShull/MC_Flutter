@@ -20,10 +20,12 @@ class SubscriptionDetailPage extends ConsumerStatefulWidget {
   final int id;
 
   @override
-  ConsumerState<SubscriptionDetailPage> createState() => _SubscriptionDetailPageState();
+  ConsumerState<SubscriptionDetailPage> createState() =>
+      _SubscriptionDetailPageState();
 }
 
-class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage> {
+class _SubscriptionDetailPageState
+    extends ConsumerState<SubscriptionDetailPage> {
   @override
   void initState() {
     super.initState();
@@ -38,7 +40,8 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
       ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<void> _showMoreMenu(SubscriptionDetailController controller, SubscriptionView sub) async {
+  Future<void> _showMoreMenu(
+      SubscriptionDetailController controller, SubscriptionView sub) async {
     final action = await showModalBottomSheet<_DetailAction>(
       context: context,
       backgroundColor: const Color(0xFF141A21),
@@ -97,7 +100,8 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
     if (mounted) _consumeNotice(controller);
   }
 
-  Future<void> _pickSeasons(SubscriptionDetailController controller, SubscriptionView sub) async {
+  Future<void> _pickSeasons(
+      SubscriptionDetailController controller, SubscriptionView sub) async {
     final selected = {...sub.selectedSeasons};
     final seasons = sub.seasonCollection;
     if (seasons.isEmpty) {
@@ -131,8 +135,12 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('确定')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('确定')),
         ],
       ),
     );
@@ -168,7 +176,8 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
     if (mounted) _consumeNotice(controller);
   }
 
-  Future<void> _confirmUnsubscribe(SubscriptionDetailController controller, SubscriptionView sub) async {
+  Future<void> _confirmUnsubscribe(
+      SubscriptionDetailController controller, SubscriptionView sub) async {
     // 文案对齐安卓："取消订阅《title》将停止追踪剩余内容。默认只取消订阅，已经下载或入库的内容都会保留。"
     final ok = await showDialog<bool>(
       context: context,
@@ -179,9 +188,12 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
           '默认只取消订阅，已经下载或入库的内容都会保留。',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('保留')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('保留')),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE5615B)),
+            style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFE5615B)),
             onPressed: () => Navigator.pop(context, true),
             child: const Text('取消订阅'),
           ),
@@ -206,7 +218,8 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
 
   @override
   Widget build(BuildContext context) {
-    final controller = ref.watch(subscriptionDetailProvider(widget.id).notifier);
+    final controller =
+        ref.watch(subscriptionDetailProvider(widget.id).notifier);
     final state = ref.watch(subscriptionDetailProvider(widget.id));
     final sub = state.value;
 
@@ -225,7 +238,8 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
       body: state.isLoading && sub == null
           ? const McLoadingView()
           : state.hasError
-              ? McErrorView(text: '${state.error}', onRetry: () => controller.load())
+              ? McErrorView(
+                  text: '${state.error}', onRetry: () => controller.load())
               : sub == null
                   ? const SizedBox.shrink()
                   : ListView(
@@ -251,8 +265,8 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
                               child: OutlinedButton.icon(
                                 icon: const Icon(McIcons.gridFill, size: 16),
                                 label: const Text('资源墙'),
-                                onPressed: () =>
-                                    context.push('/subscriptions/wall/${sub.id}'),
+                                onPressed: () => context
+                                    .push('/subscriptions/wall/${sub.id}'),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -260,18 +274,21 @@ class _SubscriptionDetailPageState extends ConsumerState<SubscriptionDetailPage>
                               child: OutlinedButton.icon(
                                 icon: const Icon(McIcons.linkUnlink, size: 16),
                                 label: const Text('取消订阅'),
-                                onPressed: () => _confirmUnsubscribe(controller, sub),
+                                onPressed: () =>
+                                    _confirmUnsubscribe(controller, sub),
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 16),
                         const Text('追踪明细',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w700)),
                         TrackingList(sub: sub),
                         const SizedBox(height: 16),
                         const Text('活动记录',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w700)),
                         ActivityTimeline(activities: controller.activities),
                       ],
                     ),
@@ -309,7 +326,8 @@ class _SummaryCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text('$label $v',
                   style: TextStyle(
-                      fontSize: 10, color: Colors.white.withValues(alpha: 0.5))),
+                      fontSize: 10,
+                      color: Colors.white.withValues(alpha: 0.5))),
             ],
           ),
         );
@@ -363,7 +381,8 @@ class _SummaryCard extends StatelessWidget {
               padding: const EdgeInsets.only(top: 8),
               child: Text('自动续订已开启',
                   style: TextStyle(
-                      fontSize: 10, color: Colors.white.withValues(alpha: 0.45))),
+                      fontSize: 10,
+                      color: Colors.white.withValues(alpha: 0.45))),
             ),
         ],
       ),

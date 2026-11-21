@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../../../core/image/image_urls.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/designsystem/state_views.dart';
@@ -92,7 +94,8 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
         if (mounted) {
           setState(() {
             _ruleSets = rs;
-            _ruleSetId = rs.where((r) => r.isDefault).firstOrNull?.id ?? rs.firstOrNull?.id;
+            _ruleSetId = rs.where((r) => r.isDefault).firstOrNull?.id ??
+                rs.firstOrNull?.id;
           });
         }
       } catch (_) {}
@@ -160,8 +163,12 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
                     width: 64,
                     height: 96,
                     child: poster != null
-                        ? Image.network(poster, fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(color: Colors.white10))
+                        ? Image.network(
+                            headers: mcImageHeaders(),
+                            poster,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) =>
+                                Container(color: Colors.white10))
                         : Container(color: Colors.white10),
                   ),
                 ),
@@ -171,7 +178,8 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(title,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
                       if (year != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 2),
@@ -206,7 +214,8 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text('已订阅该作品（幂等返回已有订阅）',
                       style: TextStyle(
-                          fontSize: 12, color: Colors.white.withValues(alpha: 0.6))),
+                          fontSize: 12,
+                          color: Colors.white.withValues(alpha: 0.6))),
                 ),
               // 季勾选（默认全选已播季）
               for (final s in _prepare!.seasons)
@@ -240,7 +249,8 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
                 title: const Text('自动续订', style: TextStyle(fontSize: 13)),
                 subtitle: Text('未来新一季自动纳入追踪',
                     style: TextStyle(
-                        fontSize: 10, color: Colors.white.withValues(alpha: 0.45))),
+                        fontSize: 10,
+                        color: Colors.white.withValues(alpha: 0.45))),
                 onChanged: (v) => setState(() => _followFuture = v),
               ),
               // 规则组（默认系统默认组；非管理员读不到列表则不显示）
@@ -267,7 +277,8 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: (_creating || _loading || _error != null) ? null : _create,
+                onPressed:
+                    (_creating || _loading || _error != null) ? null : _create,
                 child: Text(existing != null
                     ? '查看已有订阅'
                     : (_creating ? '创建中…' : '创建订阅')),
