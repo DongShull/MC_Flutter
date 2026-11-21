@@ -169,7 +169,9 @@ class _ResultBody extends ConsumerWidget {
     return NotificationListener<ScrollNotification>(
       onNotification: (n) {
         // 游标分页：快到底且还有 next_cursor 时追加一页。
-        if (n.metrics.extentAfter < 600 && s.nextCursor != null && !s.searching) {
+        if (n.metrics.extentAfter < 600 &&
+            s.nextCursor != null &&
+            !s.searching) {
           ref.read(searchProvider.notifier).search(
                 s.submittedQuery.isEmpty ? s.query : s.submittedQuery,
                 cursor: s.nextCursor,
@@ -186,7 +188,8 @@ class _ResultBody extends ConsumerWidget {
               child: ActionChip(
                 avatar: const Icon(McIcons.close2, size: 16),
                 label: Text('只看「${s.selectedPerson!.name}」的作品'),
-                onPressed: () => ref.read(searchProvider.notifier).clearPerson(),
+                onPressed: () =>
+                    ref.read(searchProvider.notifier).clearPerson(),
               ),
             ),
           if (!s.indexPending && s.suggestions.isNotEmpty) ...[
@@ -212,7 +215,8 @@ class _ResultBody extends ConsumerWidget {
               padding: const EdgeInsets.only(bottom: 4),
               child: Text(
                 s.selectedPerson!.name,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
             ),
           const SizedBox(height: 4),
@@ -305,7 +309,8 @@ class _SuggestionRow extends StatelessWidget {
         itemBuilder: (_, i) {
           final sug = suggestions[i];
           return ActionChip(
-            label: Text(sug.label ?? sug.text, style: const TextStyle(fontSize: 12)),
+            label: Text(sug.label ?? sug.text,
+                style: const TextStyle(fontSize: 12)),
             visualDensity: VisualDensity.compact,
             onPressed: () => onPick(sug.text),
           );
@@ -327,33 +332,35 @@ class _PersonCell extends ConsumerWidget {
     return McFocusRing(
       borderRadius: 12,
       child: InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: () => ref.read(searchProvider.notifier).selectPerson(person),
-      child: SizedBox(
-        width: 72,
-        child: Column(
-          children: [
-            ClipOval(
-              child: person.avatarUrl != null && person.avatarUrl!.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: McImageUrls.resolve(person.avatarUrl),
-                      width: 64,
-                      height: 64,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => _avatarFallback(),
-                    )
-                  : _avatarFallback(),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              person.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12),
-            ),
-          ],
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => ref.read(searchProvider.notifier).selectPerson(person),
+        child: SizedBox(
+          width: 72,
+          child: Column(
+            children: [
+              ClipOval(
+                child: person.avatarUrl != null && person.avatarUrl!.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl:
+                            McImageUrls.resolve(person.avatarUrl, widthPx: 160),
+                        httpHeaders: mcImageHeaders(),
+                        width: 64,
+                        height: 64,
+                        fit: BoxFit.cover,
+                        errorWidget: (_, __, ___) => _avatarFallback(),
+                      )
+                    : _avatarFallback(),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                person.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -378,68 +385,71 @@ class _HitTile extends StatelessWidget {
     return McFocusRing(
       borderRadius: 14,
       child: Card(
-      margin: EdgeInsets.zero,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: () {
-          // 库内条目 → 全局详情路由（播放一律交播放器域）。
-          if (hit.libraryIds.isEmpty) return;
-          context.push('/detail/${hit.libraryIds.first}/${hit.itemId}');
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: hit.posterUrl != null && hit.posterUrl!.isNotEmpty
-                    ? CachedNetworkImage(
-                        imageUrl: McImageUrls.resolve(hit.posterUrl),
-                        width: 52,
-                        height: 78,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => _posterFallback(),
-                      )
-                    : _posterFallback(),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      hit.itemName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      [
-                        if (hit.year != null) hit.year.toString(),
-                        if (hit.matchLabel.isNotEmpty) hit.matchLabel,
-                      ].join(' · '),
-                      style: const TextStyle(fontSize: 12, color: Colors.white54),
-                    ),
-                    if (hit.libraryIds.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          hit.libraryIds.length > 1
-                              ? '在 ${hit.libraryIds.length} 个媒体库中'
-                              : '在库',
-                          style:
-                              const TextStyle(fontSize: 12, color: McColors.accent),
-                        ),
-                      ),
-                  ],
+        margin: EdgeInsets.zero,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () {
+            // 库内条目 → 全局详情路由（播放一律交播放器域）。
+            if (hit.libraryIds.isEmpty) return;
+            context.push('/detail/${hit.libraryIds.first}/${hit.itemId}');
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: hit.posterUrl != null && hit.posterUrl!.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl:
+                              McImageUrls.resolve(hit.posterUrl, widthPx: 360),
+                          httpHeaders: mcImageHeaders(),
+                          width: 52,
+                          height: 78,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, __, ___) => _posterFallback(),
+                        )
+                      : _posterFallback(),
                 ),
-              ),
-              const Icon(McIcons.arrowRight, color: Colors.white24),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        hit.itemName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        [
+                          if (hit.year != null) hit.year.toString(),
+                          if (hit.matchLabel.isNotEmpty) hit.matchLabel,
+                        ].join(' · '),
+                        style: const TextStyle(
+                            fontSize: 12, color: Colors.white54),
+                      ),
+                      if (hit.libraryIds.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            hit.libraryIds.length > 1
+                                ? '在 ${hit.libraryIds.length} 个媒体库中'
+                                : '在库',
+                            style: const TextStyle(
+                                fontSize: 12, color: McColors.accent),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const Icon(McIcons.arrowRight, color: Colors.white24),
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }

@@ -18,11 +18,13 @@ class CollectionDetailPage extends ConsumerStatefulWidget {
   final int collectionId;
 
   @override
-  ConsumerState<CollectionDetailPage> createState() => _CollectionDetailPageState();
+  ConsumerState<CollectionDetailPage> createState() =>
+      _CollectionDetailPageState();
 }
 
 class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
-  CollectionDetailArg get _arg => CollectionDetailArg(collectionId: widget.collectionId);
+  CollectionDetailArg get _arg =>
+      CollectionDetailArg(collectionId: widget.collectionId);
 
   @override
   void initState() {
@@ -46,17 +48,22 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () async => ref.read(collectionDetailProvider(_arg).notifier).reload(),
+        onRefresh: () async =>
+            ref.read(collectionDetailProvider(_arg).notifier).reload(),
         child: state.loading && state.items.isEmpty
             ? const McLoadingView()
             : state.error != null && state.items.isEmpty
                 ? McErrorView(
                     text: state.error!,
-                    onRetry: () => ref.read(collectionDetailProvider(_arg).notifier).reload())
+                    onRetry: () => ref
+                        .read(collectionDetailProvider(_arg).notifier)
+                        .reload())
                 : NotificationListener<ScrollNotification>(
                     onNotification: (n) {
                       if (n.metrics.pixels > n.metrics.maxScrollExtent - 400) {
-                        ref.read(collectionDetailProvider(_arg).notifier).loadMore();
+                        ref
+                            .read(collectionDetailProvider(_arg).notifier)
+                            .loadMore();
                       }
                       return false;
                     },
@@ -83,15 +90,17 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
                                           crossAxisCount: mcGridCrossAxisCount(
                                               form,
                                               BoxConstraints.tightFor(
-                                                  width:
-                                                      MediaQuery.widthOf(context) - 32),
-                                          cellExtent: 130),
+                                                  width: MediaQuery.widthOf(
+                                                          context) -
+                                                      32),
+                                              cellExtent: 130),
                                           mainAxisSpacing: 12,
                                           crossAxisSpacing: 12,
                                           childAspectRatio: 0.55,
                                         ),
                                   delegate: SliverChildBuilderDelegate(
-                                    (context, i) => mcItemCard(context, state.items[i]),
+                                    (context, i) =>
+                                        mcItemCard(context, state.items[i]),
                                     childCount: state.items.length,
                                   ),
                                 ),
@@ -103,8 +112,10 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
     );
   }
 
-  Widget _header(BuildContext context, CollectionView c, CollectionDetailState state) {
-    final covers = c.covers.map((e) => e.url).where((u) => u.isNotEmpty).toList();
+  Widget _header(
+      BuildContext context, CollectionView c, CollectionDetailState state) {
+    final covers =
+        c.covers.map((e) => e.url).where((u) => u.isNotEmpty).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -119,7 +130,13 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
                     padding: const EdgeInsets.only(right: 8),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.network(McImageUrls.resolve(url), width: 180, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+                      child: Image.network(
+                          McImageUrls.resolve(url, widthPx: 480),
+                          headers: mcImageHeaders(),
+                          width: 180,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) =>
+                              const SizedBox.shrink()),
                     ),
                   ),
               ],
@@ -131,7 +148,10 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
             '${c.itemCount} 部 · ${_sortLabel(state.sort)}',
             style: TextStyle(
               fontSize: 12,
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.6),
             ),
           ),
         ),
@@ -164,9 +184,13 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
             for (final (value, label) in options)
               ListTile(
                 title: Text(label),
-                trailing: state.sort == value ? const Icon(McIcons.check, size: 18) : null,
+                trailing: state.sort == value
+                    ? const Icon(McIcons.check, size: 18)
+                    : null,
                 onTap: () {
-                  ref.read(collectionDetailProvider(_arg).notifier).setSort(value);
+                  ref
+                      .read(collectionDetailProvider(_arg).notifier)
+                      .setSort(value);
                   Navigator.of(sheetContext).pop();
                 },
               ),
@@ -182,10 +206,12 @@ class LibraryCollectionsPage extends ConsumerStatefulWidget {
   const LibraryCollectionsPage({super.key});
 
   @override
-  ConsumerState<LibraryCollectionsPage> createState() => _LibraryCollectionsPageState();
+  ConsumerState<LibraryCollectionsPage> createState() =>
+      _LibraryCollectionsPageState();
 }
 
-class _LibraryCollectionsPageState extends ConsumerState<LibraryCollectionsPage> {
+class _LibraryCollectionsPageState
+    extends ConsumerState<LibraryCollectionsPage> {
   @override
   void initState() {
     super.initState();
@@ -231,7 +257,10 @@ class _LibraryCollectionsPageState extends ConsumerState<LibraryCollectionsPage>
         height: 60,
         child: url == null || url.isEmpty
             ? Container(color: const Color(0xFF141A21))
-            : Image.network(McImageUrls.resolve(url), fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+            : Image.network(McImageUrls.resolve(url, widthPx: 960),
+                headers: mcImageHeaders(),
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink()),
       ),
     );
   }

@@ -23,7 +23,8 @@ class DetailHeader extends StatelessWidget {
         entry.runtimeMinutes! >= 60
             ? '${entry.runtimeMinutes! ~/ 60}h${(entry.runtimeMinutes! % 60).toString().padLeft(2, '0')}'
             : '${entry.runtimeMinutes} 分钟',
-      if (entry.resolution != null && entry.resolution!.isNotEmpty) entry.resolution!,
+      if (entry.resolution != null && entry.resolution!.isNotEmpty)
+        entry.resolution!,
       if (entry.hdr) 'HDR',
     ];
     return parts.join(' · ');
@@ -41,7 +42,9 @@ class DetailHeader extends StatelessWidget {
               child: ImageFiltered(
                 imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
                 child: CachedNetworkImage(
-                  imageUrl: McImageUrls.resolve(entry.backdropUrl),
+                  imageUrl:
+                      McImageUrls.resolve(entry.backdropUrl, widthPx: 960),
+                  httpHeaders: mcImageHeaders(),
                   fit: BoxFit.cover,
                   errorWidget: (_, __, ___) => const SizedBox.shrink(),
                 ),
@@ -83,7 +86,9 @@ class DetailHeader extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                       child: entry.posterUrl != null
                           ? CachedNetworkImage(
-                              imageUrl: McImageUrls.resolve(entry.posterUrl),
+                              imageUrl: McImageUrls.resolve(entry.posterUrl,
+                                  widthPx: 480),
+                              httpHeaders: mcImageHeaders(),
                               width: 120,
                               height: 180,
                               fit: BoxFit.cover,
@@ -124,8 +129,7 @@ class DetailHeader extends StatelessWidget {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                border:
-                                    Border.all(color: Colors.white38),
+                                border: Border.all(color: Colors.white38),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(

@@ -39,12 +39,16 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
   /// 从首页状态收集全部可预取的封面 URL。
   List<String> _collectCoverUrls(LibraryHomeState state) {
     final urls = <String>[
-      for (final e in state.upNext) if (e.episodeStillUrl != null) McImageUrls.resolve(e.episodeStillUrl),
+      for (final e in state.upNext)
+        if (e.episodeStillUrl != null) McImageUrls.resolve(e.episodeStillUrl),
     ];
     for (final row in state.rows) {
       final genres = state.kindGenres[row.id] ?? const <Map<String, dynamic>>[];
       for (final g in genres) {
-        final url = McImageUrls.resolve((g['backdrop_url'] ?? g['poster_url'] ?? g['cover_url'] ?? '') as String);
+        final url = McImageUrls.resolve((g['backdrop_url'] ??
+            g['poster_url'] ??
+            g['cover_url'] ??
+            '') as String);
         if (url.isNotEmpty) urls.add(url);
       }
     }
@@ -81,7 +85,10 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
         child: state.loading && state.rows.isEmpty
             ? const McLoadingView()
             : state.error != null && state.rows.isEmpty
-                ? McErrorView(text: state.error!, onRetry: () => ref.read(libraryHomeProvider.notifier).load())
+                ? McErrorView(
+                    text: state.error!,
+                    onRetry: () =>
+                        ref.read(libraryHomeProvider.notifier).load())
                 : ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     children: [
@@ -99,7 +106,8 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
                             ),
                           ),
                         ),
-                      for (final row in state.visibleRows) _buildRow(context, row),
+                      for (final row in state.visibleRows)
+                        _buildRow(context, row),
                       const SizedBox(height: 24),
                     ],
                   ),
@@ -129,7 +137,10 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
           for (final g in genres.take(20))
             _GenreBlock(
               name: (g['name'] ?? g['label'] ?? '').toString(),
-              url: (g['backdrop_url'] ?? g['poster_url'] ?? g['cover_url'] ?? '') as String,
+              url: (g['backdrop_url'] ??
+                  g['poster_url'] ??
+                  g['cover_url'] ??
+                  '') as String,
               onTap: () => context.push(routeLibraryKind(k.kind)),
             ),
         ],
@@ -148,10 +159,12 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
               title: e.title,
               posterUrl: e.episodeStillUrl,
               aspect: 16 / 9,
-              subtitle: 'S${e.seasonNumber} E${e.episodeNumber} · ${e.episodeTitle ?? ''}',
+              subtitle:
+                  'S${e.seasonNumber} E${e.episodeNumber} · ${e.episodeTitle ?? ''}',
               progress: e.progressPercent / 100,
               width: 160,
-              onTap: () => context.push('/detail/${e.libraryId}/${e.mediaItemId}'),
+              onTap: () =>
+                  context.push('/detail/${e.libraryId}/${e.mediaItemId}'),
             ),
           ),
       ];
@@ -230,50 +243,50 @@ class _LibraryGrid extends ConsumerWidget {
           : mcGridCrossAxisCount(form, constraints,
               cellExtent: 320, min: 2, max: 6);
       return GridView.count(
-      crossAxisCount: columns,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 1.6,
-      children: [
-        for (final lib in libs)
-          McFocusRing(
-            borderRadius: 10,
-            child: InkWell(
-            borderRadius: BorderRadius.circular(10),
-            onTap: () => context.push(routeLibraryDetail(lib.id)),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: McColors.surfaceDark,
+        crossAxisCount: columns,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        childAspectRatio: 1.6,
+        children: [
+          for (final lib in libs)
+            McFocusRing(
+              borderRadius: 10,
+              child: InkWell(
                 borderRadius: BorderRadius.circular(10),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(lib.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${lib.stats.itemCount} 部 · ${mcFormatBytes(lib.stats.totalSizeBytes)}',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.6),
-                    ),
+                onTap: () => context.push(routeLibraryDetail(lib.id)),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: McColors.surfaceDark,
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                ],
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(lib.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${lib.stats.itemCount} 部 · ${mcFormatBytes(lib.stats.totalSizeBytes)}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-          ),
-            ),
-      ],
+        ],
       );
     });
   }
@@ -281,7 +294,8 @@ class _LibraryGrid extends ConsumerWidget {
 
 /// 类型色块（TMDB 类型 + 封面）。
 class _GenreBlock extends StatelessWidget {
-  const _GenreBlock({required this.name, required this.url, required this.onTap});
+  const _GenreBlock(
+      {required this.name, required this.url, required this.onTap});
 
   final String name;
   final String url;
@@ -292,34 +306,38 @@ class _GenreBlock extends StatelessWidget {
     return McFocusRing(
       borderRadius: 8,
       child: GestureDetector(
-      onTap: onTap,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: SizedBox(
-          width: 110,
-          height: 64,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (url.isEmpty)
-                Container(color: McColors.surfaceDark)
-              else
-                CachedNetworkImage(imageUrl: url, fit: BoxFit.cover),
-              Container(color: Colors.black.withValues(alpha: 0.35)),
-              Center(
-                child: Text(
-                  name,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
+        onTap: onTap,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            width: 110,
+            height: 64,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (url.isEmpty)
+                  Container(color: McColors.surfaceDark)
+                else
+                  CachedNetworkImage(
+                    imageUrl: url,
+                    httpHeaders: mcImageHeaders(),
+                    fit: BoxFit.cover,
+                  ),
+                Container(color: Colors.black.withValues(alpha: 0.35)),
+                Center(
+                  child: Text(
+                    name,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }

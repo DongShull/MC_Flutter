@@ -28,39 +28,42 @@ class CastRow extends StatelessWidget {
           return McFocusRing(
             borderRadius: 10,
             child: InkWell(
-            borderRadius: BorderRadius.circular(10),
-            onTap: () => onPersonTap?.call(member),
-            child: SizedBox(
-              width: 72,
-              child: Column(
-                children: [
-                  ClipOval(
-                    child: member.profileUrl != null
-                        ? CachedNetworkImage(
-                            imageUrl: McImageUrls.resolve(member.profileUrl),
-                            width: 64,
-                            height: 64,
-                            fit: BoxFit.cover,
-                            errorWidget: (_, __, ___) => const _FallbackAvatar(),
-                          )
-                        : const _FallbackAvatar(),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    member.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelSmall,
-                  ),
-                  if (member.role != null && member.role!.isNotEmpty)
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => onPersonTap?.call(member),
+              child: SizedBox(
+                width: 72,
+                child: Column(
+                  children: [
+                    ClipOval(
+                      child: member.profileUrl != null
+                          ? CachedNetworkImage(
+                              imageUrl: McImageUrls.resolve(member.profileUrl,
+                                  widthPx: 160),
+                              httpHeaders: mcImageHeaders(),
+                              width: 64,
+                              height: 64,
+                              fit: BoxFit.cover,
+                              errorWidget: (_, __, ___) =>
+                                  const _FallbackAvatar(),
+                            )
+                          : const _FallbackAvatar(),
+                    ),
+                    const SizedBox(height: 6),
                     Text(
-                      member.role!,
+                      member.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context)
-                          .textTheme
-                          .labelSmall
-                          ?.copyWith(color: Colors.white38),
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                    if (member.role != null && member.role!.isNotEmpty)
+                      Text(
+                        member.role!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context)
+                            .textTheme
+                            .labelSmall
+                            ?.copyWith(color: Colors.white38),
                       ),
                   ],
                 ),

@@ -34,11 +34,14 @@ class EpisodeList extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                     child: e.stillUrl != null
                         ? CachedNetworkImage(
-                            imageUrl: McImageUrls.resolve(e.stillUrl),
+                            imageUrl:
+                                McImageUrls.resolve(e.stillUrl, widthPx: 360),
+                            httpHeaders: mcImageHeaders(),
                             width: 110,
                             height: 62,
                             fit: BoxFit.cover,
-                            errorWidget: (_, __, ___) => _stillFallback(context),
+                            errorWidget: (_, __, ___) =>
+                                _stillFallback(context),
                           )
                         : _stillFallback(context),
                   ),
@@ -51,14 +54,18 @@ class EpisodeList extends StatelessWidget {
                           children: [
                             Text(
                               '第 ${e.episodeNumber} 集',
-                              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                                  color: Colors.white54),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelMedium
+                                  ?.copyWith(color: Colors.white54),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 e.name,
-                                style: Theme.of(context).textTheme.bodyMedium
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
                                     ?.copyWith(fontWeight: FontWeight.w600),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -74,10 +81,13 @@ class EpisodeList extends StatelessWidget {
                           Text(
                             [
                               if (e.airDate != null) e.airDate!,
-                              if (e.runtimeMinutes != null && e.runtimeMinutes! > 0)
+                              if (e.runtimeMinutes != null &&
+                                  e.runtimeMinutes! > 0)
                                 '${e.runtimeMinutes} 分钟',
                             ].join(' · '),
-                            style: Theme.of(context).textTheme.labelSmall
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
                                 ?.copyWith(color: Colors.white38),
                           ),
                         ],
@@ -85,7 +95,9 @@ class EpisodeList extends StatelessWidget {
                           const SizedBox(height: 4),
                           Text(
                             e.overview!,
-                            style: Theme.of(context).textTheme.bodySmall
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
                                 ?.copyWith(color: Colors.white60),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,

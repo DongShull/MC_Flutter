@@ -6,12 +6,21 @@ class McImageUrls {
   McImageUrls._();
 
   static const List<int> widthLadder = [
-    160, 240, 360, 480, 720, 960, 1280, 1920, 2560, 3840,
+    160,
+    240,
+    360,
+    480,
+    720,
+    960,
+    1280,
+    1920,
+    2560,
+    3840,
   ];
 
   /// 向上取到阶梯里的一档；超过最大档用最大档。
-  static int snap(int widthPx) =>
-      widthLadder.firstWhere((e) => e >= widthPx, orElse: () => widthLadder.last);
+  static int snap(int widthPx) => widthLadder.firstWhere((e) => e >= widthPx,
+      orElse: () => widthLadder.last);
 
   /// raw 支持：绝对 http(s)（走代理）/ /api/…（原样拼 base）/ 相对路径（补 /api/v1/）。
   /// 解析失败（无服务器或空串）返回 null，由调用方落回占位图。
@@ -37,4 +46,12 @@ class McImageUrls {
   /// 便捷封装：解析失败返回空串（CachedNetworkImage 走 errorWidget 占位）。
   static String resolve(String? raw, {int? widthPx}) =>
       build(raw, widthPx: widthPx) ?? '';
+}
+
+/// 图片请求统一附带登录令牌（服务端图片通道是默认拒绝边界，无凭据一律 401）。
+Map<String, String> mcImageHeaders() {
+  final t = appSession.token;
+  return t == null || t.isEmpty
+      ? const <String, String>{}
+      : <String, String>{'Authorization': 'Bearer $t'};
 }

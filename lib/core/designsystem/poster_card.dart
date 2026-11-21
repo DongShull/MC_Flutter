@@ -72,10 +72,8 @@ class McPosterCard extends StatelessWidget {
                 Positioned(
                   right: 6,
                   top: 6,
-                  child: _tag(
-                      rating!.toStringAsFixed(1),
-                      Colors.black.withValues(alpha: 0.55),
-                      Colors.white),
+                  child: _tag(rating!.toStringAsFixed(1),
+                      Colors.black.withValues(alpha: 0.55), Colors.white),
                 ),
               if (progress != null && progress! > 0)
                 Positioned(
@@ -115,22 +113,21 @@ class McPosterCard extends StatelessWidget {
       ],
     );
     if (width != null) card = SizedBox(width: width, child: card);
-    return InkWell(borderRadius: BorderRadius.circular(8), onTap: onTap, child: card);
+    return InkWell(
+        borderRadius: BorderRadius.circular(8), onTap: onTap, child: card);
   }
 
   Widget _poster(BuildContext context) {
     final empty = Container(
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: Icon(McIcons.movie,
-          color: Theme.of(context)
-              .colorScheme
-              .onSurface
-              .withValues(alpha: 0.3),
+          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
           size: 32),
     );
     if (posterUrl == null || posterUrl!.isEmpty) return empty;
     return CachedNetworkImage(
-      imageUrl: McImageUrls.resolve(posterUrl),
+      imageUrl: McImageUrls.resolve(posterUrl, widthPx: 480),
+      httpHeaders: mcImageHeaders(),
       fit: BoxFit.cover,
       placeholder: (_, __) => empty,
       errorWidget: (_, __, ___) => empty,
