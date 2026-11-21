@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
 import '../../../core/api/mc_client.dart';
+import '../../../core/network/server_routes.dart';
 import '../../../core/api/session_providers.dart';
 
 /// 登录流程状态（对齐原 feature/onboarding：探测→bootstrap→device/login）。
@@ -115,6 +118,13 @@ class OnboardingController extends Notifier<OnboardingState> {
       final deviceName =
           ((body['device'] as Map<String, dynamic>?)?['name'] ?? '').toString();
       await session.login(baseUrl: host, token: token, deviceName: deviceName);
+      // 登录成功：拉地址簿并选路（内网先探、外网晚 250ms，鸿蒙 ServerRoutes.configure 对应）。
+      unawaited(ServerRoutes.instance.configure(host, () async {
+        final loginClient = McClient(session: session, baseUrlOverride: host);
+        final res = await loginClient.get(Channel.general, '/server/addresses');
+        if (res.statusCode != 200 || res.data == null) return null;
+        return ServerAddressesView.fromJson(res.data!);
+      }));
       // 登录身份（启动页展示用）：GET /auth/me → username/nickname。
       try {
         final me = await _client!.unwrap<Map<String, dynamic>>(

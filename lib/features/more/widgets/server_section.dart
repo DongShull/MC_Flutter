@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
+import '../../../core/network/server_routes.dart';
 
 /// 服务器段（对齐鸿蒙）：
 /// 「当前服务器」卡 +（管理员且有数据时）待处理/可用更新两瓷砖 +
 /// SettingsCatalog 分组入口列表（只列有真实路由的项；成员身份只显示设备）。
-class ServerSection extends StatelessWidget {
+class ServerSection extends ConsumerWidget {
   const ServerSection({
     super.key,
     required this.host,
@@ -22,8 +24,10 @@ class ServerSection extends StatelessWidget {
   final String? updateLabel;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    // 内外双地址结论（鸿蒙 routeLabel）：家里网络 / 外网 / 空=未配置。
+    final routeLabel = ref.watch(serverRoutesProvider).routeLabel;
     final showTiles = isAdmin && (noticeCount > 0 || updateLabel != null);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -56,6 +60,16 @@ class ServerSection extends StatelessWidget {
                     color: scheme.onSurface,
                   ),
                 ),
+                if (routeLabel.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    routeLabel,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 SizedBox(
                   height: 44,

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../network/server_routes.dart';
 import '../session/session_store.dart';
 import 'api_exception.dart';
 import 'retry_interceptor.dart';
@@ -41,7 +42,14 @@ class McClient {
 
 
   /// 当前服务器基址（含 /api/v1 前缀的完整 URL 拼接由调用方给 path）。
-  String get baseUrl => _baseUrlOverride ?? _session.baseUrl ?? '';
+  /// 已配置选路时走 ServerRoutes 胜者（同令牌换 origin，鸿蒙 onRouteChange 对应）；
+  /// 登录地址覆盖（登录页）与未配置场景不受影响。
+  String get baseUrl {
+    final base = _baseUrlOverride ?? _session.baseUrl ?? '';
+    if (_baseUrlOverride != null || base.isEmpty) return base;
+    final routed = ServerRoutes.instance.currentOrigin();
+    return routed.isEmpty ? base : routed;
+  }
 
   Future<Response<Map<String, dynamic>>> get(
     Channel channel,
