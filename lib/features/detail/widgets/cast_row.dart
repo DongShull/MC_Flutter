@@ -1,3 +1,4 @@
+import '../../../core/image/image_urls.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -36,7 +37,7 @@ class CastRow extends StatelessWidget {
                   ClipOval(
                     child: member.profileUrl != null
                         ? CachedNetworkImage(
-                            imageUrl: member.profileUrl!,
+                            imageUrl: McImageUrls.resolve(member.profileUrl),
                             width: 64,
                             height: 64,
                             fit: BoxFit.cover,

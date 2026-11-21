@@ -1,3 +1,4 @@
+import '../../../core/image/image_urls.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -129,7 +130,7 @@ class McPosterCard extends StatelessWidget {
     );
     if (posterUrl == null || posterUrl!.isEmpty) return empty;
     return CachedNetworkImage(
-      imageUrl: posterUrl!,
+      imageUrl: McImageUrls.resolve(posterUrl),
       fit: BoxFit.cover,
       placeholder: (_, __) => empty,
       errorWidget: (_, __, ___) => empty,

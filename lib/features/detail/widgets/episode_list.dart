@@ -1,3 +1,4 @@
+import '../../../core/image/image_urls.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -33,7 +34,7 @@ class EpisodeList extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                     child: e.stillUrl != null
                         ? CachedNetworkImage(
-                            imageUrl: e.stillUrl!,
+                            imageUrl: McImageUrls.resolve(e.stillUrl),
                             width: 110,
                             height: 62,
                             fit: BoxFit.cover,

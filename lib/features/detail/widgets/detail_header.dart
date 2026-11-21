@@ -1,3 +1,4 @@
+import '../../../core/image/image_urls.dart';
 import 'dart:ui' show ImageFilter;
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -40,7 +41,7 @@ class DetailHeader extends StatelessWidget {
               child: ImageFiltered(
                 imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
                 child: CachedNetworkImage(
-                  imageUrl: entry.backdropUrl!,
+                  imageUrl: McImageUrls.resolve(entry.backdropUrl),
                   fit: BoxFit.cover,
                   errorWidget: (_, __, ___) => const SizedBox.shrink(),
                 ),
@@ -82,7 +83,7 @@ class DetailHeader extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                       child: entry.posterUrl != null
                           ? CachedNetworkImage(
-                              imageUrl: entry.posterUrl!,
+                              imageUrl: McImageUrls.resolve(entry.posterUrl),
                               width: 120,
                               height: 180,
                               fit: BoxFit.cover,

@@ -1,3 +1,4 @@
+import '../../../core/image/image_urls.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -38,12 +39,12 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
   /// 从首页状态收集全部可预取的封面 URL。
   List<String> _collectCoverUrls(LibraryHomeState state) {
     final urls = <String>[
-      for (final e in state.upNext) if (e.episodeStillUrl != null) e.episodeStillUrl!,
+      for (final e in state.upNext) if (e.episodeStillUrl != null) McImageUrls.resolve(e.episodeStillUrl),
     ];
     for (final row in state.rows) {
       final genres = state.kindGenres[row.id] ?? const <Map<String, dynamic>>[];
       for (final g in genres) {
-        final url = (g['backdrop_url'] ?? g['poster_url'] ?? g['cover_url'] ?? '') as String;
+        final url = McImageUrls.resolve((g['backdrop_url'] ?? g['poster_url'] ?? g['cover_url'] ?? '') as String);
         if (url.isNotEmpty) urls.add(url);
       }
     }

@@ -1,3 +1,4 @@
+import '../../../core/image/image_urls.dart';
 // IMPLEMENTED — 1:1 重写自 MovieClaw feature/search/SearchScreen.kt（库内搜索分支）。
 // 范围说明：search 模块只做库内搜索；站点/资源搜索属下载域，不在此实现。
 import 'package:cached_network_image/cached_network_image.dart';
@@ -335,7 +336,7 @@ class _PersonCell extends ConsumerWidget {
             ClipOval(
               child: person.avatarUrl != null && person.avatarUrl!.isNotEmpty
                   ? CachedNetworkImage(
-                      imageUrl: person.avatarUrl!,
+                      imageUrl: McImageUrls.resolve(person.avatarUrl),
                       width: 64,
                       height: 64,
                       fit: BoxFit.cover,
@@ -393,7 +394,7 @@ class _HitTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
                 child: hit.posterUrl != null && hit.posterUrl!.isNotEmpty
                     ? CachedNetworkImage(
-                        imageUrl: hit.posterUrl!,
+                        imageUrl: McImageUrls.resolve(hit.posterUrl),
                         width: 52,
                         height: 78,
                         fit: BoxFit.cover,

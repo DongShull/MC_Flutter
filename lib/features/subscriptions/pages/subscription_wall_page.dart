@@ -1,3 +1,4 @@
+import '../../../core/image/image_urls.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -174,7 +175,7 @@ class _PosterTile extends StatelessWidget {
               child: SizedBox.expand(
                 child: posterUrl != null
                     ? CachedNetworkImage(
-                        imageUrl: posterUrl!,
+                        imageUrl: McImageUrls.resolve(posterUrl),
                         fit: BoxFit.cover,
                         errorWidget: (_, __, ___) => Container(color: Colors.white10),
                       )

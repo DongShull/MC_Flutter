@@ -1,3 +1,4 @@
+import '../../../core/image/image_urls.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -118,7 +119,7 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
                     padding: const EdgeInsets.only(right: 8),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.network(url, width: 180, fit: BoxFit.cover),
+                      child: Image.network(McImageUrls.resolve(url), width: 180, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink()),
                     ),
                   ),
               ],
@@ -230,7 +231,7 @@ class _LibraryCollectionsPageState extends ConsumerState<LibraryCollectionsPage>
         height: 60,
         child: url == null || url.isEmpty
             ? Container(color: const Color(0xFF141A21))
-            : Image.network(url, fit: BoxFit.cover),
+            : Image.network(McImageUrls.resolve(url), fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink()),
       ),
     );
   }

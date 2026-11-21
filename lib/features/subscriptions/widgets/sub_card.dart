@@ -1,3 +1,4 @@
+import '../../../core/image/image_urls.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -49,7 +50,7 @@ class SubCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(10),
                       child: sub.media.posterUrl != null
                           ? CachedNetworkImage(
-                              imageUrl: sub.media.posterUrl!,
+                              imageUrl: McImageUrls.resolve(sub.media.posterUrl),
                               fit: BoxFit.cover,
                               errorWidget: (_, __, ___) => Container(color: Colors.white10),
                             )
