@@ -56,7 +56,10 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
     final contentWidth =
         mcWindowClassOf(form) == McWindowClass.compact ? 560.0 : 720.0;
 
-    return Scaffold(
+    // 登录页背景是固定深色渐变，强制深色主题避免浅色系统下输入文字看不清
+    return Theme(
+      data: McTheme.dark(),
+      child: Scaffold(
       body: DecoratedBox(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -134,6 +137,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
             ),
           ),
         ),
+      ),
       ),
     );
   }
