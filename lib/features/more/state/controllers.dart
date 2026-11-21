@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'mc_api.dart';
@@ -7,6 +9,7 @@ import 'models.dart';
 class MoreState {
   const MoreState({
     this.session,
+    this.noticeCount = 0,
     this.reminderCount = 0,
     this.pendingUpdateLabel,
     this.sessions = const [],
@@ -15,6 +18,7 @@ class MoreState {
   });
 
   final Map<String, dynamic>? session; // SessionView 原始 JSON（username/nickname/role…）
+  final int noticeCount; // 可见公告数（待处理瓷砖口径，不含待更新）
   final int reminderCount;
   final String? pendingUpdateLabel;
   final List<SessionSummary> sessions;
@@ -23,6 +27,7 @@ class MoreState {
 
   MoreState copyWith({
     Map<String, dynamic>? session,
+    int? noticeCount,
     int? reminderCount,
     String? pendingUpdateLabel,
     List<SessionSummary>? sessions,
@@ -31,6 +36,7 @@ class MoreState {
   }) =>
       MoreState(
         session: session ?? this.session,
+        noticeCount: noticeCount ?? this.noticeCount,
         reminderCount: reminderCount ?? this.reminderCount,
         pendingUpdateLabel: pendingUpdateLabel ?? this.pendingUpdateLabel,
         sessions: sessions ?? this.sessions,
@@ -45,7 +51,66 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
   @override
   AsyncValue<MoreState> build() {
     Future.microtask(load);
+    _startPolling();
     return const AsyncValue.loading();
+  }
+
+  /// 轮询（对齐鸿蒙 MorePage）：公告 30s、待更新 10min，仅管理员；
+  /// 失败保留旧值（我的页不因公告挂掉而整体报错）。
+  void _startPolling() {
+    final notices =
+        Timer.periodic(const Duration(seconds: 30), (_) => _refreshNotices());
+    final updates = Timer.periodic(
+      const Duration(minutes: 10),
+      (_) => _refreshPendingUpdate(),
+    );
+    ref.onDispose(() {
+      notices.cancel();
+      updates.cancel();
+    });
+  }
+
+  bool get _isAdmin =>
+      (state.valueOrNull?.session?['role'] ?? '').toString() == 'admin';
+
+  /// 待更新文案：'新版本 v<app_version>' 优先，否则 '新识别模型 <model_tag>'。
+  String? _pendingLabel(Map<String, dynamic>? pending) {
+    if (pending == null) return null;
+    final appVersion =
+        (pending['appVersion'] ?? pending['app_version'])?.toString();
+    if (appVersion != null) return '新版本 v$appVersion';
+    final modelTag = (pending['modelTag'] ?? pending['model_tag'])?.toString();
+    if (modelTag != null) return '新识别模型 $modelTag';
+    return null;
+  }
+
+  Future<void> _refreshNotices() async {
+    if (!_isAdmin) return;
+    try {
+      final notices = await _api.notices();
+      final cur = state.valueOrNull;
+      if (cur == null) return;
+      final count = _visibleCount(notices);
+      state = AsyncValue.data(cur.copyWith(
+        noticeCount: count,
+        reminderCount: count + (cur.pendingUpdateLabel != null ? 1 : 0),
+      ));
+    } catch (_) {
+      // 失败保留旧值。
+    }
+  }
+
+  Future<void> _refreshPendingUpdate() async {
+    if (!_isAdmin) return;
+    try {
+      final pending = await _api.pendingUpdate();
+      final cur = state.valueOrNull;
+      if (cur == null) return;
+      state =
+          AsyncValue.data(cur.copyWith(pendingUpdateLabel: _pendingLabel(pending)));
+    } catch (_) {
+      // 失败保留旧值。
+    }
   }
 
   MoreApi get _api => ref.read(moreApiProvider);
@@ -62,16 +127,13 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
       final notices = results[0] as List<McNotice>;
       final pending = results[1] as Map<String, dynamic>?;
       final sessions = results[2] as List<SessionSummary>;
-      final pendingLabel = pending == null
-          ? null
-          : (pending['appVersion']?.toString() ??
-              pending['app_version']?.toString() ??
-              pending['modelTag']?.toString() ??
-              pending['model_tag']?.toString());
+      final pendingLabel = _pendingLabel(pending);
+      final noticeCount = _visibleCount(notices);
       state = AsyncValue.data(MoreState(
         session: session,
-        reminderCount: _visibleCount(notices) + (pendingLabel != null ? 1 : 0),
-        pendingUpdateLabel: pendingLabel == null ? null : '新版本 v$pendingLabel',
+        noticeCount: noticeCount,
+        reminderCount: noticeCount + (pendingLabel != null ? 1 : 0),
+        pendingUpdateLabel: pendingLabel,
         sessions: sessions,
         hasMore: sessions.length >= _pageSize,
       ));
