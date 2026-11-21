@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/designsystem/adaptive.dart';
@@ -46,7 +47,18 @@ class RootShell extends ConsumerWidget {
     final badges = ref.watch(shellBadgesProvider);
     final form = ref.watch(mcFormProvider);
 
-    final body = IndexedStack(index: index, children: pages);
+    final body = AnnotatedRegion<SystemUiOverlayStyle>(
+      // 沉浸式（对齐鸿蒙窗口沉浸）：状态栏与导航条全透明，内容延伸到条后。
+      value: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarIconBrightness:
+            Theme.of(context).brightness == Brightness.dark
+                ? Brightness.light
+                : Brightness.dark,
+      ),
+      child: IndexedStack(index: index, children: pages),
+    );
 
     // 手机：悬浮胶囊底栏。
     if (form == McDeviceForm.phone) {

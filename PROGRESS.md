@@ -233,3 +233,16 @@
 - 图片加载修复（66bf5bf）：服务端图片通道默认拒绝（实测无凭据 401）→ mcImageHeaders() 全站附带 Bearer；全海报按宽度阶梯取档（头像 160/海报 480/剧照 360/头图 960）
 - 验证：analyze No issues + test 36/36；commits 66bf5bf / more / subscriptions；推送 main
 - 教训：CachedNetworkImage 与 Dio 不共享 Cookie/头，独立图片通道必须显式传 httpHeaders；dart format 会暴露 t14 未合规范的花括号
+
+## Round 23：鸿蒙「我的」页 1:1 对齐（2026-11-22）
+
+差距清单（m04008）七项全部落地：
+- ①下载段内嵌五分区（461841b）：lib/features/offline/embed.dart 导出 CapacityCard/DownloadingSection/WatchedCard/DownloadedSection/OtherOwnersSection，more 只经 embed.dart 引 offline；Watched/OtherOwners 无数据源恒隐藏（鸿蒙空段隐藏语义）。
+- ②会话左滑（7f6231e）：Dismissible endToStart 三玻璃钮 续接/重命名/删除 + 长按菜单保留。
+- ③页底快捷输入卡（7f6231e）：quick_input.dart，TextField send 直发 POST /agent/sessions → push /agent/session/{id}。
+- ④内外双地址（72c8ca7）：lib/core/network/server_routes.dart = 鸿蒙 ServerRoutes.ets 移植（地址簿 GET /server/addresses + /health 实例号身份锚 + 内网先探外网晚 250ms + 结论落盘）；McClient.baseUrl 走胜者（同令牌换 origin）；登录成功即 configure；服务器卡显示 routeLabel（家里网络/外网）。
+- ⑤沉浸顶栏（本次）：AnnotatedRegion 状态栏/导航条全透明。
+- ⑥滚动收底栏：core/shell/tab_collapse.dart（同向累计>6 且 top>24 收；回向>10/top≤8 放回），app_shell NotificationListener 上报，收起态 54 圆形玻璃钮点按展开。
+- ⑦玻璃材质：core/designsystem/mc_glass.dart（GlassTone 五档色值 1:1 抄 GlassControls.ets，135° 渐变+1px edge+blur18 BackdropFilter），切换账号按钮/SectionPicker 选中段接入。
+
+t15/t16 子代理产出，验收 analyze No issues + test 36/36。
