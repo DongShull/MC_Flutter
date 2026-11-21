@@ -225,3 +225,11 @@
 - 产出：build/app/outputs/flutter-apk/app-release.apk (91.2MB, debug 签名)
 - commits: 18b2531 / 3afbc59 / 9b22cd0 / b317c6b
 - 待办：DLNA/QR 真机验证（需设备）；正式签名需提供 release keystore
+## Round 22（三页对齐原生 + 图片加载修复）
+
+- 活动中心 iOS 化（captain）：activity_page.dart 重写为 ActivityView.swift 单页 dashboard 分区（摘要行/警告条/需要处理[红·全部清除]/正在播放[绿]/下载中/进行中/最近播放[跳详情]/观看统计/最近完成[查看全部]），insetGrouped 卡片风
+- 我的页鸿蒙化（t13）：ProfileCard（渐变头像+铅笔角标+切换账号弹层）→ 三段胶囊 SectionPicker → 会话分组列表（今天/昨天/更早，续接/重命名/删除）→ 服务器卡+待处理/可用更新瓷砖 → SettingsCatalog 分组入口；tablet/TV 限宽 720
+- 订阅页鸿蒙化（t14）：SubscriptionsHomeModel 完整移植（ArrivalPresentation 状态机/Hero 轮播 8s 自动/七天日程条/进行中+RestingDivider 书架/长按菜单）；三态页面 + wall 页分区重写
+- 图片加载修复（66bf5bf）：服务端图片通道默认拒绝（实测无凭据 401）→ mcImageHeaders() 全站附带 Bearer；全海报按宽度阶梯取档（头像 160/海报 480/剧照 360/头图 960）
+- 验证：analyze No issues + test 36/36；commits 66bf5bf / more / subscriptions；推送 main
+- 教训：CachedNetworkImage 与 Dio 不共享 Cookie/头，独立图片通道必须显式传 httpHeaders；dart format 会暴露 t14 未合规范的花括号
