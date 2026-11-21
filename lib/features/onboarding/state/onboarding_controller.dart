@@ -64,9 +64,12 @@ class OnboardingController extends Notifier<OnboardingState> {
     var s = raw.trim();
     if (s.isEmpty) return s;
     if (!s.startsWith('http://') && !s.startsWith('https://')) s = 'https://$s';
-    while (s.endsWith('/')) { s = s.substring(0, s.length - 1); }
+    while (s.endsWith('/')) {
+      s = s.substring(0, s.length - 1);
+    }
     return s;
   }
+
   Future<void> login(String base, String username, String password) async {
     if (state.busy) return;
     state = state.copyWith(busy: true, error: null, done: false);
@@ -109,8 +112,8 @@ class OnboardingController extends Notifier<OnboardingState> {
         state = state.copyWith(busy: false, error: '登录响应缺少令牌');
         return;
       }
-      final deviceName = ((body['device'] as Map<String, dynamic>?)?['name'] ?? '')
-          .toString();
+      final deviceName =
+          ((body['device'] as Map<String, dynamic>?)?['name'] ?? '').toString();
       await session.login(baseUrl: host, token: token, deviceName: deviceName);
       // 登录身份（启动页展示用）：GET /auth/me → username/nickname。
       try {
@@ -122,7 +125,8 @@ class OnboardingController extends Notifier<OnboardingState> {
         final name = (me['nickname']?.toString().isNotEmpty == true)
             ? me['nickname'].toString()
             : (me['username'] ?? '').toString();
-        await session.saveProfile(username: name);
+        await session.saveProfile(
+            username: name, avatarUrl: me['avatar_url']?.toString());
       } catch (_) {
         // 拿不到身份不阻断登录。
       }
@@ -138,4 +142,3 @@ class OnboardingController extends Notifier<OnboardingState> {
 final onboardingProvider =
     NotifierProvider<OnboardingController, OnboardingState>(
         OnboardingController.new);
-

@@ -54,7 +54,8 @@ class SessionSummary {
   factory SessionSummary.fromJson(Map<String, dynamic> json) => SessionSummary(
         id: (json['id'] ?? '').toString(),
         title: (json['title'] ?? '').toString(),
-        lastPrompt: (json['lastPrompt'] ?? json['last_prompt'] ?? '').toString(),
+        lastPrompt:
+            (json['lastPrompt'] ?? json['last_prompt'] ?? '').toString(),
         entryCount: json['entryCount'] is num
             ? (json['entryCount'] as num).toInt()
             : json['entry_count'] is num

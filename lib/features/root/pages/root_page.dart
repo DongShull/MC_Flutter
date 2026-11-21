@@ -3,7 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/designsystem/adaptive.dart';
 import '../state/shell_badges.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+
 import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/image/image_urls.dart';
+import '../../../core/session/session_store.dart';
 
 /// 主壳 chrome（只管壳，不管页面）：手机悬浮胶囊底栏 / 平板TV 左侧 Rail。
 /// 页面与页签状态由 core/shell/app_shell.dart（组合根）持有，本壳纯展示。
@@ -110,12 +114,14 @@ class RootShell extends ConsumerWidget {
             color: dark ? const Color(0xFF141A21) : Colors.white,
             borderRadius: BorderRadius.circular(999),
             boxShadow: const [
-              BoxShadow(color: Colors.black26, blurRadius: 16, offset: Offset(0, 4)),
+              BoxShadow(
+                  color: Colors.black26, blurRadius: 16, offset: Offset(0, 4)),
             ],
           ),
           child: Row(
             children: [
-              for (var i = 0; i < _labels.length; i++) Expanded(child: _tabSlot(i, badges, dark)),
+              for (var i = 0; i < _labels.length; i++)
+                Expanded(child: _tabSlot(i, badges, dark)),
             ],
           ),
         ),
@@ -130,20 +136,55 @@ class RootShell extends ConsumerWidget {
     Widget iconWidget;
     if (i == _labels.length - 1) {
       // 末格 = 账号头像
-      iconWidget = CircleAvatar(
-        radius: 13,
-        backgroundColor: dark
-            ? Colors.white.withValues(alpha: selected ? 0.15 : 0.24)
-            : (selected ? const Color(0x14000000) : Colors.black12),
-        child: Icon(_icons[i],
-            size: 16, color: selected ? (dark ? Colors.white : const Color(0xFF141A21)) : (dark ? Colors.white70 : const Color(0xFF5A6673))),
+      final nickname = appSession.username;
+      final initial =
+          nickname.isEmpty ? '?' : String.fromCharCode(nickname.runes.first);
+      final avatar = appSession.avatarUrl;
+      iconWidget = Container(
+        width: 26,
+        height: 26,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF5B8DEF), Color(0xFF9B6BDF)],
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Text(
+              initial,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: dark ? Colors.white : const Color(0xFF141A21),
+              ),
+            ),
+            if (avatar.isNotEmpty)
+              Positioned.fill(
+                child: ClipOval(
+                  child: CachedNetworkImage(
+                    imageUrl: McImageUrls.resolve(avatar, widthPx: 96),
+                    httpHeaders: mcImageHeaders(),
+                    fit: BoxFit.cover,
+                    errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+                ),
+              ),
+          ],
+        ),
       );
     } else {
       iconWidget = Icon(_icons[i],
           size: 22,
           color: selected
               ? (dark ? Colors.white : const Color(0xFF141A21))
-              : (dark ? Colors.white.withValues(alpha: 0.62) : const Color(0xFF5A6673)));
+              : (dark
+                  ? Colors.white.withValues(alpha: 0.62)
+                  : const Color(0xFF5A6673)));
     }
 
     return Tooltip(
@@ -158,7 +199,9 @@ class RootShell extends ConsumerWidget {
             decoration: BoxDecoration(
               // 当前格药丸：暗色白 15%、浅色墨 8%。
               color: selected
-                  ? (dark ? Colors.white.withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.08))
+                  ? (dark
+                      ? Colors.white.withValues(alpha: 0.15)
+                      : Colors.black.withValues(alpha: 0.08))
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(999),
             ),
@@ -174,7 +217,8 @@ class RootShell extends ConsumerWidget {
                     child: Container(
                       width: 7,
                       height: 7,
-                      decoration: BoxDecoration(color: badgeDot, shape: BoxShape.circle),
+                      decoration: BoxDecoration(
+                          color: badgeDot, shape: BoxShape.circle),
                     ),
                   ),
               ],

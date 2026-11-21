@@ -21,8 +21,9 @@ class _AccountOption {
   final String username;
   final String? nickname;
 
-  String get displayOrigin =>
-      origin.replaceFirst(RegExp(r'^https?://'), '').replaceFirst(RegExp(r'/$'), '');
+  String get displayOrigin => origin
+      .replaceFirst(RegExp(r'^https?://'), '')
+      .replaceFirst(RegExp(r'/$'), '');
 }
 
 /// 打开账号切换底部弹层（对齐鸿蒙 ProfileCard 的「切换账号」）。
@@ -60,8 +61,8 @@ class _AccountSwitcherSheetState extends ConsumerState<_AccountSwitcherSheet> {
     final options = <_AccountOption>[];
     if (raw != null && raw.isNotEmpty) {
       try {
-        for (final server
-            in (jsonDecode(raw) as List<dynamic>).whereType<Map<dynamic, dynamic>>()) {
+        for (final server in (jsonDecode(raw) as List<dynamic>)
+            .whereType<Map<dynamic, dynamic>>()) {
           final origin = (server['origin'] ?? '').toString();
           for (final account
               in ((server['accounts'] ?? const []) as List<dynamic>)
@@ -83,7 +84,8 @@ class _AccountSwitcherSheetState extends ConsumerState<_AccountSwitcherSheet> {
   }
 
   String get _currentUsername =>
-      (ref.read(moreProvider).valueOrNull?.session?['username'] ?? '').toString();
+      (ref.read(moreProvider).valueOrNull?.session?['username'] ?? '')
+          .toString();
 
   Future<void> _switch(_AccountOption option) async {
     if (_busy) return;

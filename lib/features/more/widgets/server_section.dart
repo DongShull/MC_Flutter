@@ -42,8 +42,8 @@ class ServerSection extends StatelessWidget {
               children: [
                 Text(
                   McStrings.currentServerLabel,
-                  style: TextStyle(
-                      fontSize: 12, color: scheme.onSurfaceVariant),
+                  style:
+                      TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -203,8 +203,7 @@ class _Tile extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(title,
-                style: TextStyle(
-                    fontSize: 12, color: scheme.onSurfaceVariant)),
+                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
             const SizedBox(height: 4),
             Text(
               value,
@@ -217,8 +216,7 @@ class _Tile extends StatelessWidget {
               ),
             ),
             Text(detail,
-                style: TextStyle(
-                    fontSize: 12, color: scheme.onSurfaceVariant)),
+                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
           ],
         ),
       ),

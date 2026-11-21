@@ -25,7 +25,9 @@ class MoreApi {
   Future<Map<String, dynamic>?> me() async {
     try {
       return await client.unwrap<Map<String, dynamic>>(
-        Channel.general, 'GET', '$_prefix/auth/me',
+        Channel.general,
+        'GET',
+        '$_prefix/auth/me',
       );
     } catch (_) {
       return null;
@@ -35,7 +37,9 @@ class MoreApi {
   /// GET /system/notices → Notice 列表。
   Future<List<McNotice>> notices() async {
     final body = await client.unwrap<List<dynamic>>(
-      Channel.general, 'GET', '$_prefix/system/notices',
+      Channel.general,
+      'GET',
+      '$_prefix/system/notices',
     );
     return (body as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>()
@@ -45,14 +49,18 @@ class MoreApi {
 
   /// POST /system/notices/{id}/dismiss。
   Future<void> dismissNotice(int id) => client.unwrap<Map<String, dynamic>>(
-        Channel.general, 'POST', '$_prefix/system/notices/$id/dismiss',
+        Channel.general,
+        'POST',
+        '$_prefix/system/notices/$id/dismiss',
       );
 
   /// GET /app/update/pending → 无更新返回 null。
   Future<Map<String, dynamic>?> pendingUpdate() async {
     try {
       final body = await client.unwrap<Map<String, dynamic>>(
-        Channel.general, 'GET', '$_prefix/app/update/pending',
+        Channel.general,
+        'GET',
+        '$_prefix/app/update/pending',
       );
       return body.isEmpty ? null : body;
     } catch (_) {
@@ -61,9 +69,12 @@ class MoreApi {
   }
 
   /// GET /sessions?limit&offset → 对话会话摘要（分页）。
-  Future<List<SessionSummary>> sessions({int limit = 20, int offset = 0}) async {
+  Future<List<SessionSummary>> sessions(
+      {int limit = 20, int offset = 0}) async {
     final body = await client.unwrap<List<dynamic>>(
-      Channel.general, 'GET', '$_prefix/sessions',
+      Channel.general,
+      'GET',
+      '$_prefix/sessions',
       query: {'limit': limit, 'offset': offset},
     );
     return (body as List<dynamic>? ?? const [])
@@ -75,19 +86,25 @@ class MoreApi {
   /// PATCH /sessions/{id}：改标题。
   Future<void> renameSession(String id, String title) =>
       client.unwrap<Map<String, dynamic>>(
-        Channel.general, 'PATCH', '$_prefix/sessions/$id',
+        Channel.general,
+        'PATCH',
+        '$_prefix/sessions/$id',
         body: {'title': title},
       );
 
   /// DELETE /sessions/{id}。
   Future<void> deleteSession(String id) => client.unwrap<Map<String, dynamic>>(
-        Channel.general, 'DELETE', '$_prefix/sessions/$id',
+        Channel.general,
+        'DELETE',
+        '$_prefix/sessions/$id',
       );
 
   /// POST /sessions/{id}/fork：从已有上下文创建独立新会话，返回新会话 id。
   Future<String?> forkSession(String id) async {
     final body = await client.unwrap<Map<String, dynamic>>(
-      Channel.general, 'POST', '$_prefix/sessions/$id/fork',
+      Channel.general,
+      'POST',
+      '$_prefix/sessions/$id/fork',
     );
     final session = body['session'];
     if (session is Map<String, dynamic>) {

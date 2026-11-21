@@ -20,6 +20,7 @@ class SessionStore {
 
   String? get baseUrl => _baseUrl;
   String? get token => _token;
+
   /// 启动页展示用（对齐飞牛启动页：用户名 + 设备名）。
   /// 安装唯一 id（device/login 的 client.installation_id，8-128 字符）。
   /// 首次调用生成并持久化，之后稳定不变：同设备重登替换旧凭证而非新增设备。
@@ -35,6 +36,10 @@ class SessionStore {
   }
 
   String get username => _username ?? '';
+
+  String? _avatarUrl;
+
+  String get avatarUrl => _avatarUrl ?? '';
   String get deviceName => _deviceName ?? '';
   bool get isReady => _baseUrl != null && _token != null;
 
@@ -63,6 +68,7 @@ class SessionStore {
       _token = await _storage.read(key: 'mc_token:$base');
       _username = await _storage.read(key: 'mc_username');
       _deviceName = await _storage.read(key: 'mc_device_name');
+      _avatarUrl = await _storage.read(key: 'mc_avatar_url');
     }
   }
 
@@ -80,8 +86,7 @@ class SessionStore {
     await _storage.write(key: 'mc_token:$baseUrl', value: token);
     // 同时落账号级快照（mc_token:<origin>:<user>），供切换账号免重登恢复。
     if (_username != null) {
-      await _storage.write(
-          key: _accountKey(baseUrl, _username!), value: token);
+      await _storage.write(key: _accountKey(baseUrl, _username!), value: token);
     }
     if (_username != null) {
       await _storage.write(key: 'mc_username', value: _username!);
@@ -92,10 +97,15 @@ class SessionStore {
   }
 
   /// 补存展示身份（登录后 GET /auth/me 回填；logout 已清空）。
-  Future<void> saveProfile({String? username, String? deviceName}) async {
+  Future<void> saveProfile(
+      {String? username, String? deviceName, String? avatarUrl}) async {
     if (username != null && username.isNotEmpty) {
       _username = username;
       await _storage.write(key: 'mc_username', value: username);
+    }
+    if (avatarUrl != null) {
+      _avatarUrl = avatarUrl;
+      await _storage.write(key: 'mc_avatar_url', value: avatarUrl);
     }
     if (deviceName != null && deviceName.isNotEmpty) {
       _deviceName = deviceName;

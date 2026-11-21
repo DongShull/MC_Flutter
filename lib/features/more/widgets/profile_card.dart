@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../../core/image/image_urls.dart';
 
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
@@ -14,12 +17,14 @@ class ProfileCard extends StatelessWidget {
     required this.nickname,
     required this.username,
     required this.roleLabel,
+    this.avatarUrl,
     required this.onSwitchAccount,
   });
 
   final String nickname;
   final String username;
   final String roleLabel;
+  final String? avatarUrl;
   final VoidCallback onSwitchAccount;
 
   @override
@@ -73,6 +78,19 @@ class ProfileCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if ((avatarUrl ?? '').isNotEmpty)
+                      Positioned.fill(
+                        child: ClipOval(
+                          child: CachedNetworkImage(
+                            imageUrl:
+                                McImageUrls.resolve(avatarUrl, widthPx: 160),
+                            httpHeaders: mcImageHeaders(),
+                            fit: BoxFit.cover,
+                            errorWidget: (_, __, ___) =>
+                                const SizedBox.shrink(),
+                          ),
+                        ),
+                      ),
                     Positioned(
                       right: -2,
                       bottom: -2,

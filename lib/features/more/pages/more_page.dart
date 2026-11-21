@@ -5,6 +5,7 @@ import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
+import '../../../core/session/session_store.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../state/controllers.dart';
 import '../widgets/account_switcher_sheet.dart';
@@ -88,6 +89,7 @@ class _MorePageState extends ConsumerState<MorePage> {
                       nickname: nickname,
                       username: username,
                       roleLabel: roleLabel,
+                      avatarUrl: appSession.avatarUrl,
                       onSwitchAccount: () => showAccountSwitcherSheet(context),
                     ),
                     if (sections.length > 1)
@@ -105,8 +107,7 @@ class _MorePageState extends ConsumerState<MorePage> {
                         onSelect: (i) => setState(() => _sectionIndex = i),
                       ),
                     switch (sections[selected]) {
-                      MoreSection.conversations =>
-                        const ConversationsSection(),
+                      MoreSection.conversations => const ConversationsSection(),
                       MoreSection.downloads => const DownloadsSection(),
                       MoreSection.server => ServerSection(
                           host: ref.watch(sessionStoreProvider).baseUrl ?? '',

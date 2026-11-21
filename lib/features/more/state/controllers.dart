@@ -17,7 +17,8 @@ class MoreState {
     this.loadingMore = false,
   });
 
-  final Map<String, dynamic>? session; // SessionView 原始 JSON（username/nickname/role…）
+  final Map<String, dynamic>?
+      session; // SessionView 原始 JSON（username/nickname/role…）
   final int noticeCount; // 可见公告数（待处理瓷砖口径，不含待更新）
   final int reminderCount;
   final String? pendingUpdateLabel;
@@ -106,8 +107,8 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
       final pending = await _api.pendingUpdate();
       final cur = state.valueOrNull;
       if (cur == null) return;
-      state =
-          AsyncValue.data(cur.copyWith(pendingUpdateLabel: _pendingLabel(pending)));
+      state = AsyncValue.data(
+          cur.copyWith(pendingUpdateLabel: _pendingLabel(pending)));
     } catch (_) {
       // 失败保留旧值。
     }
@@ -153,10 +154,8 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
 
   /// visibleNotices：grouped_under 指向某条 group_key 的告警折叠不显示。
   int _visibleCount(List<McNotice> notices) {
-    final groupKeys = notices
-        .map((n) => n.groupKey)
-        .whereType<String>()
-        .toSet();
+    final groupKeys =
+        notices.map((n) => n.groupKey).whereType<String>().toSet();
     return notices
         .where((n) =>
             n.groupKey != null ||
@@ -170,10 +169,13 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
     if (cur == null || cur.loadingMore || !cur.hasMore) return;
     state = AsyncValue.data(cur.copyWith(loadingMore: true));
     try {
-      final more = await _api.sessions(
-          limit: _pageSize, offset: cur.sessions.length);
+      final more =
+          await _api.sessions(limit: _pageSize, offset: cur.sessions.length);
       final known = cur.sessions.map((s) => s.id).toSet();
-      final merged = [...cur.sessions, ...more.where((s) => !known.contains(s.id))];
+      final merged = [
+        ...cur.sessions,
+        ...more.where((s) => !known.contains(s.id))
+      ];
       state = AsyncValue.data(cur.copyWith(
         sessions: merged,
         hasMore: more.length >= _pageSize,
@@ -228,4 +230,5 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
   }
 }
 
-final moreProvider = NotifierProvider<MoreController, AsyncValue<MoreState>>(MoreController.new);
+final moreProvider =
+    NotifierProvider<MoreController, AsyncValue<MoreState>>(MoreController.new);

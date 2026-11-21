@@ -88,7 +88,9 @@ class ConversationsSection extends ConsumerWidget {
       final updated = DateTime.tryParse(s.updatedAt ?? '');
       final diff = updated == null
           ? 999
-          : todayStart.difference(DateTime(updated.year, updated.month, updated.day)).inDays;
+          : todayStart
+              .difference(DateTime(updated.year, updated.month, updated.day))
+              .inDays;
       if (diff <= 0) {
         today.add(s);
       } else if (diff == 1) {
@@ -111,8 +113,7 @@ class ConversationsSection extends ConsumerWidget {
     String two(int v) => v.toString().padLeft(2, '0');
     final hm = '${two(t.hour)}:${two(t.minute)}';
     final todayStart = DateTime(now.year, now.month, now.day);
-    final diff =
-        todayStart.difference(DateTime(t.year, t.month, t.day)).inDays;
+    final diff = todayStart.difference(DateTime(t.year, t.month, t.day)).inDays;
     if (diff <= 0) return hm;
     if (diff == 1) return '${McStrings.groupYesterday} $hm';
     if (t.year == now.year) return '${t.month}月${t.day}日';
@@ -171,7 +172,8 @@ class ConversationsSection extends ConsumerWidget {
     var title = next.trim();
     if (title.length > 80) title = title.substring(0, 80);
     if (title.isEmpty || title == s.title) return;
-    final err = await ref.read(moreProvider.notifier).renameSession(s.id, title);
+    final err =
+        await ref.read(moreProvider.notifier).renameSession(s.id, title);
     if (!context.mounted) return;
     _toast(context, err ?? McStrings.renamedToast);
   }
@@ -258,8 +260,7 @@ class _SessionRow extends StatelessWidget {
                     ),
                     child: Text(
                       McStrings.runningBadge,
-                      style: TextStyle(
-                          fontSize: 12, color: scheme.primary),
+                      style: TextStyle(fontSize: 12, color: scheme.primary),
                     ),
                   )
                 : Text(
@@ -319,11 +320,10 @@ class _SessionRow extends StatelessWidget {
               },
             ),
             ListTile(
-              leading: Icon(McIcons.trash2,
-                  color: Theme.of(ctx).colorScheme.error),
+              leading:
+                  Icon(McIcons.trash2, color: Theme.of(ctx).colorScheme.error),
               title: Text(McStrings.delete,
-                  style: TextStyle(
-                      color: Theme.of(ctx).colorScheme.error)),
+                  style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
               onTap: () {
                 Navigator.of(ctx).pop();
                 onDelete();
