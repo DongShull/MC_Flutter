@@ -22,11 +22,23 @@ class ApiException implements Exception {
   String toString() => 'ApiException($code, $message)';
 }
 
-/// /api/v1 统一信封：{code, message, data}。
+/// /api/v1 统一信封：{success, code, message, data}。
+/// 兼容大小写（服务端返回 code:"OK"）与 success 布尔字段；
+/// 无信封裸数据（无 code 且无 success 键）原样通过。
 T unwrapEnvelope<T>(Map<String, dynamic> body) {
-  final code = (body['code'] ?? 'ok').toString();
-  if (code == 'ok' || code == '0' || code == '200') {
-    return body['data'] as T;
+  final raw = body['code'];
+  final code = (raw ?? '').toString();
+  final hasEnvelope = raw != null || body.containsKey('success');
+  final ok = !hasEnvelope ||
+      body['success'] == true ||
+      code.toLowerCase() == 'ok' ||
+      code == '0' ||
+      code == '200' ||
+      code.toLowerCase() == 'success';
+  if (ok) {
+    final data = body['data'];
+    if (data == null) return body as T;
+    return data as T;
   }
   throw ApiException(code, (body['message'] ?? '').toString());
 }
