@@ -78,6 +78,8 @@ abstract final class McStrings {
   static const renamedToast = '已重命名';
   static const deletedToast = '已删除';
   static const forkFailedToast = '续接会话失败';
+  static const quickInputPlaceholder = '给 AI 助手发消息';
+  static const quickInputSendFailed = '发送失败，请重试';
   static const groupToday = '今天';
   static const groupYesterday = '昨天';
   static const groupEarlier = '更早';

@@ -6,6 +6,7 @@ import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
 import '../state/controllers.dart';
 import '../state/models.dart';
+import 'quick_input.dart';
 
 /// 会话段（管理员）：AI 会话列表按 今天/昨天/更早 分组，
 /// 行点击进 /agent/session/{id}，长按 / 菜单：续接 / 重命名 / 删除。
@@ -17,32 +18,38 @@ class ConversationsSection extends ConsumerWidget {
     final state = ref.watch(moreProvider);
     final sessions = state.valueOrNull?.sessions ?? const <SessionSummary>[];
     if (sessions.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
-        child: Column(
-          children: [
-            Text(
-              McStrings.conversationsEmptyTitle,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+      // 空态也保留页底快捷输入卡（对齐鸿蒙：常驻在会话段底部）。
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+            child: Column(
+              children: [
+                Text(
+                  McStrings.conversationsEmptyTitle,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  McStrings.conversationsEmptyHint,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.55),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              McStrings.conversationsEmptyHint,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.55),
-              ),
-            ),
-          ],
-        ),
+          ),
+          const QuickInputCard(),
+        ],
       );
     }
     final scheme = Theme.of(context).colorScheme;
@@ -63,7 +70,8 @@ class ConversationsSection extends ConsumerWidget {
             ),
           ),
           for (final s in group.$2)
-            _SessionRow(
+            _SwipeableSessionRow(
+              key: ValueKey('session-row-${s.id}'),
               session: s,
               onOpen: () => context.push('/agent/session/${s.id}'),
               onFork: () => _fork(context, ref, s),
@@ -71,6 +79,8 @@ class ConversationsSection extends ConsumerWidget {
               onDelete: () => _delete(context, ref, s),
             ),
         ],
+        const SizedBox(height: 8),
+        const QuickInputCard(),
       ],
     );
   }
@@ -208,6 +218,107 @@ class ConversationsSection extends ConsumerWidget {
     final err = await ref.read(moreProvider.notifier).deleteSession(s.id);
     if (!context.mounted) return;
     _toast(context, err ?? McStrings.deletedToast);
+  }
+}
+
+/// 会话行左滑容器（对齐鸿蒙 SessionSwipe）：endToStart 滑出三个等宽动作
+/// 续接 / 重命名 / 删除；确认后立即执行（三个动作都会刷新列表，行随新数据重建）。
+class _SwipeableSessionRow extends StatelessWidget {
+  const _SwipeableSessionRow({
+    super.key,
+    required this.session,
+    required this.onOpen,
+    required this.onFork,
+    required this.onRename,
+    required this.onDelete,
+  });
+
+  final SessionSummary session;
+  final VoidCallback onOpen;
+  final VoidCallback onFork;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+
+  /// 左滑背景（对齐鸿蒙 SessionSwipe）：续接蓝 / 重命名中性 / 删除红，
+  /// 顺序固定；删除红取 0xFFE5615B。
+  static const _deleteRed = Color(0xFFE5615B);
+
+  Widget _action(
+    BuildContext context, {
+    required IconData icon,
+    required Color tint,
+    required VoidCallback onTap,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: scheme.onSurface.withValues(alpha: 0.08),
+              ),
+            ),
+            child: Icon(icon, size: 20, color: tint),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Dismissible(
+      key: ValueKey('session-swipe-${session.id}-${session.updatedAt}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          children: [
+            _action(
+              context,
+              icon: McIcons.history1,
+              tint: scheme.primary,
+              onTap: onFork,
+            ),
+            _action(
+              context,
+              icon: McIcons.edit2,
+              tint: scheme.onSurface,
+              onTap: onRename,
+            ),
+            _action(
+              context,
+              icon: McIcons.trash2,
+              tint: _deleteRed,
+              onTap: onDelete,
+            ),
+          ],
+        ),
+      ),
+      // confirmDismiss 放行后立即分派（整滑=删除确认；半滑时点背景按钮
+      // 走各自 onTap）：三个动作各自刷新会话列表，新数据进来时该行按
+      // 新 key 重建，避免二次误触。
+      confirmDismiss: (_) {
+        onDelete();
+        return Future.value(true);
+      },
+      child: _SessionRow(
+        session: session,
+        onOpen: onOpen,
+        onFork: onFork,
+        onRename: onRename,
+        onDelete: onDelete,
+      ),
+    );
   }
 }
 
