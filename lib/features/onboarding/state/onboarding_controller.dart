@@ -53,19 +53,29 @@ class OnboardingController extends Notifier<OnboardingState> {
     final body = await _client!.unwrap<Map<String, dynamic>>(
       Channel.general,
       'GET',
-      '/api/v1/bootstrap',
+      '/api/v1/auth/bootstrap',
     );
     return body['initialized'] == true;
   }
 
   /// 3) POST /auth/device/login 换会话令牌
-  Future<void> login(String base) async {
+  /// 归一化用户输入：补 scheme、去尾部斜杠。
+  String _normalizeBase(String raw) {
+    var s = raw.trim();
+    if (s.isEmpty) return s;
+    if (!s.startsWith('http://') && !s.startsWith('https://')) s = 'https://$s';
+    while (s.endsWith('/')) { s = s.substring(0, s.length - 1); }
+    return s;
+  }
+  Future<void> login(String base, String username, String password) async {
     if (state.busy) return;
     state = state.copyWith(busy: true, error: null, done: false);
     try {
       final session = ref.read(sessionStoreProvider);
-      _client = McClient(session: session);
-      final ok = await probeHealth(base);
+      // 首次登录：session 里还没有 baseUrl，必须用输入框地址建客户端。
+      final host = _normalizeBase(base);
+      _client = McClient(session: session, baseUrlOverride: host);
+      final ok = await probeHealth(host);
       if (!ok) {
         state = state.copyWith(busy: false, error: '服务器不可达');
         return;
@@ -79,13 +89,29 @@ class OnboardingController extends Notifier<OnboardingState> {
         Channel.general,
         'POST',
         '/api/v1/auth/device/login',
-        body: {'client': 'flutter-phone'},
+        body: {
+          'username': username,
+          'password': password,
+          'client': {
+            'kind': 'android',
+            'installation_id': await session.installationId(),
+            'name': session.deviceName.isNotEmpty
+                ? session.deviceName
+                : 'Android Device',
+            'platform': 'Android · Flutter',
+            'client_version': '1.0.0',
+          },
+        },
       );
-      await session.login(
-        baseUrl: base,
-        token: body['token'].toString(),
-        deviceName: ((body['device'] as Map<String, dynamic>?)?['name'] ?? '').toString(),
-      );
+      // DeviceLoginView: {token, device, session}。
+      final token = body['token']?.toString() ?? '';
+      if (token.isEmpty) {
+        state = state.copyWith(busy: false, error: '登录响应缺少令牌');
+        return;
+      }
+      final deviceName = ((body['device'] as Map<String, dynamic>?)?['name'] ?? '')
+          .toString();
+      await session.login(baseUrl: host, token: token, deviceName: deviceName);
       // 登录身份（启动页展示用）：GET /auth/me → username/nickname。
       try {
         final me = await _client!.unwrap<Map<String, dynamic>>(

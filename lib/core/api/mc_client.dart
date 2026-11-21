@@ -17,8 +17,9 @@ enum Channel { general, live, playback }
 Map<String, dynamic> _decodeJson(String raw) => jsonDecode(raw) as Map<String, dynamic>;
 
 class McClient {
-  McClient({required SessionStore session, this.ua = 'MovieClaw-Flutter/0.1.0'})
-      : _session = session {
+  McClient({required SessionStore session, this.ua = 'MovieClaw-Flutter/0.1.0', String? baseUrlOverride})
+      : _session = session,
+        _baseUrlOverride = baseUrlOverride {
     for (final c in Channel.values) {
       _dio[c] = Dio(BaseOptions(
         connectTimeout: const Duration(seconds: 8),
@@ -34,11 +35,13 @@ class McClient {
 
   final SessionStore _session;
   final String ua;
+  /// 登录前 session 尚无 baseUrl，用输入框地址显式覆盖（首次登录必需）。
+  final String? _baseUrlOverride;
   final Map<Channel, Dio> _dio = {};
 
 
   /// 当前服务器基址（含 /api/v1 前缀的完整 URL 拼接由调用方给 path）。
-  String get baseUrl => _session.baseUrl ?? '';
+  String get baseUrl => _baseUrlOverride ?? _session.baseUrl ?? '';
 
   Future<Response<Map<String, dynamic>>> get(
     Channel channel,

@@ -20,6 +20,19 @@ class SessionStore {
   String? get baseUrl => _baseUrl;
   String? get token => _token;
   /// 启动页展示用（对齐飞牛启动页：用户名 + 设备名）。
+  /// 安装唯一 id（device/login 的 client.installation_id，8-128 字符）。
+  /// 首次调用生成并持久化，之后稳定不变：同设备重登替换旧凭证而非新增设备。
+  Future<String> installationId() async {
+    var id = await _storage.read(key: 'mc_installation_id');
+    if (id == null || id.length < 8) {
+      final rnd = DateTime.now().microsecondsSinceEpoch;
+      final h = rnd >> 11;
+      id = 'inst-${rnd.toRadixString(36)}-${h.toRadixString(36)}';
+      await _storage.write(key: 'mc_installation_id', value: id);
+    }
+    return id;
+  }
+
   String get username => _username ?? '';
   String get deviceName => _deviceName ?? '';
   bool get isReady => _baseUrl != null && _token != null;

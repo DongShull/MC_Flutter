@@ -20,10 +20,15 @@ class OnboardingPage extends ConsumerStatefulWidget {
 
 class _OnboardingPageState extends ConsumerState<OnboardingPage> {
   final _hostCtrl = TextEditingController();
+  final _userCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  bool _obscure = true;
 
   @override
   void dispose() {
     _hostCtrl.dispose();
+    _userCtrl.dispose();
+    _passCtrl.dispose();
     super.dispose();
   }
 
@@ -40,7 +45,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
   Future<void> _connect() async {
     await ref
         .read(onboardingProvider.notifier)
-        .login(_hostCtrl.text.trim());
+        .login(_hostCtrl.text.trim(), _userCtrl.text.trim(), _passCtrl.text);
   }
 
   @override
@@ -105,6 +110,32 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                   ),
                 ),
                 const SizedBox(height: 16),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _userCtrl,
+                  enabled: !state.busy,
+                  autofillHints: const [AutofillHints.username],
+                  decoration: const InputDecoration(
+                    labelText: '账号',
+                    prefixIcon: Icon(McIcons.user),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _passCtrl,
+                  enabled: !state.busy,
+                  obscureText: _obscure,
+                  autofillHints: const [AutofillHints.password],
+                  onSubmitted: (_) => _connect(),
+                  decoration: InputDecoration(
+                    labelText: '密码',
+                    prefixIcon: const Icon(McIcons.lock),
+                    suffixIcon: IconButton(
+                      icon: Icon(_obscure ? McIcons.eyeOff : McIcons.eyeCheck),
+                      onPressed: () => setState(() => _obscure = !_obscure),
+                    ),
+                  ),
+                ),
                 if (state.error != null) ...[
                   Text(
                     state.error!,
