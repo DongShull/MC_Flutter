@@ -30,7 +30,7 @@ class _SplashPageState extends State<SplashPage>
     )..repeat();
     // 最短停留：让用户看到启动页（对齐飞牛的「正在连接…」仪式感）。
     Timer(const Duration(milliseconds: 1600), () {
-      if (mounted) context.go('/library');
+      if (mounted) context.go('/home');
     });
   }
 

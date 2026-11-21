@@ -1,28 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/adaptive.dart';
-import '../state/main_tab_bus.dart';
 import '../state/shell_badges.dart';
 import '../../../core/designsystem/mc_icons.dart';
 
-/// 五 Tab 主壳（对齐 MainTabScreen.kt）：真实页面由 core/router.dart 的
-/// StatefulShellRoute.indexedStack 五个 branch 提供（IndexedStack 保活），
-/// 本壳只负责外壳 chrome：悬浮胶囊底栏（手机）/ 左侧 Rail（平板·TV）+ 角标。
-/// 页签按权限裁剪（订阅需 canSubscribe、活动需 isAdmin——会话层暂不可用，默认全显）；
-/// 再点当前页签 = 回到该分支根页面；MainTabBus 请求合并进帧内消费。
-class RootShell extends ConsumerStatefulWidget {
-  const RootShell({super.key, required this.shell});
+/// 主壳 chrome（只管壳，不管页面）：手机悬浮胶囊底栏 / 平板TV 左侧 Rail。
+/// 页面与页签状态由 core/shell/app_shell.dart（组合根）持有，本壳纯展示。
+class RootShell extends ConsumerWidget {
+  const RootShell({
+    super.key,
+    required this.index,
+    required this.pages,
+    required this.onSelect,
+  });
 
-  final StatefulNavigationShell shell;
+  final int index;
+  final List<Widget> pages;
+  final ValueChanged<int> onSelect;
 
-  @override
-  ConsumerState<RootShell> createState() => _RootShellState();
-}
-
-class _RootShellState extends ConsumerState<RootShell> {
-  /// 页签顺序对齐安卓 MainTab 枚举（发现/媒体库/订阅/活动/我的）。
   static const _labels = ['发现', '媒体库', '订阅', '活动', '我的'];
   static const _icons = [
     McIcons.compass,
@@ -39,50 +35,19 @@ class _RootShellState extends ConsumerState<RootShell> {
     McIcons.accountCircleFill,
   ];
 
-  int get _index => widget.shell.currentIndex;
-
   @override
-  void initState() {
-    super.initState();
-    // MainTabBus：其他域请求切页签（切完即消费）
-    MainTabBus.instance.addListener(_consumeBus);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _consumeBus());
-  }
-
-  @override
-  void dispose() {
-    MainTabBus.instance.removeListener(_consumeBus);
-    super.dispose();
-  }
-
-  void _consumeBus() {
-    final pending = MainTabBus.instance.consume();
-    if (pending != null && mounted) {
-      final i = MainTab.values.indexOf(pending);
-      if (i != _index) _onTab(i);
-    }
-  }
-
-  void _onTab(int i) {
-    // 再点当前页签 = 回到分支根（清掉分支内压栈）
-    widget.shell.goBranch(i, initialLocation: i == _index);
-    if (i == 3) ref.read(shellBadgesProvider.notifier).refresh();
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final badges = ref.watch(shellBadgesProvider);
     final form = ref.watch(mcFormProvider);
 
-    // 手机：悬浮胶囊底栏（compact 回归零差异）。
+    final body = IndexedStack(index: index, children: pages);
+
+    // 手机：悬浮胶囊底栏。
     if (form == McDeviceForm.phone) {
-      return Scaffold(
-        body: widget.shell,
-        bottomNavigationBar: _phoneBottomBar(context, badges),
-      );
+      return Scaffold(body: body, bottomNavigationBar: _phoneBottomBar(context, badges));
     }
 
-    // 平板/TV：左侧 Rail（5 个 tab 语义不变）。
+    // 平板/TV：左侧 Rail。
     return McFormWatch(
       form: form,
       child: McAdaptiveScaffold(
@@ -94,9 +59,9 @@ class _RootShellState extends ConsumerState<RootShell> {
               label: _labels[i],
             ),
         ],
-        currentIndex: _index,
-        onSelect: _onTab,
-        body: widget.shell,
+        currentIndex: index,
+        onSelect: onSelect,
+        body: body,
         railTrailing: _railBadgeDot(badges),
       ),
     );
@@ -126,6 +91,7 @@ class _RootShellState extends ConsumerState<RootShell> {
 
   /// 悬浮胶囊底栏：348×54、圆角 999、图标-only（仅手机形态使用）。
   Widget _phoneBottomBar(BuildContext context, ShellBadges badges) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return SafeArea(
       child: Center(
         child: Container(
@@ -133,9 +99,7 @@ class _RootShellState extends ConsumerState<RootShell> {
           height: 54,
           margin: const EdgeInsets.only(bottom: 8),
           decoration: BoxDecoration(
-            color: Theme.of(context).brightness == Brightness.dark
-                ? const Color(0xFF141A21)
-                : Colors.white,
+            color: dark ? const Color(0xFF141A21) : Colors.white,
             borderRadius: BorderRadius.circular(999),
             boxShadow: const [
               BoxShadow(color: Colors.black26, blurRadius: 16, offset: Offset(0, 4)),
@@ -143,8 +107,7 @@ class _RootShellState extends ConsumerState<RootShell> {
           ),
           child: Row(
             children: [
-              for (var i = 0; i < _labels.length; i++)
-                Expanded(child: _tabSlot(i, badges)),
+              for (var i = 0; i < _labels.length; i++) Expanded(child: _tabSlot(i, badges, dark)),
             ],
           ),
         ),
@@ -152,41 +115,43 @@ class _RootShellState extends ConsumerState<RootShell> {
     );
   }
 
-  Widget _tabSlot(int i, ShellBadges badges) {
-    final selected = i == _index;
-    final showDot = _dotColor(i, badges) != null;
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final iconColor = selected
-        ? (dark ? Colors.white : const Color(0xFF141A21))
-        : (dark ? Colors.white.withValues(alpha: 0.62) : const Color(0xFF5A6673));
-    final pillColor = dark
-        ? Colors.white.withValues(alpha: 0.15)
-        : const Color(0xFF141A21).withValues(alpha: 0.08);
+  Widget _tabSlot(int i, ShellBadges badges, bool dark) {
+    final selected = i == index;
+    final badgeDot = _dotColor(i, badges);
 
     Widget iconWidget;
     if (i == _labels.length - 1) {
       // 末格 = 账号头像
       iconWidget = CircleAvatar(
         radius: 13,
-        backgroundColor: selected ? pillColor : (dark ? Colors.white24 : Colors.black12),
-        child: Icon(_icons[i], size: 16, color: iconColor),
+        backgroundColor: dark
+            ? Colors.white.withValues(alpha: selected ? 0.15 : 0.24)
+            : (selected ? const Color(0x14000000) : Colors.black12),
+        child: Icon(_icons[i],
+            size: 16, color: selected ? (dark ? Colors.white : const Color(0xFF141A21)) : (dark ? Colors.white70 : const Color(0xFF5A6673))),
       );
     } else {
-      iconWidget = Icon(_icons[i], size: 22, color: iconColor);
+      iconWidget = Icon(_icons[i],
+          size: 22,
+          color: selected
+              ? (dark ? Colors.white : const Color(0xFF141A21))
+              : (dark ? Colors.white.withValues(alpha: 0.62) : const Color(0xFF5A6673)));
     }
 
     return Tooltip(
       message: _labels[i],
       child: InkResponse(
-        onTap: () => _onTab(i),
+        onTap: () => onSelect(i),
         radius: 24,
         child: Center(
           child: Container(
             width: 46,
             height: 34,
             decoration: BoxDecoration(
-              // 当前格药丸（深色白 15%，浅色墨 8%）
-              color: selected ? pillColor : Colors.transparent,
+              // 当前格药丸：暗色白 15%、浅色墨 8%。
+              color: selected
+                  ? (dark ? Colors.white.withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.08))
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(999),
             ),
             child: Stack(
@@ -194,17 +159,14 @@ class _RootShellState extends ConsumerState<RootShell> {
               alignment: Alignment.center,
               children: [
                 iconWidget,
-                if (showDot)
+                if (badgeDot != null)
                   Positioned(
                     right: 7,
                     top: 6,
                     child: Container(
                       width: 7,
                       height: 7,
-                      decoration: BoxDecoration(
-                        color: _dotColor(i, badges),
-                        shape: BoxShape.circle,
-                      ),
+                      decoration: BoxDecoration(color: badgeDot, shape: BoxShape.circle),
                     ),
                   ),
               ],
@@ -221,7 +183,6 @@ class _RootShellState extends ConsumerState<RootShell> {
       if (badges.livePlayback > 0) return const Color(0xFF34C77B);
       if (badges.activeTotal > 0) return const Color(0xFF6AA7FF);
     }
-    if (i == 4 && badges.pendingUpdate) return const Color(0xFF6AA7FF);
     return null;
   }
 }

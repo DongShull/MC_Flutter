@@ -44,7 +44,7 @@ class _SubscriptionsPageState extends ConsumerState<SubscriptionsPage> {
     }
 
     final state = ref.watch(subscriptionsListProvider);
-    final subs = state.value ?? const <SubscriptionView>[];
+    final subs = state.valueOrNull ?? const <SubscriptionView>[];
     final form = McFormWatch.of(context);
 
     return Scaffold(

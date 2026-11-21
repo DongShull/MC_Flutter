@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// 会话与凭证（对齐原 mc_vault / mc_servers 快照设计）：
@@ -36,6 +37,20 @@ class SessionStore {
   String get username => _username ?? '';
   String get deviceName => _deviceName ?? '';
   bool get isReady => _baseUrl != null && _token != null;
+
+  /// 测试专用：不经存储直接种入会话（@visibleForTesting）。
+  @visibleForTesting
+  void debugSeed({required String baseUrl, required String token}) {
+    _baseUrl = baseUrl;
+    _token = token;
+  }
+
+  /// 测试专用：清除内存会话。
+  @visibleForTesting
+  void logoutForTest() {
+    _baseUrl = null;
+    _token = null;
+  }
 
   /// 多账号令牌键：mc_token:<origin>:<username>（旧版只有 mc_token:<origin>）。
   String _accountKey(String origin, String username) =>

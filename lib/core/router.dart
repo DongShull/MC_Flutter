@@ -1,15 +1,10 @@
 import 'package:go_router/go_router.dart';
 
 import 'session/session_store.dart';
+import 'shell/app_shell.dart';
 
 import '../features/onboarding/routes.dart' as feat_onboarding;
 import '../features/root/routes.dart' as feat_root;
-import '../features/root/pages/root_page.dart';
-import '../features/discover/pages/discover_page.dart';
-import '../features/library/pages/library_home_page.dart';
-import '../features/subscriptions/pages/subscriptions_page.dart';
-import '../features/activity/pages/activity_page.dart';
-import '../features/more/pages/more_page.dart';
 import '../features/library/routes.dart' as feat_library;
 import '../features/discover/routes.dart' as feat_discover;
 import '../features/search/routes.dart' as feat_search;
@@ -42,41 +37,10 @@ final mcRouter = GoRouter(
   },
   routes: [
     ...feat_onboarding.routes,
-    // 五 Tab 主壳：真实页面按 branch 保活（IndexedStack），RootShell 只出 chrome。
-    StatefulShellRoute.indexedStack(
-      builder: (context, state, shell) => RootShell(shell: shell),
-      branches: [
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: '/discover',
-            builder: (context, state) => const DiscoverPage(),
-          ),
-        ]),
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: '/library',
-            builder: (context, state) => const LibraryHomePage(),
-          ),
-        ]),
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: '/subscriptions',
-            builder: (context, state) => const SubscriptionsPage(),
-          ),
-        ]),
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: '/activity',
-            builder: (context, state) => const ActivityPage(),
-          ),
-        ]),
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: '/more',
-            builder: (context, state) => const MorePage(),
-          ),
-        ]),
-      ],
+    // 五 Tab 主壳：页面与页签状态在 core/shell/app_shell.dart（IndexedStack 保活）。
+    GoRoute(
+      path: feat_root.routeRoot,
+      builder: (context, state) => const MainShell(),
     ),
     ...feat_root.routes,
     ...feat_library.routes,

@@ -91,10 +91,11 @@ class ActivityController extends Notifier<ActivitySnapshot> {
   @override
   ActivitySnapshot build() {
     ref.onDispose(_stopTimers);
-    unawaited(refresh());
+    unawaited(refresh().then((_) {}, onError: (_) {})); // 初始加载失败不冒泡（UI 已显示 error 态）
     _startTimers();
     _observeJobsStream();
-    return state;
+    // build() 阶段 state 尚未初始化，读它直接抛 Bad state（IndexedStack 全页构建时必炸）。
+    return ActivitySnapshot();
   }
 
   /// jobs 增量流（对齐 Kotlin observeJobsStream：ready→全量刷，job→防抖刷新）。
