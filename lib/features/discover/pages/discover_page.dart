@@ -253,7 +253,7 @@ class _HeroCarousel extends StatelessWidget {
   }
 }
 
-/// 「标题 + 横滚海报」板块行。
+/// 「标题 + 横滚海报」板块行（标题右侧「查看完整榜单」进全量分页）。
 class _SectionRow extends StatelessWidget {
   const _SectionRow({required this.row});
 
@@ -268,13 +268,27 @@ class _SectionRow extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              row.title,
-              style: const TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    row.title,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => feat_discover.pushCollection(
+                    context,
+                    row.collectionRef,
+                    row.title,
+                  ),
+                  child: const Text('查看完整榜单'),
+                ),
+              ],
             ),
           ),
           SizedBox(

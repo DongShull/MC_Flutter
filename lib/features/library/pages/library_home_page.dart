@@ -72,6 +72,11 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
         title: const Text('媒体库'),
         actions: [
           IconButton(
+            icon: const Icon(McIcons.tools),
+            tooltip: '媒体库管理',
+            onPressed: () => context.push(routeLibraryManage),
+          ),
+          IconButton(
             icon: const Icon(McIcons.filterS),
             tooltip: '自定义首页',
             onPressed: () => context.push(routeLibraryCustomize),
@@ -106,6 +111,31 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
                             ),
                           ),
                         ),
+                      // 快捷入口：收藏夹 / 观看历史（P2 独立页）。
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _ShortcutTile(
+                                icon: McIcons.heart2,
+                                label: '收藏夹',
+                                onTap: () =>
+                                    context.push(routeLibraryFavorites),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _ShortcutTile(
+                                icon: McIcons.history1,
+                                label: '观看历史',
+                                onTap: () =>
+                                    context.push(routeLibraryHistory),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                       for (final row in state.visibleRows)
                         _buildRow(context, row),
                       const SizedBox(height: 24),
@@ -289,6 +319,42 @@ class _LibraryGrid extends ConsumerWidget {
         ],
       );
     });
+  }
+}
+
+/// 收藏夹 / 观看历史快捷入口（P2 独立页的首页落点）。
+class _ShortcutTile extends StatelessWidget {
+  const _ShortcutTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          child: Row(
+            children: [
+              Icon(icon, size: 20),
+              const SizedBox(width: 8),
+              Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+              const Spacer(),
+              const Icon(Icons.chevron_right, size: 18),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

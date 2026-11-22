@@ -7,15 +7,18 @@ import '../../../core/designsystem/mc_icons.dart';
 
 /// 分集列表（media_episode：名称 / 简介 / 播出日 / 时长 / 评分 / still 缩略图）。
 /// 点击分集 = 播放导航意图，不自己播视频（跳 player 路由，见 DetailPage）。
+/// 长按分集 = 下载这一集（对照安卓分集长按菜单「下载这一集」）。
 class EpisodeList extends StatelessWidget {
   const EpisodeList({
     super.key,
     required this.episodes,
     required this.onEpisodeTap,
+    this.onEpisodeLongPress,
   });
 
   final List<EpisodeEntry> episodes;
   final void Function(EpisodeEntry episode) onEpisodeTap;
+  final void Function(EpisodeEntry episode)? onEpisodeLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -24,6 +27,9 @@ class EpisodeList extends StatelessWidget {
         for (final e in episodes)
           InkWell(
             onTap: () => onEpisodeTap(e),
+            onLongPress: onEpisodeLongPress == null
+                ? null
+                : () => onEpisodeLongPress!(e),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(

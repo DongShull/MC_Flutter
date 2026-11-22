@@ -11,6 +11,10 @@ class PlaybackSessionApi {
   final McClient _client;
 
   /// 开会话（PlaybackSessionRequest）。
+  /// [maxHeight]：画质上限（服务端 `max_height`，与安卓
+  /// `PlaybackSessionRequest.maxHeight` 同字段；原画传 null = 不限）。
+  /// 画质走服务端会话（转码上限），不是引擎内视频轨选择——见
+  /// `docs/PLAYER_MATRIX.md` P2 切轨决策。
   Future<PlaybackSession> start({
     int? fileId,
     int? mediaItemId,
@@ -23,6 +27,7 @@ class PlaybackSessionApi {
     List<int>? failedTiers,
     String? audioTrack,
     String? subtitleTrack,
+    int? maxHeight,
   }) async {
     final body = await _client.unwrap<Map<String, dynamic>>(
       Channel.playback,
@@ -42,6 +47,7 @@ class PlaybackSessionApi {
         if (failedTiers != null) 'failed_tiers': failedTiers,
         if (audioTrack != null) 'audio_track': audioTrack,
         if (subtitleTrack != null) 'subtitle_track': subtitleTrack,
+        if (maxHeight != null) 'max_height': maxHeight,
         if (deviceId != null) 'device_id': deviceId,
         if (startMs != null) 'start_ms': startMs,
         if (client != null) 'client': client,

@@ -5,19 +5,29 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/subscribe_sheet.dart';
-// offline 域下载能力（任务明确授权的跨 feature import：只调公开 API，不改 offline 内部）。
-import '../../offline/pages/profile_sheet.dart';
-import '../../offline/state/models.dart';
+import '../../../core/api/api_exception.dart';
+// models.dart 也有同名 CastMember：此处隐藏它，页面用的 CastMember
+// 来自 detail_controller（与 DetailEntry.cast 的类型一致）。
+import '../../../core/api/models.dart' hide CastMember;
 import '../../../core/player/player_page_args.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
+import '../../library/routes.dart' as feat_library;
+import '../../offline/state/models.dart';
+import '../../offline/state/offline_state.dart';
+import '../routes.dart' as feat_detail;
 import '../state/detail_controller.dart';
+import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/air_schedule.dart';
 import '../widgets/cast_row.dart';
+import '../widgets/chapters_subtitles.dart';
 import '../widgets/detail_header.dart';
 import '../widgets/episode_list.dart';
 import '../widgets/episode_ranges.dart';
+import '../widgets/files_section.dart';
 import '../widgets/item_actions_menu.dart';
+import '../widgets/item_download_host.dart';
+import '../widgets/item_manage_sheets.dart';
 import '../widgets/meta_links.dart';
 import '../widgets/similar_row.dart';
 import '../../../core/designsystem/mc_icons.dart';
@@ -142,23 +152,188 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   }
 
   void _showActionMenu(DetailController controller) async {
-    final action = await showItemActionsMenu(context);
+    // 本条目在下任务（offline id 形如 dl-{fileId}-…，按文件 id 前缀匹配）。
+    final entry = ref.read(detailControllerProvider(_key)).entry;
+    final fileIds = <int>{
+      if (entry != null) ...entry.fileIds,
+      if (entry != null)
+        for (final list in ref
+            .read(detailControllerProvider(_key))
+            .episodes
+            .values)
+          for (final e in list) ...e.fileIds,
+    };
+    final offline = ref.read(offlineProvider);
+    final active = offline.units
+        .where((u) =>
+            u.isActive &&
+            fileIds.any((id) => u.id.startsWith('dl-$id-')))
+        .toList();
+    final otherActive = offline.units
+        .where((u) =>
+            u.isActive &&
+            !fileIds.any((id) => u.id.startsWith('dl-$id-')))
+        .isNotEmpty;
+    final entries = itemMenuEntries(ItemMenuInput(
+      activeDownloads: active.length,
+      otherQueuedDownloads: otherActive,
+      isTv: entry?.isTv ?? false,
+    ));
+    final action = await showItemActionsMenu(
+      context,
+      entries: entries,
+      cancelLabel:
+          active.length > 1 ? '取消下载（${active.length} 个）' : null,
+    );
     if (action == null || !mounted) return;
     switch (action) {
       case ItemAction.subscribe:
         _subscribe();
+      case ItemAction.prioritizeDownloads:
+        _prioritizeDownloads(active);
+      case ItemAction.cancelSelectedDownload:
+      case ItemAction.cancelDownloads:
+        _cancelDownloads(active);
       case ItemAction.download:
         _download();
+      case ItemAction.searchResources:
+        _searchResources();
       case ItemAction.share:
         _share(controller);
       case ItemAction.subtitleGen:
-        _subtitleGen(controller);
+        _openSubtitleGen();
+      case ItemAction.addToCollection:
+        _addToCollection();
+      case ItemAction.reidentify:
+        _reidentify(controller);
       case ItemAction.refreshMetadata:
         final err = await controller.refreshMetadata();
         if (mounted) _toast(err ?? '已提交刷新任务');
+      case ItemAction.artwork:
+        _artwork(controller);
+      case ItemAction.transfer:
+        _transfer(controller);
       case ItemAction.delete:
         _delete(controller);
+      case ItemAction.clearHistory:
+        _clearHistory(controller);
     }
+  }
+
+  /// 搜资源：跳搜索页资源模式，默认以条目标题为关键词。
+  void _searchResources() {
+    final entry = ref.read(detailControllerProvider(_key)).entry;
+    if (entry == null) return;
+    context.push(
+        '/search?mode=torrents&q=${Uri.encodeComponent(entry.title)}');
+  }
+
+  /// 更换图片：候选弹层（海报 / 背景 / Logo），选后重拉详情。
+  Future<void> _artwork(DetailController controller) async {
+    await showArtworkPickerSheet(
+      context,
+      controller: controller,
+      onChanged: () => controller.load(),
+    );
+  }
+
+  /// 转移到其他库：目标库选择 + 预检确认，成功后返回上级（条目已不在本库）。
+  Future<void> _transfer(DetailController controller) async {
+    await showTransferSheet(
+      context,
+      controller: controller,
+      currentLibraryId: widget.libraryId,
+      onTransferred: () {
+        if (mounted && context.canPop()) context.pop();
+      },
+    );
+  }
+
+  /// 清除观看记录：确认框 → DELETE → 刷新（续播点随之清掉）。
+  Future<void> _clearHistory(DetailController controller) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('清除观看记录'),
+        content: const Text('将清除本条目的观看记录与续播点，此操作不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('清除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final err = await controller.clearWatchHistory();
+    if (!mounted) return;
+    _toast(err ?? '观看记录已清除');
+    if (err == null) await controller.load();
+  }
+
+  /// 取消本条目全部在下任务（逐个取消 offline 任务）。
+  Future<void> _cancelDownloads(
+      List<DownloadUnit> active) async {
+    final offline = ref.read(offlineProvider.notifier);
+    for (final unit in active) {
+      await offline.cancel(unit);
+    }
+    if (mounted) _toast('已取消 ${active.length} 个下载');
+  }
+
+  /// 优先下载：把本条目在下任务的优先级提到最高（offline 的
+  /// `prioritize` 取当前最大 priority +1；安卓 `canPrioritizeShow`
+  /// 的精确语义见 itemMenuEntries 注释，此处为近似口径）。
+  void _prioritizeDownloads(List<DownloadUnit> active) {
+    if (active.isEmpty) return;
+    final offline = ref.read(offlineProvider.notifier);
+    for (final unit in active) {
+      offline.prioritize(unit);
+    }
+    _toast('已优先下载本条目');
+  }
+
+  /// 当前季的文件（电影 = 全部；剧集 = 按选中季过滤；详情接口不回
+  /// files 时为空，文件区不显示）。
+  List<DetailFile> _filesForSelectedSeason(DetailState state) {
+    final entry = state.entry;
+    if (entry == null || entry.files.isEmpty) return const [];
+    if (!entry.isTv) return entry.files;
+    final season = state.selectedSeason;
+    if (season == null) return entry.files;
+    return entry.files.where((f) => f.seasonNumber == season).toList();
+  }
+
+  /// 删除文件：确认框 → DELETE → 重拉详情。
+  Future<void> _deleteFile(
+      DetailController controller, DetailFile file) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除文件'),
+        content: Text('确定删除「${file.fileName}」吗？\n'
+            '只删除该文件，条目本身保留。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final err = await controller.deleteFile(file.id);
+    if (!mounted) return;
+    _toast(err ?? '文件已删除');
+    if (err == null) await controller.load();
   }
 
   /// 订阅弹层（title-preview → 季勾选 → POST /subscriptions）；
@@ -181,8 +356,8 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     }
   }
 
-  /// 离线下载：拼好下载候选（文件 + 档位）交给 offline 域的选档面板，
-  /// 之后的会话协商与字节搬运都在 offline 域完成。
+  /// 离线下载（下载宿主 ItemDownloadHost：电影 = 单文件选档；
+  /// 剧集 = 按当前季选范围逐集下载；分集长按走同一宿主的单文件档）。
   void _download() {
     final state = ref.read(detailControllerProvider(_key));
     final entry = state.entry;
@@ -193,22 +368,121 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       _toast('没有在位文件，无法下载');
       return;
     }
-    // 档位 id 即播放会话 tier（original = 原文件直下，其余服务器转码导出）。
-    const profiles = [
-      DownloadProfile(id: 'original', label: '原画', isOriginal: true),
-      DownloadProfile(id: '1080p', label: '1080P', isOriginal: false, transcode: true),
-      DownloadProfile(id: '720p', label: '720P', isOriginal: false, transcode: true),
-      DownloadProfile(id: '480p', label: '480P', isOriginal: false, transcode: true),
-    ];
-    showDownloadProfileSheet(
+    showItemDownloadSheet(
       context,
-      candidate: DownloadCandidate(
-        fileId: fileId.toString(),
-        title: entry.title,
-        scopes: entry.isTv ? const ['本片', '全季'] : const ['本片'],
-        profiles: profiles,
+      detail: entry,
+      episodes: state.episodes,
+      selectedSeason: state.selectedSeason,
+      target: entry.isTv
+          ? SeriesDownloadTarget(title: entry.title)
+          : FileDownloadTarget(fileId: fileId, title: entry.title),
+    );
+  }
+
+  /// 分集长按：下载这一集（对照安卓分集长按菜单「下载这一集」）。
+  void _downloadEpisode(EpisodeEntry e) {
+    final state = ref.read(detailControllerProvider(_key));
+    final entry = state.entry;
+    if (entry == null) return;
+    if (!e.owned || e.fileIds.isEmpty) {
+      _toast('第 ${e.episodeNumber} 集缺文件，无法下载');
+      return;
+    }
+    showItemDownloadSheet(
+      context,
+      detail: entry,
+      episodes: state.episodes,
+      selectedSeason: state.selectedSeason,
+      selectedEpisode: e,
+      target: FileDownloadTarget(
+        fileId: e.fileIds.first,
+        title: '第 ${e.seasonNumber} 季第 ${e.episodeNumber} 集 ${e.name}',
       ),
     );
+  }
+
+  /// AI 字幕生成：进字幕生成页（预检 + 提交全在页内走类型化 McApi）。
+  void _openSubtitleGen() {
+    final state = ref.read(detailControllerProvider(_key));
+    final entry = state.entry;
+    final fileId =
+        ref.read(detailControllerProvider(_key).notifier).leadFileId;
+    if (entry == null || fileId == null) {
+      _toast('没有在位文件，无法生成字幕');
+      return;
+    }
+    context.push(
+      feat_detail.routeDetailSubtitles(
+        widget.libraryId,
+        widget.itemId,
+        fileId,
+        entry.title,
+      ),
+    );
+  }
+
+  /// 加入合集：合集弹层（列合集 / 新建 / 加条目，全走类型化 McApi）。
+  Future<void> _addToCollection() async {
+    final entry = ref.read(detailControllerProvider(_key)).entry;
+    if (entry == null) return;
+    final added = await showAddToCollectionSheet(
+      context,
+      mediaItemId: widget.itemId,
+      title: entry.title,
+    );
+    if (mounted && added == true) _toast('已加入合集');
+  }
+
+  /// 重新识别：预检 → 确认框（当前条目 / 候选分组）→ 执行 → 有变化重载详情。
+  Future<void> _reidentify(DetailController controller) async {
+    final entry = ref.read(detailControllerProvider(_key)).entry;
+    if (entry == null) return;
+    _toast('正在预检…');
+    late final ReidentifyPreviewView preview;
+    try {
+      preview = await controller.reidentifyPreview();
+    } on ApiException catch (e) {
+      if (mounted) _toast(e.friendlyMessage);
+      return;
+    } catch (e) {
+      if (mounted) _toast('预检失败：$e');
+      return;
+    }
+    if (!mounted) return;
+    final groups = preview.groups;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重新识别'),
+        content: Text(
+          [
+            '当前：${preview.current.title}'
+                '${preview.current.year == null ? '' : ' (${preview.current.year})'}',
+            if (preview.pinnedIdentity) '已锁定身份，将按锁定身份重新识别。',
+            if (groups.isEmpty)
+              '未发现新的识别候选，将按现有线索重新识别。'
+            else
+              '发现 ${groups.length} 组候选文件（共 ${groups.fold(0, (s, g) => s + g.fileCount)} 个文件），将重新匹配识别。',
+            if (preview.skippedMissing > 0)
+              '其中 ${preview.skippedMissing} 个文件已缺失，将跳过。',
+          ].join('\n'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('开始识别'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    _toast('正在重新识别…');
+    final message = await controller.reidentify();
+    if (mounted) _toast(message);
   }
 
   /// 系统分享：先建一条服务端分享链接（POST …/share，7 天有效），再交给 share_plus。
@@ -222,13 +496,6 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       return;
     }
     await Share.share(url, subject: entry?.title);
-  }
-
-  /// AI 字幕生成：预检 + 提交任务（见 DetailController.startSubtitleGen）。
-  Future<void> _subtitleGen(DetailController controller) async {
-    _toast('正在预检…');
-    final message = await controller.startSubtitleGen();
-    if (mounted) _toast(message);
   }
 
   /// 删除：确认框 → DELETE → 成功返回上级。
@@ -260,6 +527,16 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     }
     _toast('已删除');
     if (context.canPop()) context.pop();
+  }
+
+  /// 系列行点进合集详情；合集行点进合集列表（合集名只有文字、无 id，
+  /// 详情接口不回合集 id，故不直跳单个合集）。
+  void _openSeries(int collectionId) {
+    context.push(feat_library.routeLibraryCollection(collectionId));
+  }
+
+  void _openCollections() {
+    context.push(feat_library.routeLibraryCollections);
   }
 
   /// 人物页（discover 域 /discover/person，TMDB id 路由参数；跨 feature 只走路由）。
@@ -355,7 +632,11 @@ class _DetailPageState extends ConsumerState<DetailPage> {
             // —— 元信息行组：音轨 / 字幕 / 系列 / 合集 ——
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: MetaLinks(entry: entry),
+              child: MetaLinks(
+                entry: entry,
+                onSeriesTap: _openSeries,
+                onCollectionTap: (_) => _openCollections(),
+              ),
             ),
             // —— 简介区（可展开）——
             if (entry.overview != null && entry.overview!.isNotEmpty)
@@ -371,6 +652,23 @@ class _DetailPageState extends ConsumerState<DetailPage> {
             CastRow(
               cast: entry.cast,
               onPersonTap: _openPerson,
+            ),
+            // —— 章节 / 字幕：字幕轨 + 生成入口 + 章节预览图 ——
+            ChaptersSubtitlesSection(
+              subtitleTracks: entry.subtitleTracks,
+              trickplay: state.trickplay,
+              trickplayLoading: state.trickplayLoading,
+              regeneratingChapters: state.regeneratingChapters,
+              onGenerateSubtitle: _openSubtitleGen,
+              onRegenerateChapters: () async {
+                final message = await controller.regenerateChapters();
+                if (mounted) _toast(message);
+              },
+            ),
+            // —— 文件区（电影 = 全部文件；剧集 = 当前季文件）——
+            FilesSection(
+              files: _filesForSelectedSeason(state),
+              onDelete: (file) => _deleteFile(controller, file),
             ),
             // —— 剧集区 ——
             if (entry.isTv) ...[
@@ -406,6 +704,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
               EpisodeList(
                 episodes: episodes,
                 onEpisodeTap: _playEpisode,
+                onEpisodeLongPress: _downloadEpisode,
               ),
             ],
             // —— 系列一行（按上映顺序列全，有这一行时相似推荐已排除同系列）——
@@ -499,7 +798,11 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                 ],
                               ),
                               const SizedBox(height: 8),
-                              MetaLinks(entry: entry),
+                              MetaLinks(
+                                entry: entry,
+                                onSeriesTap: _openSeries,
+                                onCollectionTap: (_) => _openCollections(),
+                              ),
                             ],
                           ),
                         ),
@@ -522,6 +825,26 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                               CastRow(
                                 cast: entry.cast,
                                 onPersonTap: _openPerson,
+                              ),
+                              // —— 章节 / 字幕：字幕轨 + 生成入口 + 章节预览图 ——
+                              ChaptersSubtitlesSection(
+                                subtitleTracks: entry.subtitleTracks,
+                                trickplay: state.trickplay,
+                                trickplayLoading: state.trickplayLoading,
+                                regeneratingChapters:
+                                    state.regeneratingChapters,
+                                onGenerateSubtitle: _openSubtitleGen,
+                                onRegenerateChapters: () async {
+                                  final message =
+                                      await controller.regenerateChapters();
+                                  if (mounted) _toast(message);
+                                },
+                              ),
+                              // —— 文件区（电影 = 全部文件；剧集 = 当前季文件）——
+                              FilesSection(
+                                files: _filesForSelectedSeason(state),
+                                onDelete: (file) =>
+                                    _deleteFile(controller, file),
                               ),
                               if (entry.isTv) ...[
                                 if (state.airSchedule != null)
@@ -563,6 +886,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                                 EpisodeList(
                                   episodes: episodes,
                                   onEpisodeTap: _playEpisode,
+                                  onEpisodeLongPress: _downloadEpisode,
                                 ),
                               ],
                               if (state.related.seriesParts.length > 1)

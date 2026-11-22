@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
+import '../../../core/api/mc_api.dart';
 import '../../../core/api/mc_error.dart';
+import '../../../core/api/models.dart';
 import '../../../core/api/session_providers.dart';
 import '../../../core/api/episodes_api.dart';
 import '../../../core/api/mc_client.dart';
@@ -93,6 +95,7 @@ class DetailEntry {
     this.resumeEpisode,
     this.tmdbId,
     this.fileIds = const [],
+    this.files = const [],
   });
 
   final int id;
@@ -125,6 +128,11 @@ class DetailEntry {
   final int? tmdbId;
   /// 电影的在库台账文件 id（下载 / 字幕生成取首个；剧集走分集的 fileIds）
   final List<int> fileIds;
+
+  /// 在库文件元数据（对齐安卓 `LibraryFileView` 的展示子集；剧集按
+  /// seasonNumber/episodeNumber 过滤到当前季/集）。
+  final List<DetailFile> files;
+
   /// 服务端续播集锚点（resume_episode）
   final int? resumeEpisode;
 
@@ -164,7 +172,90 @@ class DetailEntry {
           .map((e) => J.i(e.cast<String, dynamic>(), ['id', 'file_id']))
           .whereType<int>()
           .toList(),
+      files: J.listOfMap(j, ['files']).map(DetailFile.fromJson).toList(),
     );
+  }
+}
+
+/// 在库文件元数据（安卓 `LibraryFileView` 的展示子集；字段名容错）。
+class DetailFile {
+  const DetailFile({
+    required this.id,
+    this.fileName = '',
+    this.filePath,
+    this.sizeBytes = 0,
+    this.container,
+    this.resolution,
+    this.videoCodec,
+    this.hdr,
+    this.durationSeconds,
+    this.bitRate,
+    this.frameRate,
+    this.bitDepth,
+    this.colorSpace,
+    this.mediaSource,
+    this.seasonNumber = 0,
+    this.episodeNumber = 0,
+    this.state = 'in_place',
+    this.missing = false,
+    this.purgeAfter,
+  });
+
+  factory DetailFile.fromJson(Map<String, dynamic> j) => DetailFile(
+        id: J.i(j, ['id', 'file_id']) ?? 0,
+        fileName: J.s(j, ['file_name', 'name']) ?? '',
+        filePath: J.s(j, ['file_path', 'path']),
+        sizeBytes: J.i(j, ['size_bytes', 'size']) ?? 0,
+        container: J.s(j, ['container']),
+        resolution: J.s(j, ['resolution', 'resolution_label']),
+        videoCodec: J.s(j, ['video_codec', 'codec']),
+        hdr: J.s(j, ['hdr']),
+        durationSeconds: J.i(j, ['duration_seconds', 'duration']),
+        bitRate: J.i(j, ['bit_rate', 'bitrate']),
+        frameRate: J.d(j, ['frame_rate', 'fps']),
+        bitDepth: J.i(j, ['bit_depth']),
+        colorSpace: J.s(j, ['color_space']),
+        mediaSource: J.s(j, ['media_source']),
+        seasonNumber: J.i(j, ['season_number']) ?? 0,
+        episodeNumber: J.i(j, ['episode_number']) ?? 0,
+        state: J.s(j, ['state']) ?? 'in_place',
+        missing: j['missing'] == true,
+        purgeAfter: J.s(j, ['purge_after']),
+      );
+
+  final int id;
+  final String fileName;
+  final String? filePath;
+  final int sizeBytes;
+  final String? container;
+  final String? resolution;
+  final String? videoCodec;
+  final String? hdr;
+  final int? durationSeconds;
+  final int? bitRate;
+  final double? frameRate;
+  final int? bitDepth;
+  final String? colorSpace;
+  final String? mediaSource;
+  final int seasonNumber;
+  final int episodeNumber;
+  final String state;
+  final bool missing;
+  final String? purgeAfter;
+
+  /// 展示用规格行（分辨率 / 编码 / 码率 / 帧率 / 色深）。
+  String get specLabel {
+    final parts = <String>[
+      if (resolution != null && resolution!.isNotEmpty) resolution!,
+      if (videoCodec != null && videoCodec!.isNotEmpty) videoCodec!,
+      if (bitRate != null && bitRate! > 0)
+        '${(bitRate! / 1000000).toStringAsFixed(1)} Mbps',
+      if (frameRate != null && frameRate! > 0)
+        '${frameRate!.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '')} fps',
+      if (bitDepth != null) '$bitDepth-bit',
+      if (hdr != null && hdr!.isNotEmpty) hdr!,
+    ];
+    return parts.join(' · ');
   }
 }
 
@@ -331,6 +422,9 @@ class DetailState {
     this.selectedSeason,
     this.overviewExpanded = false,
     this.busy = false,
+    this.trickplay,
+    this.trickplayLoading = false,
+    this.regeneratingChapters = false,
   });
 
   final bool loading;
@@ -346,6 +440,10 @@ class DetailState {
   final bool overviewExpanded;
   /// 动作请求在途
   final bool busy;
+  /// 章节预览图（trickplay sprite sheets；null = 未就绪或无文件）
+  final TrickplayView? trickplay;
+  final bool trickplayLoading;
+  final bool regeneratingChapters;
 
   DetailState copyWith({
     bool? loading,
@@ -359,6 +457,9 @@ class DetailState {
     Object? selectedSeason = _sentinel,
     bool? overviewExpanded,
     bool? busy,
+    Object? trickplay = _sentinel,
+    bool? trickplayLoading,
+    bool? regeneratingChapters,
   }) {
     return DetailState(
       loading: loading ?? this.loading,
@@ -374,6 +475,11 @@ class DetailState {
           identical(selectedSeason, _sentinel) ? this.selectedSeason : selectedSeason as int?,
       overviewExpanded: overviewExpanded ?? this.overviewExpanded,
       busy: busy ?? this.busy,
+      trickplay: identical(trickplay, _sentinel)
+          ? this.trickplay
+          : trickplay as TrickplayView?,
+      trickplayLoading: trickplayLoading ?? this.trickplayLoading,
+      regeneratingChapters: regeneratingChapters ?? this.regeneratingChapters,
     );
   }
 
@@ -445,6 +551,7 @@ class DetailController extends FamilyNotifier<DetailState, String> {
       }
       await loadMarks();
       await loadResume();
+      await loadTrickplay();
       if (!_relatedRequested) {
         _relatedRequested = true;
         await loadRelated(entry);
@@ -624,6 +731,71 @@ class DetailController extends FamilyNotifier<DetailState, String> {
     }
   }
 
+  /// 章节预览图：GET /playback/files/{fileId}/trickplay（typed McApi）。
+  /// 未就绪（ready=false）或无文件时不阻塞详情页，只是不展示预览图。
+  Future<void> loadTrickplay() async {
+    final fileId = leadFileId;
+    if (fileId == null) return;
+    state = state.copyWith(trickplayLoading: true);
+    try {
+      final view = await ref.read(mcApiProvider).playbackFileTrickplay(fileId);
+      state = state.copyWith(
+        trickplayLoading: false,
+        trickplay: view.ready ? view : null,
+      );
+    } catch (e) {
+      McErrorLog.log(e, context: 'detail.trickplay');
+      state = state.copyWith(trickplayLoading: false, trickplay: null);
+    }
+  }
+
+  /// 重新生成章节图：POST /libraries/{id}/items/{id}/chapter-images
+  /// （typed McApi → ItemJobView）。返回给页面 toast 的文案。
+  Future<String> regenerateChapters() async {
+    state = state.copyWith(regeneratingChapters: true);
+    try {
+      final job = await ref
+          .read(mcApiProvider)
+          .regenerateItemChapters(_libraryId, _itemId);
+      state = state.copyWith(regeneratingChapters: false);
+      return job.started
+          ? '已提交章节图生成任务${job.jobId == null ? '' : '（${job.jobId}）'}'
+          : '章节图生成未启动';
+    } on ApiException catch (e) {
+      state = state.copyWith(regeneratingChapters: false);
+      return e.friendlyMessage;
+    } catch (e) {
+      state = state.copyWith(regeneratingChapters: false);
+      return '章节图生成失败：$e';
+    }
+  }
+
+  /// 重新识别预检：POST …/reidentification-preview（typed McApi）。
+  /// 失败时抛错，由页面 toast 友好文案；成功返回预览供确认框展示。
+  Future<ReidentifyPreviewView> reidentifyPreview() async {
+    return ref
+        .read(mcApiProvider)
+        .reidentifyPreview(_libraryId, _itemId);
+  }
+
+  /// 重新识别执行：POST …/reidentifications（typed McApi）。
+  /// 返回结果文案；changed 时重载详情（条目可能换了 id/标题）。
+  Future<String> reidentify() async {
+    try {
+      final result =
+          await ref.read(mcApiProvider).reidentify(_libraryId, _itemId);
+      if (result.changed) await load();
+      return result.message.isNotEmpty
+          ? result.message
+          : '已重新识别 ${result.identified} 项'
+              '${result.unidentified > 0 ? '，${result.unidentified} 项未识别' : ''}';
+    } on ApiException catch (e) {
+      return e.friendlyMessage;
+    } catch (e) {
+      return '重新识别失败：$e';
+    }
+  }
+
   void toggleOverview() => state = state.copyWith(overviewExpanded: !state.overviewExpanded);
 
   /// 刷新元数据：POST /items/{id}/metadata/refresh（长任务状态在任务域轮询）。
@@ -668,45 +840,6 @@ class DetailController extends FamilyNotifier<DetailState, String> {
     return null;
   }
 
-  /// AI 字幕生成（任务域，对齐 Kotlin McApi.kt 字幕段）：
-  /// 1) GET /libraries/files/{fileId}/subtitles/generation-preview 预检，
-  ///    服务端给了 blocker 就把原因带回去 toast；
-  /// 2) 预检通过 → POST /libraries/files/{fileId}/subtitles/generations 提交生成任务
-  ///    （目标语言固定简体中文，与默认一致）。
-  /// 返回给页面 toast 的文案。
-  Future<String> startSubtitleGen({int? fileId}) async {
-    final id = fileId ?? leadFileId;
-    if (id == null) return '没有在位文件，无法生成字幕';
-    try {
-      final preview = await _api.unwrap<Map<String, dynamic>>(
-        Channel.general,
-        'GET',
-        '/api/v1/libraries/files/$id/subtitles/generation-preview',
-      );
-      final blocker = preview['blocker'];
-      if (blocker is Map) {
-        final b = blocker.cast<String, dynamic>();
-        final title = b['title']?.toString();
-        final message = b['message']?.toString();
-        return '无法生成字幕：${title ?? ''}${message != null && message.isNotEmpty ? ' $message' : ''}';
-      }
-      final pending = preview['pending'];
-      if (pending is Map && (pending['message']?.toString().isNotEmpty ?? false)) {
-        return pending['message'].toString();
-      }
-      await _api.post(
-        Channel.general,
-        '/api/v1/libraries/files/$id/subtitles/generations',
-        body: {'targetLanguage': 'chs'},
-      );
-      return '已提交 AI 字幕生成任务（简体中文），进度在任务列表查看';
-    } on ApiException catch (e) {
-      return e.friendlyMessage;
-    } catch (e) {
-      return '字幕生成失败：$e';
-    }
-  }
-
   /// 创建分享链接：POST /libraries/{libraryId}/items/{itemId}/share
   /// （有效期默认 7 天；url 是相对路径 /s/{slug} 时拼上服务器基址）。
   /// 成功返回可分享的完整链接，失败返回 null 并把错误放 [err]。
@@ -733,6 +866,111 @@ class DetailController extends FamilyNotifier<DetailState, String> {
     } catch (e) {
       err?.write(e.toString());
       return null;
+    }
+  }
+
+  // —— AI 字幕生成全流程（P2）——
+  // 注：字幕生成页由另一位 P2 工作者以独立页面实现
+  // （pages/subtitle_gen_page.dart + state/subtitle_gen_controller.dart，
+  // 全程走类型化 McApi），此处不重复提供控制器方法。
+
+  // —— ⋯ 菜单的管理动作（P2；对齐安卓 ItemActionSheets.kt）——
+  // 注：重识别（reidentifyPreview / reidentify）与重新生成章节
+  // （regenerateChapters）已在本文件上方由另一位 P2 工作者实现
+  // （message 风格，与详情页的调用口径一致），此处不再重复定义。
+
+  McApi get _typedApi => ref.read(mcApiProvider);
+
+  /// 封面候选（GET …/artwork/candidates）：海报 / 背景 / Logo 三组。
+  Future<ArtworkCandidatesView> artworkCandidates() =>
+      _typedApi.artworkCandidates(_libraryId, _itemId);
+
+  /// 选一张候选图当封面（[kind]：poster / backdrop / logo）。
+  /// 成功返回 null；失败返回错误文案。
+  Future<String?> selectArtwork({
+    required String kind,
+    String? filePath,
+  }) async {
+    try {
+      await _typedApi.selectArtwork(
+        _libraryId,
+        _itemId,
+        body: ArtworkSelectPayload(kind: kind, filePath: filePath),
+      );
+      return null;
+    } on ApiException catch (e) {
+      return e.friendlyMessage;
+    } catch (e) {
+      return '更换图片失败：$e';
+    }
+  }
+
+  /// 转移预检（GET …/transfer-preview）：目标库的搬移动作与跳过项。
+  Future<TransferPreviewView> transferPreview({int? targetLibraryId}) =>
+      _typedApi.transferPreview(_libraryId, _itemId,
+          targetLibraryId: targetLibraryId);
+
+  /// 确认转移（POST …/transfers）。成功返回 null；失败返回错误文案。
+  Future<String?> transferItem(int targetLibraryId) async {
+    try {
+      await _typedApi.transferItem(
+        _libraryId,
+        _itemId,
+        body: TransferPayload(targetLibraryId: targetLibraryId),
+      );
+      return null;
+    } on ApiException catch (e) {
+      return e.friendlyMessage;
+    } catch (e) {
+      return '转移失败：$e';
+    }
+  }
+
+  /// 清除本条目的观看记录（DELETE /playback/history?media_item_id=）。
+  /// 成功返回 null；失败返回错误文案。
+  Future<String?> clearWatchHistory() async {
+    try {
+      await _typedApi.clearPlaybackHistory(mediaItemId: _itemId);
+      return null;
+    } on ApiException catch (e) {
+      return e.friendlyMessage;
+    } catch (e) {
+      return '清除失败：$e';
+    }
+  }
+
+  /// 加入合集（POST /collections/{id}/items）。成功返回 null；失败返回错误文案。
+  Future<String?> addToCollection(int collectionId) async {
+    try {
+      await _typedApi.collectionAddItems(
+        collectionId,
+        body: CollectionItemsPayload(mediaItemIds: [_itemId]),
+      );
+      return null;
+    } on ApiException catch (e) {
+      return e.friendlyMessage;
+    } catch (e) {
+      return '加入合集失败：$e';
+    }
+  }
+
+  /// 合集列表（加入合集弹层用）。
+  Future<List<CollectionView>> collectionsList() =>
+      _typedApi.collections();
+
+  /// 媒体库列表（转移弹层选目标库用）。
+  Future<List<LibraryView>> librariesList() => _typedApi.libraries();
+
+  /// 删除一个在库文件（DELETE …/items/{itemId}/files/{fileId}）。
+  /// 成功返回 null；失败返回错误文案。
+  Future<String?> deleteFile(int fileId) async {
+    try {
+      await _typedApi.deleteLibraryFile(_libraryId, _itemId, fileId);
+      return null;
+    } on ApiException catch (e) {
+      return e.friendlyMessage;
+    } catch (e) {
+      return '删除文件失败：$e';
     }
   }
 }

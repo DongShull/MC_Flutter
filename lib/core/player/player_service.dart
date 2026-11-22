@@ -72,9 +72,9 @@ class PlayerCapability {
 
   /// 引擎内切音轨（不重开会话）。video_player 2.14.1 已提供该 API，
   /// iOS（AVPlayer）与安卓（ExoPlayer）支持，web 不支持。
-  /// 注意控制器目前仍走服务端会话重开（见 `PlayerController.switchTrack`
-  /// 注释：会话转码档与轨绑定，引擎切轨可能与服务端转码档不一致，
-  /// 切换策略待 P2 决策）。本方法供后续直接切轨时使用。
+  /// 注意控制器仍走服务端会话重开（P2 决策，见 docs/PLAYER_MATRIX.md
+  /// 「P2 决策」一节：会话转码档与轨绑定，引擎切轨可能与服务端转码档
+  /// 不一致）。本方法只供无服务端会话的直连播放使用，不是第二套切轨策略。
   final bool inEngineAudioTrackSwitch;
 
   /// 引擎内切字幕轨。video_player **无字幕 API**，全部后端均为 false。

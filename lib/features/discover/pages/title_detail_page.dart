@@ -12,6 +12,7 @@ import '../../../core/designsystem/subscribe_sheet.dart';
 
 /// 本 feature 会话入口（core 不发全局 provider；与 onboarding/library 同构）。
 /// 发现侧条目详情状态（GET /discover/titles/{titleRef}；展示信息实时拉取不落缓存）。
+/// titleRef 形如 tmdb:movie:123 / douban:456：同一页承载两源，来源徽标由 ref 前缀定。
 class TitleDetailState {
   const TitleDetailState({
     this.loading = true,
@@ -25,6 +26,7 @@ class TitleDetailState {
     this.genres = const [],
     this.cast = const [],
     this.inLibrary = false,
+    this.provider = '',
   });
 
   final bool loading;
@@ -39,6 +41,9 @@ class TitleDetailState {
   final List<({String name, String role, String? profileUrl})> cast;
   final bool inLibrary;
 
+  /// 来源：titleRef 前缀（tmdb / douban / 其他），页内作来源徽标。
+  final String provider;
+
   TitleDetailState copyWith({
     bool? loading,
     Object? error = _sentinel,
@@ -51,6 +56,7 @@ class TitleDetailState {
     List<String>? genres,
     List<({String name, String role, String? profileUrl})>? cast,
     bool? inLibrary,
+    String? provider,
   }) =>
       TitleDetailState(
         loading: loading ?? this.loading,
@@ -64,6 +70,7 @@ class TitleDetailState {
         genres: genres ?? this.genres,
         cast: cast ?? this.cast,
         inLibrary: inLibrary ?? this.inLibrary,
+        provider: provider ?? this.provider,
       );
 
   static const _sentinel = Object();
@@ -108,6 +115,7 @@ class TitleDetailController extends Notifier<TitleDetailState> {
         genres: [for (final g in (d['genres'] as List<dynamic>? ?? const [])) g.toString()],
         cast: castRaw,
         inLibrary: lib is Map && ((lib['file_count'] as num? ?? 0).toInt() > 0),
+        provider: titleRef.split(':').first.toLowerCase(),
       );
     } on ApiException catch (e) {
       state = state.copyWith(loading: false, error: e.friendlyMessage);
@@ -166,6 +174,21 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              if (s.provider.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: Chip(
+                                    label: Text(
+                                      s.provider == 'douban'
+                                          ? '豆瓣'
+                                          : s.provider == 'tmdb'
+                                              ? 'TMDB'
+                                              : s.provider,
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                ),
                               if (s.year != null || s.genres.isNotEmpty)
                                 Text(
                                   [

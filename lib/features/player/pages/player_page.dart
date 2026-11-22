@@ -97,8 +97,11 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       DeviceOrientation.landscapeRight,
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _controller.open(_args);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _controller.open(_args);
+      // 开播提示：画质/倍速沿用了记忆时提示几秒（安卓 RememberedChoices 同款）。
+      final notice = _controller.rememberedNotice;
+      if (notice != null && mounted) _showNotice(notice);
       _joinPlaybackSession();
       // 播放中屏幕常亮（wakelock_plus，退出播放页在 dispose 释放）。
       WakelockPlus.enable();
@@ -726,6 +729,17 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                     setState(() => _displayMode = m),
                 onNotice: _showNotice,
                 onDismiss: () => setState(() => _settingsOpen = false),
+                quality: _controller.currentQuality,
+                qualityFromMemory: _controller.qualityFromMemory,
+                onSelectQuality: (q) async {
+                  try {
+                    await _controller.setQuality(q);
+                    if (mounted) _showNotice('画质已切换为${q.label}');
+                  } catch (e) {
+                    if (mounted) _showNotice('画质切换失败：$e');
+                  }
+                },
+                onRequestDiagnostics: _controller.collectDiagnostics,
               ),
             ),
             // 选集面板
