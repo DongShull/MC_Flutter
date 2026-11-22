@@ -48,17 +48,27 @@ class DlnaDiscovery {
     final found = <String, DlnaDevice>{};
     final locations = <String>{};
     try {
-      socket.send(
-        _msearch().codeUnits,
-        InternetAddress(_ssdpAddr),
-        _ssdpPort,
-      );
-      // 再发一次提升发现率
-      socket.send(
-        _msearch().codeUnits,
-        InternetAddress(_ssdpAddr),
-        _ssdpPort,
-      );
+      // 组播发送被禁（沙箱/无组播路由）时直接返回空列表，不抛：
+      // 调用方把“没发现设备”当正常情况处理。
+      // 注意：`send` 失败有两种形态——同步抛 SocketException，
+      // 或静默返回 0（flutter test 沙箱实测），都要当“发不出去”处理；
+      // 迟到的发送错误还会走 socket 流，见 `_nextPacket` 的 onError。
+      try {
+        final sent1 = socket.send(
+          _msearch().codeUnits,
+          InternetAddress(_ssdpAddr),
+          _ssdpPort,
+        );
+        // 再发一次提升发现率
+        final sent2 = socket.send(
+          _msearch().codeUnits,
+          InternetAddress(_ssdpAddr),
+          _ssdpPort,
+        );
+        if (sent1 == 0 || sent2 == 0) return const [];
+      } on SocketException {
+        return const [];
+      }
       final deadline = DateTime.now().add(timeout);
       while (DateTime.now().isBefore(deadline)) {
         final packet = await _nextPacket(socket, deadline.difference(DateTime.now()));
@@ -89,8 +99,14 @@ class DlnaDiscovery {
     sub = socket.listen((event) {
       if (event == RawSocketEvent.read) {
         final d = socket.receive();
-        if (d != null) completer.complete(d);
+        // 同一个 read 事件可能连续触发多次：completer 只认第一次，
+        // 否则第二次 complete 会抛 StateError。
+        if (d != null && !completer.isCompleted) completer.complete(d);
       }
+    }, onError: (Object e) {
+      // 发送失败等 socket 错误：当作“收不到包”，不要让它变成
+      // 未捕获的异步错误炸掉调用方（flutter test 沙箱实测）。
+      if (!completer.isCompleted) completer.complete(null);
     });
     try {
       final d = await completer.future.timeout(wait, onTimeout: () => null);

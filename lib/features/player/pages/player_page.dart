@@ -15,6 +15,7 @@ import '../../../core/player/session/playback_session.dart';
 import '../../../core/player/session/playback_session_providers.dart';
 
 import '../state/player_controller.dart';
+import '../../../core/player/skip_segments.dart';
 import '../widgets/player_bottom_controls.dart';
 import '../widgets/player_episode_picker.dart';
 import '../widgets/player_gesture_layer.dart';
@@ -180,6 +181,17 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     _showNotice('已切换到 S$season E${episode.episode}');
   }
 
+  /// 自动连播：控制器倒计时走完（或用户点「立即播放」）后切下一集；
+  /// 没有下一集时关掉卡片（不再自动播）。
+  void _onAutoNextRequested() {
+    final next = _nextEpisode;
+    if (next == null) {
+      _controller.dismissUpNext();
+      return;
+    }
+    _switchEpisode(next.season, next);
+  }
+
   /// 候选分集：播放侧实时拉到的优先，回退入口方传入的 episodes。
   List<EpisodeItem> get _episodeCandidates =>
       _pickerEpisodes.isNotEmpty ? _pickerEpisodes : _args.episodes;
@@ -307,6 +319,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     final duration = playback.duration ?? Duration.zero;
     final scrubTarget =
         _scrubPreview ?? playback.position;
+    // 当前位置的「跳过」按钮（一直放到结尾的片尾不给按钮，交给 UpNext 卡片）。
+    final activeSegment = SkipSegments.active(
+        playback.skipSegments, playback.position.inMilliseconds);
+    final nextEpisode = _nextEpisode;
     return [
       // 拖动预览（居中玻璃浮层：目标时间 + 迷你进度条），Android ScrubState 同款
       if (_scrubPreview != null)
@@ -417,6 +433,152 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
               ),
               child: Text(_notice!,
                   style: const TextStyle(color: Colors.white, fontSize: 12)),
+            ),
+          ),
+        ),
+      // 控制器提示（「已沿用上次的选择」等；与页内 _notice 不同时出现）
+      if (_notice == null && playback.infoNotice != null)
+        Align(
+          alignment: Alignment.topCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 16),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(playback.infoNotice!,
+                  style: const TextStyle(color: Colors.white, fontSize: 12)),
+            ),
+          ),
+        ),
+      // 断线重连中（退避重试时常驻，落错误页后由 failed 面板接手）
+      if (playback.reconnectAttempt > 0)
+        Align(
+          alignment: Alignment.topCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 48),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text('连接断开，正在重连（第 ${playback.reconnectAttempt} 次）…',
+                  style: const TextStyle(color: Colors.white, fontSize: 12)),
+            ),
+          ),
+        ),
+      // 跳过按钮（右下，控制条上方；P3 新增，之前只有进度条琥珀色标注）
+      if (activeSegment != null && !_locked)
+        Align(
+          alignment: Alignment.bottomRight,
+          child: Padding(
+            padding: const EdgeInsets.only(right: 16, bottom: 148),
+            child: FilledButton(
+              onPressed: () {
+                _controller.skipSegment(activeSegment);
+                _noteActivity();
+              },
+              child: Text(SkipSegments.label(activeSegment)),
+            ),
+          ),
+        ),
+      // 跳过提示角标（带撤回 / 不用按钮；跳过后 5 秒自消）
+      if (playback.skipNotice != null)
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 148),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Text(playback.skipNotice!.text,
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 12)),
+                  ),
+                  if (playback.skipNotice!.action != null)
+                    TextButton(
+                      onPressed: () => _controller.handleSkipNoticeAction(),
+                      child: Text(
+                        playback.skipNotice!.action ==
+                                PlayerNoticeAction.undoSkip
+                            ? '撤回'
+                            : '不用',
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 12),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      // UpNext 卡片（左下，控制条上方；有下一集才显示）
+      if (playback.upNextVisible && nextEpisode != null && !_locked)
+        Align(
+          alignment: Alignment.bottomLeft,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 16, bottom: 148),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('即将播放',
+                      style: TextStyle(color: Colors.white70, fontSize: 11)),
+                  const SizedBox(height: 2),
+                  Text(
+                    'S${nextEpisode.season} E${nextEpisode.episode} · ${nextEpisode.name}',
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600),
+                  ),
+                  if (playback.upNextSecondsLeft != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                          '${playback.upNextSecondsLeft} 秒后自动播放',
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 12)),
+                    ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FilledButton(
+                        onPressed: () => _controller.requestAutoNext(),
+                        child: const Text('立即播放'),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton(
+                        onPressed: () => _controller.dismissUpNext(),
+                        child: const Text('取消',
+                            style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -595,7 +757,13 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowDecisionDialog(context));
     final playback = ref.watch(playerControllerProvider);
     // 播放会话：状态变化立即上报，位置推进按 4s 节流。
-    ref.listen(playerControllerProvider, (_, next) => _reportSessionState(next));
+    ref.listen(playerControllerProvider, (prev, next) {
+      _reportSessionState(next);
+      // 自动连播：false→true 跳变时切下一集（控制器只发信号，切集在页侧）。
+      if (next.autoNextRequested && !(prev?.autoNextRequested ?? false)) {
+        _onAutoNextRequested();
+      }
+    });
     _tvForm = McFormWatch.of(context) == McDeviceForm.tv;
     final body = Scaffold(
       backgroundColor: Colors.black,

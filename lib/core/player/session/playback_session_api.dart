@@ -242,6 +242,7 @@ class PlaybackSkipSegment {
     required this.type,
     required this.startMs,
     required this.endMs,
+    this.toEnd = false,
   });
 
   factory PlaybackSkipSegment.fromJson(Map<String, dynamic> json) {
@@ -249,12 +250,18 @@ class PlaybackSkipSegment {
       type: (json['type'] ?? 'other').toString(),
       startMs: (json['start_ms'] as num?)?.toInt() ?? 0,
       endMs: (json['end_ms'] as num?)?.toInt() ?? 0,
+      // 服务端字段 to_end：true = 该片尾一直放到文件结尾（P3 补上，
+      // 此前解析丢弃，UpNext 倒计时无法按“认出的片尾”触发）。
+      toEnd: json['to_end'] == true || json['toEnd'] == true,
     );
   }
 
   final String type;
   final int startMs;
   final int endMs;
+
+  /// true = 该片尾一直放到文件结尾（[SkipSegments.isInOutro] 用）。
+  final bool toEnd;
 }
 
 /// 开会话结果（PlaybackSessionView 的 Flutter 侧子集）。

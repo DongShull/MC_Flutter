@@ -146,6 +146,16 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
           const SizedBox(height: 16),
           // —— 容量条最后 ——
           if (offline.storage != null) StorageCard(info: offline.storage!),
+          // 容量拿不到时写明原因，不再静默留空（P3 去占位）。
+          if (offline.storage == null &&
+              offline.storageUnavailableReason != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                '本机容量不可用：${offline.storageUnavailableReason!}',
+                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+              ),
+            ),
           if (offline.error != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),

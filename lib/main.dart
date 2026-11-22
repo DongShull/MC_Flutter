@@ -7,6 +7,7 @@ import 'app.dart';
 import 'core/api/mc_error.dart';
 import 'core/bootstrap/app_bootstrap.dart';
 import 'core/session/session_store.dart';
+import 'features/offline/state/background_download.dart';
 
 Future<void> main() async {
   // release 模式默认构建异常=灰屏，改成可读红字（远程排障用）
@@ -24,6 +25,12 @@ Future<void> main() async {
       );
   // 分阶段启动（docs/design/09）：首帧前只做最小集，压白屏时间。
   await AppBootstrap.ensureMinimum();
+  // 后台下载调度（P3：WorkManager 对等实现；web 跳过，失败只记日志）。
+  try {
+    OfflineBackgroundScheduler.initialize();
+  } catch (e) {
+    McErrorLog.log(e, context: 'main.backgroundInit');
+  }
   // 启动即恢复会话（决定首屏是否跳过 onboarding，属首帧前最小集）。
   await appSession.restore();
   runZonedGuarded(() {

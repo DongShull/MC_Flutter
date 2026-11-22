@@ -25,10 +25,13 @@ dependencies:
   url_launcher: ^6.3.0              # 外链/浏览器（对应 Android Custom Tabs）
   share_plus: ^10.0.0               # 系统分享（对应 Android Intent.ACTION_SEND）
   image_picker: ^1.1.2              # 头像选择（对应 Android Photo Picker）
+  workmanager: ^0.10.10
+  crypto: ^3.0.8
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  fake_async: ^1.3.3 # 仅测试用：重连退避 60 秒回路用虚拟时间驱动
   flutter_lints: ^4.0.0
   build_runner: ^2.5.4             # freezed / json_serializable 代码生成（P1）
   freezed: ^3.2.5                   # 同上

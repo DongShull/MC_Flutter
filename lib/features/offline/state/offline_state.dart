@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,8 +9,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/api/mc_client.dart';
 import '../../../core/api/mc_error.dart';
 import '../../../core/api/session_providers.dart';
+import '../../../core/offline/fmp4_fixup.dart';
+import '../../../core/offline/offline_packager.dart';
 import '../../../core/player/session/playback_session_api.dart';
 import '../../../core/platform/download_channel.dart';
+import 'background_download.dart';
 import 'models.dart';
 
 /// offline 域复用全局 McClient 单例（统一走 McClient，对应 Kotlin McApi.kt offline 段）。
@@ -21,18 +25,25 @@ class OfflineState {
     this.units = const <DownloadUnit>[],
     this.allowCellular = false,
     this.storage,
+    this.storageUnavailableReason,
     this.error,
   });
 
   final List<DownloadUnit> units;
   final bool allowCellular;
   final StorageInfo? storage;
+
+  /// 容量拿不到时的原因（P3 去占位：不再静默不显示，
+  /// 而是写明为什么没有数字；null = 未尝试或已拿到）。
+  final String? storageUnavailableReason;
   final String? error;
 
   OfflineState copyWith({
     List<DownloadUnit>? units,
     bool? allowCellular,
     StorageInfo? storage,
+    String? storageUnavailableReason,
+    bool clearStorageReason = false,
     String? error,
     bool clearError = false,
   }) =>
@@ -40,6 +51,9 @@ class OfflineState {
         units: units ?? this.units,
         allowCellular: allowCellular ?? this.allowCellular,
         storage: storage ?? this.storage,
+        storageUnavailableReason: clearStorageReason
+            ? null
+            : (storageUnavailableReason ?? this.storageUnavailableReason),
         error: clearError ? null : (error ?? this.error),
       );
 
@@ -70,6 +84,7 @@ class _StoredTask {
     this.seasonEpisode,
     required this.profileLabel,
     this.priority = 0,
+    this.transcode = false,
   });
 
   final String id;
@@ -80,6 +95,9 @@ class _StoredTask {
   final String profileLabel;
   int priority;
 
+  /// 转码档（P3：下完后跑 fmp4 修复；原画不动）。
+  final bool transcode;
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,
@@ -88,6 +106,7 @@ class _StoredTask {
         if (seasonEpisode != null) 'seasonEpisode': seasonEpisode,
         'profileLabel': profileLabel,
         'priority': priority,
+        'transcode': transcode,
       };
 
   factory _StoredTask.fromJson(Map<String, dynamic> json) => _StoredTask(
@@ -98,6 +117,7 @@ class _StoredTask {
         seasonEpisode: json['seasonEpisode']?.toString(),
         profileLabel: json['profileLabel'].toString(),
         priority: ((json['priority'] ?? 0) as num).toInt(),
+        transcode: json['transcode'] == true,
       );
 }
 
@@ -114,6 +134,17 @@ class OfflineController extends Notifier<OfflineState> {
   final Map<String, _StoredTask> _tasks = {};
   final Map<String, StreamSubscription<McDownloadProgress>> _subs = {};
   final Map<String, ({int bytes, DateTime at})> _lastTick = {};
+
+  /// 打包用的 manifest（仅内存：开始下载时取到，下完即用；
+  /// 重启恢复的任务没有它，跳过打包，见 [_finishDownload]）。
+  final Map<String, OfflineManifest> _manifests = {};
+
+  /// 打包用的档位 id（与 [_manifests] 同生命周期）。
+  final Map<String, String> _profiles = {};
+
+  /// 后台下载调度（WorkManager 对等实现，见 background_download.dart）。
+  final OfflineBackgroundScheduler _background =
+      OfflineBackgroundScheduler();
 
   @override
   OfflineState build() {
@@ -162,6 +193,7 @@ class OfflineController extends Notifier<OfflineState> {
       for (final t in pending) {
         await _launch(t);
       }
+      if (pending.isNotEmpty) unawaited(_syncBackgroundWork());
     } catch (e) {
       // 恢复失败不阻塞页面：当作没有历史任务（记日志，不静默）。
       McErrorLog.log(e, context: 'offline.restore');
@@ -186,6 +218,14 @@ class OfflineController extends Notifier<OfflineState> {
       _patchAll(OfflineUnitStatus.waitingWifi, OfflineUnitStatus.queued);
     } else {
       _patchAll(OfflineUnitStatus.queued, OfflineUnitStatus.waitingWifi);
+    }
+    // 网络约束变了：正在跑的后台作业按新约束重排
+    // （与 Kotlin OfflineDownloadWorker.schedule(replace) 一致）。
+    if (state.activeUnits.isNotEmpty) {
+      unawaited(_background.schedule(
+        allowCellular: value,
+        replace: true,
+      ));
     }
   }
 
@@ -255,8 +295,13 @@ class OfflineController extends Notifier<OfflineState> {
           savePath: '${dir.path}/$id.mp4',
           seasonEpisode: label,
           profileLabel: candidate.profiles.first.label,
+          transcode: candidate.profiles.first.transcode,
         );
         _tasks[id] = task;
+        _manifests[id] = data;
+        _profiles[id] = candidate.profiles.first.isOriginal
+            ? 'original'
+            : candidate.profiles.first.id;
         newUnits.add(DownloadUnit(
           id: id,
           title: candidate.title,
@@ -275,6 +320,8 @@ class OfflineController extends Notifier<OfflineState> {
           final task = _tasks[u.id];
           if (task != null) await _launch(task);
         }
+        // 有活了：确保后台作业排着（切后台/锁屏照常下）。
+        unawaited(_syncBackgroundWork());
       }
       if (failedCount > 0) {
         state = state.copyWith(
@@ -369,6 +416,8 @@ class OfflineController extends Notifier<OfflineState> {
             progress: 1,
             speedBps: 0,
           ));
+      // 下完收尾（fmp4 修复 + 打包，失败只记日志，不改 done 态）。
+      unawaited(_finishDownload(task));
       return;
     }
     final ratio = p.ratio;
@@ -387,6 +436,97 @@ class OfflineController extends Notifier<OfflineState> {
           speedBps: 0,
         ));
     state = state.copyWith(error: message);
+    unawaited(_syncBackgroundWork());
+  }
+
+  /// 下完收尾（P3）：转码档跑 fmp4 修复，再跑打包（字幕/playback.json/
+  /// 图片）。任何一步失败只记日志：视频本身已落盘，done 态不动；
+  /// 打包失败下次由“准备态”对账重来（对账未实现，见小结）。
+  Future<void> _finishDownload(_StoredTask task) async {
+    final file = File(task.savePath);
+    if (!await file.exists()) return;
+    if (task.transcode) {
+      try {
+        final fixed = await Fmp4Fixup.clampNegativeTfdt(file);
+        if (fixed > 0) {
+          McErrorLog.log(
+            'fmp4 fixup: clamped $fixed negative tfdt in ${task.id}',
+            context: 'offline.fixup',
+          );
+        }
+      } catch (e) {
+        McErrorLog.log(e, context: 'offline.fixup');
+      }
+      try {
+        // 整份改写放 isolate，别卡 UI 线程；false = 文件本身不需要/
+        // 不能补索引（已有 sidx、非 moof 相对偏移等），不是错误。
+        await Isolate.run(
+            () => Fmp4Fixup.addSegmentIndexForPath(task.savePath));
+      } catch (e) {
+        McErrorLog.log(e, context: 'offline.fixup');
+        // isolate 起不来时主 isolate 再试一次。
+        try {
+          await Fmp4Fixup.addSegmentIndex(file);
+        } catch (e) {
+          McErrorLog.log(e, context: 'offline.fixup');
+        }
+      }
+    }
+    final manifest = _manifests.remove(task.id);
+    final profile = _profiles.remove(task.id);
+    if (manifest != null && profile != null) {
+      try {
+        final result = await OfflinePackager(
+          manifest: manifest,
+          savePath: task.savePath,
+          profile: profile,
+          baseUrl: ref.read(offlineClientProvider).baseUrl,
+          fetchBytes: _fetchBytes,
+        ).run();
+        McErrorLog.log(
+          'offline packaged ${task.id}: '
+          '${result.subtitleCount} subtitles, '
+          '${result.imageCount} images',
+          context: 'offline.package',
+        );
+      } catch (e) {
+        McErrorLog.log(e, context: 'offline.package');
+      }
+    }
+    unawaited(_syncBackgroundWork());
+  }
+
+  /// 打包取字节：`/api/...` 走 McClient（带鉴权），绝对地址走 HttpClient。
+  Future<List<int>> _fetchBytes(String url) async {
+    if (url.startsWith('/')) {
+      return ref
+          .read(offlineClientProvider)
+          .getBytes(Channel.general, url);
+    }
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final req = await client.getUrl(Uri.parse(url));
+      final res = await req.close().timeout(const Duration(seconds: 30));
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw HttpException('HTTP ${res.statusCode} for $url');
+      }
+      final bytes = <int>[];
+      await for (final chunk in res) {
+        bytes.addAll(chunk);
+      }
+      return bytes;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// 有未完成单元就确保后台作业排着，否则取消排着的作业。
+  Future<void> _syncBackgroundWork() async {
+    if (state.activeUnits.isNotEmpty) {
+      await _background.schedule(allowCellular: state.allowCellular);
+    } else {
+      await _background.cancel();
+    }
   }
 
   DownloadUnit? _unit(String id) {
@@ -439,6 +579,7 @@ class OfflineController extends Notifier<OfflineState> {
     state = state.copyWith(
       units: state.units.where((u) => u.id != unit.id).toList(),
     );
+    unawaited(_syncBackgroundWork());
   }
 
   /// 优先下载（提到最前 = 最高优先级）。
@@ -505,6 +646,7 @@ class OfflineController extends Notifier<OfflineState> {
     state = state.copyWith(
       units: state.units.where((u) => u.id != unit.id).toList(),
     );
+    unawaited(_syncBackgroundWork());
   }
 
   /// 已下载副本的字节数（按任务 id），供容量卡与已下载行取「占用」
@@ -524,24 +666,40 @@ class OfflineController extends Notifier<OfflineState> {
 
   /// 更新容量（实际数字由平台通道返回，先占位 TODO）。
   void updateStorage(StorageInfo info) {
-    state = state.copyWith(storage: info);
+    state = state.copyWith(storage: info, clearStorageReason: true);
   }
 
   /// 从原生通道（mc/native/download 的 capacity）刷新本机容量展示。
-  /// 原生未实现（MissingPluginException / 非 Android 平台）时保持占位：
-  /// storage 维持 null，页面继续显示占位文案。
+  /// 拿不到时不再静默保持占位：把原因写进
+  /// [OfflineState.storageUnavailableReason]，页面原样展示。
+  /// - 安卓：原生 `MainActivity.McDownloadPlugin` 有 StatFs 实现；
+  /// - iOS：P3 新增 `ios/Runner/McDownloadPlugin.swift`
+  ///  （未编译验证，本机无 Xcode，见小结）；
+  /// - 原生通道整体未实现（桌面/web/测试）：Dart 层没有磁盘容量 API，
+  ///   直接标缺失。
   Future<void> refreshStorage() async {
     try {
       final cap = await McDownloadChannel.capacity();
-      if (cap == null) return;
+      if (cap == null) {
+        state = state.copyWith(
+          storageUnavailableReason: McDownloadChannel.nativeAvailable
+              ? '原生通道未返回容量（capacity 为 null）'
+              : '原生下载通道未实现：Dart 层没有磁盘容量 API',
+        );
+        return;
+      }
       state = state.copyWith(
         storage: StorageInfo(
           availableBytes: cap.freeBytes,
           totalBytes: cap.totalBytes,
         ),
+        clearStorageReason: true,
       );
     } catch (e) {
-      // 拿不到真实容量就走占位，不阻塞页面（记日志，不静默）。
+      state = state.copyWith(
+        storageUnavailableReason: '容量读取失败：$e',
+      );
+      // 拿不到真实容量不阻塞页面（记日志，不静默）。
       McErrorLog.log(e, context: 'offline.capacity');
     }
   }

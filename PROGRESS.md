@@ -246,3 +246,12 @@
 - ⑦玻璃材质：core/designsystem/mc_glass.dart（GlassTone 五档色值 1:1 抄 GlassControls.ets，135° 渐变+1px edge+blur18 BackdropFilter），切换账号按钮/SectionPicker 选中段接入。
 
 t15/t16 子代理产出，验收 analyze No issues + test 36/36。
+
+## P3（2026-11-22，rewrite/flutter-unified，未推送）— 播放 + 离线 + 投屏
+
+- 播放（player_controller.dart 全文重写，行为保留）：看门狗纯 Dart 移植（watchdogs.dart：ReconnectBackoff 2/4/8/15/15/15s、StallWatch 推两把/8s 解码卡死/45s 服务端断线/15s 直出断线、NetworkRestartBudget 2 次、PrematureEndGuard 30s、NativeRetryBudget 3 分钟一次、FrameDropTracker 未接线）；断线重连回路（网络先同档重开 2 次再退避约 1 分钟，解码 3 分钟内只重开一次，代次守卫）；自动跳过片头片尾 + UpNext（skip_segments.dart，Kotlin SkipSegmentsTest 同组用例；广告/预告直接跳，片头学过才跳，toEnd 片尾进 UpNext 卡片 8 秒倒计时，连续自动播 3 集上限）；画质/倍速记忆（playback_memory.dart：按片×网络环境记画质、按片记倍速，各 300 条淘汰，`player.quality-by-title` / `player.speed-by-title`）；播放页新增跳过按钮/提示角标（撤回/不用）/UpNext 卡片/重连胶囊。
+- 离线：容量去占位（原生 capacity 接通，拿不到写 `storageUnavailableReason` 并在离线页展示；iOS 新增 McDownloadPlugin.swift 最小实现，未编译验证）；WorkManager 后台下载（background_download.dart：唯一作业 `movieclaw-offline-downloads`，allowCellular=false→unmetered，main() 初始化，web 明确不支持，iOS BGTaskScheduler）；fmp4 修复全量移植（fmp4_fixup.dart：负 tfdt 夹 0、补 sidx；仅转码档跑）；归档打包（offline_packager.dart：字幕转 VTT/ASS 原样、playback.json sidecar、图片 best-effort；归档目录/准备态对账未移植）；`PlaybackSkipSegment.toEnd` 解析补全（此前丢弃）。
+- 投屏：DLNA 走查修两处——`setUriAndPlay` 非 200 抛错（此前 500 也当成功置 casting=true），`_nextPacket` 加 completer/isCompleted 守卫与 onError；新增 `getPositionInfo` / `getTransportState`（未接 UI）；组播发送被禁时 `search` 返回空列表不抛（沙箱实测）。走查表与真机清单见 `docs/CAST_VERIFICATION.md`（真机验证全部未做）。
+- 依赖：workmanager 0.10.10、crypto、fake_async 1.3.3（仅测试）。
+- 验证：`flutter analyze` No issues；`flutter test` 141/141（75 既有 + 66 新增 P3 测试，见 test/*_test.dart）。另修一处实现 bug：sidx 总长多算 4 字节（应为 40+12n）。
+- 未完成（详见 hidden_files/P3.md）：iOS Swift 插件未编译验证；WorkManager 后台与 DLNA 真机均未验证；归档目录/准备态对账/离线本地播放未移植；画质记忆写路径无触发 UI；自动跳过总开关无设置入口（默认开）；HLS 投屏策略未决策；GENA 事件订阅未做。

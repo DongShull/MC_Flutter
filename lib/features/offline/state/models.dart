@@ -123,17 +123,144 @@ class StorageInfo {
 }
 
 /// 服务器返回的 manifest（GET /api/v1/offline/manifest?file_id=）。
+/// 字段名对照安卓 `OfflineModels.OfflineManifest`；服务端同时可能
+/// 用蛇形或驼峰，解析时两者都认（file_id/fileId 已有先例）。
 class OfflineManifest {
-  const OfflineManifest({required this.fileId, this.episodes = const []});
+  const OfflineManifest({
+    required this.fileId,
+    this.episodes = const [],
+    this.mediaItemId = 0,
+    this.seasonNumber = 0,
+    this.durationMs,
+    this.container,
+    this.resumePositionMs,
+    this.item,
+    this.library,
+    this.season,
+    this.chapters,
+    this.segments,
+    this.audioTracks,
+    this.defaultAudio,
+    this.defaultSubtitle,
+    this.subtitles = const [],
+  });
 
-  factory OfflineManifest.fromJson(Map<String, dynamic> json) =>
-      OfflineManifest(
-        fileId: (json['file_id'] ?? json['fileId'] ?? '').toString(),
-        episodes: ((json['episodes'] ?? const []) as List<dynamic>)
-            .map((e) => e.toString())
-            .toList(),
-      );
+  factory OfflineManifest.fromJson(Map<String, dynamic> json) {
+    num? numOf(String snake, String camel) {
+      final v = json[snake] ?? json[camel];
+      return v is num ? v : null;
+    }
+
+    String? strOf(String snake, String camel) {
+      final v = json[snake] ?? json[camel];
+      return v?.toString();
+    }
+
+    Map<String, dynamic>? mapOf(String snake, String camel) {
+      final v = json[snake] ?? json[camel];
+      return v is Map<String, dynamic> ? v : null;
+    }
+
+    final subs = json['subtitles'];
+    return OfflineManifest(
+      fileId: (json['file_id'] ?? json['fileId'] ?? '').toString(),
+      episodes: ((json['episodes'] ?? const []) as List<dynamic>)
+          .map((e) => e.toString())
+          .toList(),
+      mediaItemId: numOf('media_item_id', 'mediaItemId')?.toInt() ?? 0,
+      seasonNumber: numOf('season_number', 'seasonNumber')?.toInt() ?? 0,
+      durationMs: numOf('duration_ms', 'durationMs')?.toInt(),
+      container: strOf('container', 'container'),
+      resumePositionMs:
+          numOf('resume_position_ms', 'resumePositionMs')?.toInt(),
+      item: mapOf('item', 'item'),
+      library: mapOf('library', 'library'),
+      season: mapOf('season', 'season'),
+      chapters: json['chapters'],
+      segments: json['segments'],
+      audioTracks: json['audio_tracks'] ?? json['audioTracks'],
+      defaultAudio: strOf('default_audio', 'defaultAudio'),
+      defaultSubtitle: strOf('default_subtitle', 'defaultSubtitle'),
+      subtitles: subs is List
+          ? [
+              for (final s in subs)
+                if (s is Map<String, dynamic>) OfflineSubtitleRef.fromJson(s),
+            ]
+          : const [],
+    );
+  }
 
   final String fileId;
   final List<String> episodes;
+
+  /// 条目 id（打包目录与 playback.json 用；0 = 服务端未给）。
+  final int mediaItemId;
+  final int seasonNumber;
+  final int? durationMs;
+  final String? container;
+
+  /// 打包时服务器上的续播点（本机还没有进度时先用它）。
+  final int? resumePositionMs;
+
+  /// LibraryItemDetailView / LibraryView / SeasonEpisodesView 原样。
+  final Map<String, dynamic>? item;
+  final Map<String, dynamic>? library;
+  final Map<String, dynamic>? season;
+
+  /// 章节 / 可跳区间 / 音轨（原样透传进 playback.json）。
+  final dynamic chapters;
+  final dynamic segments;
+  final dynamic audioTracks;
+  final String? defaultAudio;
+  final String? defaultSubtitle;
+
+  final List<OfflineSubtitleRef> subtitles;
+}
+
+/// 清单里的一条外挂字幕引用（对照安卓 `OfflineSubtitleRef`）。
+class OfflineSubtitleRef {
+  const OfflineSubtitleRef({
+    this.trackRef = '',
+    this.format = '',
+    this.language,
+    this.title,
+    this.isDefault = false,
+    this.isForced = false,
+    this.isAi = false,
+    this.embedded = false,
+    this.url,
+  });
+
+  factory OfflineSubtitleRef.fromJson(Map<String, dynamic> json) {
+    bool boolOf(String snake, String camel) =>
+        json[snake] == true || json[camel] == true;
+    return OfflineSubtitleRef(
+      trackRef: (json['track_ref'] ?? json['trackRef'] ?? '').toString(),
+      format: (json['format'] ?? '').toString(),
+      language: (json['language'] as String?) ??
+          (json['language']?.toString()),
+      title: json['title']?.toString(),
+      isDefault: boolOf('is_default', 'isDefault'),
+      isForced: boolOf('is_forced', 'isForced'),
+      isAi: boolOf('is_ai', 'isAi'),
+      embedded: boolOf('embedded', 'embedded'),
+      url: json['url']?.toString(),
+    );
+  }
+
+  final String trackRef;
+
+  /// 存盘格式：srt / ass / ssa / vtt。
+  final String format;
+  final String? language;
+  final String? title;
+  final bool isDefault;
+  final bool isForced;
+  final bool isAi;
+
+  /// 内封轨抽出来的（原画档不用下，引擎直接读文件里的）。
+  final bool embedded;
+
+  /// 清单里的地址是 `/api/v1/...` 的绝对路径（字幕带了签名 token）。
+  final String? url;
 }
