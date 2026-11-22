@@ -7,7 +7,7 @@
   - ✅ widgets/player_gesture_layer.dart —— 手势层（PlayerGestureLayer.kt 1:1）：单击立即生效/双击 0.3s 窗口推断、横向定位满屏 90s、纵向亮度(左)/音量(右)、长按 0.5s 2× 变速、12px 激活、32px 边缘守卫、调节带 12%~76%
   - ✅ widgets/player_progress_bar.dart —— 进度条：点按直跳、拖动跟手预览松手才跳（实测参数：左右 35dp、轨 3dp、句柄 11dp）；可跳区间琥珀色标注待 segments 下发（占位）
   - ✅ widgets/player_bottom_controls.dart —— 工具行：左胶囊 音轨/字幕（占位菜单，待会话轨接口）、右胶囊 下一集(占位)/选集/倍速
-  - ✅ widgets/player_settings_panel.dart —— ⋮ 右侧滑出面板（PlayerSettingsPanel.kt）：画质（占位）、倍速（真实 0.5–2）、画面缩放 fit/fill/stretch（真实）、播放诊断（占位）
+  - ✅ widgets/player_settings_panel.dart —— ⋮ 右侧滑出面板（PlayerSettingsPanel.kt）：画质（未实现，见 docs/PLAYER_MATRIX.md）、倍速（真实 0.5–2）、画面缩放 fit/fill/stretch（真实）、播放诊断（未实现，见 docs/PLAYER_MATRIX.md）
   - ✅ widgets/player_episode_picker.dart —— 选集面板（PlayerEpisodePicker.kt）：季 chips + 集网格，数据由入口经 PlayerPageArgs 传入（McClient 会话接口占位）
   - ✅ state/player_controller.dart —— Riverpod 控制器 + 全局 PlayerService 单例 provider；播放全部经 core/player/player_service.dart
 - ⏳ TODO（依赖 core/playback 会话协议，见设计文档 03 §4）：

@@ -8,7 +8,7 @@ enum _SettingsPage { root, quality, speed, display }
 /// 播放器的 ⋮ 设置面板（Android PlayerSettingsPanel）：横屏从右侧滑出、占满高度，
 /// 同 B 站 / 腾讯视频的横屏侧边栏。一级每项行尾写当前值，点进二级选，选了就收起；
 /// 二级「←」或返回键回到一级；点面板外面收起。
-/// 画质 / 播放诊断占位（会话协商接口接入后启用），倍速 / 画面缩放真实可用。
+/// 画质选择 / 播放诊断未实现（见 docs/PLAYER_MATRIX.md），倍速 / 画面缩放真实可用。
 class PlayerSettingsPanel extends StatefulWidget {
   const PlayerSettingsPanel({
     super.key,
@@ -81,8 +81,8 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
           row(
             icon: McIcons.hq,
             label: '画质',
-            value: '原画',
-            onTap: () => widget.onNotice('画质切换待会话协商接口接入（占位）'),
+            value: '未实现',
+            onTap: () => widget.onNotice('画质选择未实现：会话未提供画质档（见 docs/PLAYER_MATRIX.md）'),
           ),
           row(
             icon: Icons.speed,
@@ -99,7 +99,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
           row(
             icon: Icons.monitor_heart,
             label: '播放诊断',
-            onTap: () => widget.onNotice('播放诊断面板待 QOE 接口接入（占位）'),
+            onTap: () => widget.onNotice('播放诊断未实现（见 docs/PLAYER_MATRIX.md）'),
           ),
         ]);
       case _SettingsPage.speed:

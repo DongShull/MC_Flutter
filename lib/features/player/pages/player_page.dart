@@ -26,7 +26,7 @@ import '../../../core/designsystem/mc_strings.dart';
 
 /// 播放页（Android PlayerScreen 1:1）：强制横屏 + 沉浸式、黑底满屏画面、
 /// 手势（横向定位 / 纵向亮度音量 / 双击 ±10s / 长按 2×）、锁屏、倍速、
-/// ⋮ 面板（画质占位 / 倍速 / 画面缩放 / 诊断占位）、选集入口。
+/// ⋮ 面板（倍速 / 画面缩放已实现；画质选择、播放诊断未实现，见 docs/PLAYER_MATRIX.md）、选集入口。
 class PlayerPage extends ConsumerStatefulWidget {
   const PlayerPage({super.key, this.args});
 

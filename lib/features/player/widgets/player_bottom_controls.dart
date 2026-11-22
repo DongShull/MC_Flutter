@@ -5,7 +5,7 @@ import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/player/session/playback_session_api.dart';
 
 /// 进度条上方的工具行（Android PlayerBottomControls）：
-/// 左胶囊 = 音轨 / 字幕（占位菜单），右胶囊 = 下一集 / 选集 / 倍速。
+/// 左胶囊 = 音轨 / 字幕（服务端会话轨，真实：切轨走会话重开续播），右胶囊 = 下一集 / 选集 / 倍速。
 /// 倍速选中后走 ⋮ 面板；这里保留「下一集」入口（电影没有下一集/选集）。
 class PlayerBottomControls extends StatelessWidget {
   const PlayerBottomControls({

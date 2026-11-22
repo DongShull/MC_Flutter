@@ -72,7 +72,7 @@ class PlayerPlayback {
 
 /// 全 App 唯一播放器实例（docs/design/03 §2.1：provider 挂全局单例）。
 final playerServiceProvider = Provider<PlayerService>((ref) {
-  final service = VideoPlayerService();
+  final service = PlayerService.create();
   ref.onDispose(service.close);
   return service;
 });
@@ -123,6 +123,14 @@ class PlayerController extends Notifier<PlayerPlayback> {
 
   @override
   PlayerPlayback build() => const PlayerPlayback(status: PlayerStatus.idle);
+
+  /// 当前后端的能力开关（画质/诊断等是否支持，先查这里再调对应方法）。
+  PlayerCapability get capabilities => _service.capabilities;
+
+  /// 采集诊断快照（引擎可读字段；拿不到的字段为 null = 缺失）。
+  /// 诊断面板 UI 未实现，本方法先供调试/后续面板使用。
+  Future<PlayerDiagnostics> collectDiagnostics() =>
+      _service.collectDiagnostics(sessionId: _serverSessionId);
 
   /// 当前/最近一次播放的流地址（cast 投屏复用；DLNA 直连不走会话）。
   String? get lastStreamUrl => _lastUrl;
@@ -186,6 +194,7 @@ class PlayerController extends Notifier<PlayerPlayback> {
         title: args.title,
         startPosition: startPosition,
         headers: args.headers,
+        sessionId: _serverSessionId,
       ));
       state = state.copyWith(status: PlayerStatus.ready);
       // 位置/时长/播放态直接消费服务的稳定通知器（UI 不轮询引擎）。
