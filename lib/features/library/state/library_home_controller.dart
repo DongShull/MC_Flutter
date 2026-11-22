@@ -1,5 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/mc_error.dart';
+
+
+
+
 import 'home_rows.dart';
 import 'mc_api.dart';
 import 'models.dart';
@@ -153,8 +158,9 @@ class LibraryHomeController extends Notifier<LibraryHomeState> {
           final summary = await _api.libraryKindSummary(k.kind);
           state = state.copyWith(kindSummaries: {...state.kindSummaries, row.id: summary});
         }
-      } catch (_) {
-        // 单行失败不拖垮整页：该行渲染为空态，下拉刷新重试。
+      } catch (e) {
+        // 单行失败不拖垮整页：该行渲染为空态，下拉刷新重试（记日志，不静默）。
+        McErrorLog.log(e, context: 'libraryHome.rowSummary');
       }
     }
   }

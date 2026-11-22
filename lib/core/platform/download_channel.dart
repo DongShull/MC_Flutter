@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import '../api/mc_error.dart';
+
 /// 离线字节搬运平台通道（对齐飞牛 trim_native_download：
 /// MethodChannel 'trim_native_download' + 每任务事件流 'trim_native_download/progress/<id>'，
 /// 进度字段 received / currentLength / totalBytes 的口径也一并抄过来）。
@@ -79,8 +81,9 @@ abstract final class McDownloadPaths {
     try {
       final dir = await _channel.invokeMethod<String>('getDownloadDirectory');
       if (dir != null && dir.isNotEmpty) return Directory(dir);
-    } catch (_) {
-      // 原生未实现：走纯 Dart 兜底。
+    } catch (e) {
+      // 原生未实现：走纯 Dart 兜底（记日志，不静默）。
+      McErrorLog.log(e, context: 'downloadPaths.resolve');
     }
     final env = Platform.environment['MC_OFFLINE_DIR'];
     if (env != null && env.isNotEmpty) return Directory(env);
@@ -277,7 +280,8 @@ abstract final class McDownloadChannel {
     } on PlatformException catch (e) {
       if (e.code != 'unsupported') return false;
       _nativeAvailable = false;
-    } catch (_) {
+    } catch (e) {
+      McErrorLog.log(e, context: 'downloadChannel.delete');
       return false;
     }
     return _deleteLocal(path);
@@ -291,7 +295,8 @@ abstract final class McDownloadChannel {
         return true;
       }
       return false;
-    } catch (_) {
+    } catch (e) {
+      McErrorLog.log(e, context: 'downloadChannel.exists');
       return false;
     }
   }
@@ -333,8 +338,9 @@ class McFallbackDownloadManager {
       if (await f.exists()) {
         try {
           await f.delete();
-        } catch (_) {
-          // 删不掉就留着，下次覆盖。
+        } catch (e) {
+          // 删不掉就留着，下次覆盖（记日志，不静默）。
+          McErrorLog.log(e, context: 'downloadChannel.cleanup');
         }
       }
     }
@@ -520,8 +526,9 @@ class _FallbackTask {
         'received': received,
         'totalBytes': total,
       }));
-    } catch (_) {
-      // 写元数据失败只影响续传精度，不影响任务本身。
+    } catch (e) {
+      // 写元数据失败只影响续传精度，不影响任务本身（记日志，不静默）。
+      McErrorLog.log(e, context: 'downloadChannel.writeMeta');
     }
   }
 
@@ -532,8 +539,9 @@ class _FallbackTask {
       if (await f.exists()) {
         try {
           await f.delete();
-        } catch (_) {
-          // 留给下次覆盖。
+        } catch (e) {
+          // 留给下次覆盖（记日志，不静默）。
+          McErrorLog.log(e, context: 'downloadChannel.cleanup');
         }
       }
     }

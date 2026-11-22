@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'models.dart';
 import 'reels_api.dart';
 import '../../../core/api/api_exception.dart';
+import '../../../core/api/mc_error.dart';
 
 /// 刷片页状态（对应 Android ReelsViewModel.UiState 的 Flutter 侧裁剪：
 /// 播放引擎部分由 player 域负责，这里只管信息流 / 标记 / 事件）。
@@ -133,8 +134,9 @@ class ReelsController extends Notifier<ReelsState> {
         ...page.items.where((e) => !known.contains(e.id)),
       ];
       state = state.copyWith(items: merged);
-    } catch (_) {
-      // 下一页拉不到就停在这儿；用户滑回来会再试
+    } catch (e) {
+      // 下一页拉不到就停在这儿；用户滑回来会再试（记日志，不静默）。
+      McErrorLog.log(e, context: 'reels.loadMore');
     } finally {
       _loadingMore = false;
     }
@@ -157,8 +159,9 @@ class ReelsController extends Notifier<ReelsState> {
     try {
       final facets = await _api.facets(filter: state.filter);
       state = state.copyWith(facets: facets);
-    } catch (_) {
-      // 候选值拉不到就沿用上一份
+    } catch (e) {
+      // 候选值拉不到就沿用上一份（记日志，不静默）。
+      McErrorLog.log(e, context: 'reels.facets');
     }
   }
 
@@ -201,8 +204,9 @@ class ReelsController extends Notifier<ReelsState> {
     _pendingEvents.clear();
     try {
       await _api.reportEvents(batch);
-    } catch (_) {
-      // 失败即丢（同 Android）
+    } catch (e) {
+      // 失败即丢（同 Android），记日志不静默。
+      McErrorLog.log(e, context: 'reels.reportEvents');
     }
   }
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
+import 'core/api/mc_error.dart';
 import 'core/bootstrap/app_bootstrap.dart';
 import 'core/session/session_store.dart';
 
@@ -32,6 +33,9 @@ Future<void> main() async {
       debugPrint('mc_flutter: first frame rasterized, post-frame tasks done');
     });
   }, (error, stack) {
-    debugPrint('uncaught zone error: $error\n$stack');
+    // 全局兜底：按 P1 错误分级记日志（分级见 McError.classify），
+    // 不再只有一行 debugPrint；上报钩子由 McErrorLog.reporter 接（P1 未接服务）。
+    final classified = McError.classify(error);
+    McErrorLog.log(classified, context: 'main.uncaught', stackTrace: stack);
   });
 }

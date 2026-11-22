@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/api/agent_sse_client.dart';
+import '../../../core/api/mc_error.dart';
 import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
 import 'models.dart';
@@ -129,8 +130,9 @@ class SessionsController extends Notifier<List<SessionSummary>> {
   Future<void> load() async {
     try {
       state = await ref.read(agentApiProvider).sessions();
-    } catch (_) {
-      // 离线/未登录时列表保持为空。
+    } catch (e) {
+      // 离线/未登录时列表保持为空（记日志，不静默）。
+      McErrorLog.log(e, context: 'agent.loadSessions');
     }
   }
 
@@ -228,7 +230,8 @@ class _AgentEvent {
     try {
       final json = jsonDecode(raw);
       return json is Map<String, dynamic> ? _AgentEvent._(json) : null;
-    } catch (_) {
+    } catch (e) {
+      McErrorLog.log(e, context: 'agent.parseEvent');
       return null;
     }
   }
@@ -306,8 +309,9 @@ class ChatController extends Notifier<ChatState> {
             (defaults.isEmpty ? null : defaults.first.ref),
         thinkingLevels: defaults.isEmpty ? const <String>[] : defaults.first.thinkingLevels,
       );
-    } catch (_) {
-      // 模型列表拉不到不影响本地输入。
+    } catch (e) {
+      // 模型列表拉不到不影响本地输入（记日志，不静默）。
+      McErrorLog.log(e, context: 'agent.loadModels');
     }
   }
 

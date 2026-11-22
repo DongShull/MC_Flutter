@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 
+import '../api/mc_error.dart';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform, kIsWeb;
 
@@ -40,7 +41,8 @@ abstract final class McPlatform {
     if (await target() != McPlatformTarget.harmony) return null;
     try {
       return await _channel.invokeMethod<String>('harmonyOSVersion');
-    } catch (_) {
+    } catch (e) {
+      McErrorLog.log(e, context: 'mcPlatform.harmonyVersion');
       return null;
     }
   }

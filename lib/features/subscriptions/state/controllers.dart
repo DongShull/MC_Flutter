@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/mc_error.dart';
+
 import 'mc_api.dart';
 import 'models.dart';
 import 'home_model.dart';
@@ -192,8 +194,9 @@ class SubscriptionsHomeController extends Notifier<AsyncValue<SubsHomeBundle>> {
             etas[t.infoHash.toLowerCase()] = t.etaSeconds;
           }
         }
-      } catch (_) {
-        // 非管理员拿不到下载任务：ETA 回退估算。
+      } catch (e) {
+        // 非管理员拿不到下载任务：ETA 回退估算（记日志，不静默）。
+        McErrorLog.log(e, context: 'subscriptions.etas');
       }
       final results = await Future.wait([
         api.subscriptions(),

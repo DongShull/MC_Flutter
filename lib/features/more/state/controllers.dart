@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/session/session_store.dart';
+import '../../../core/api/mc_error.dart';
+import '../../../core/api/session_providers.dart';
+import '../../../core/api/sse_client.dart';
 import 'mc_api.dart';
 import 'models.dart';
 
@@ -50,26 +52,64 @@ class MoreState {
 class MoreController extends Notifier<AsyncValue<MoreState>> {
   static const _pageSize = 20;
 
+  Timer? _noticesPoll;
+  StreamSubscription<SseEvent>? _pushSub;
+  bool _disposed = false;
+
   @override
   AsyncValue<MoreState> build() {
+    _disposed = false;
     Future.microtask(load);
     _startPolling();
+    unawaited(_observePushStream());
+    ref.onDispose(() {
+      _disposed = true;
+      _noticesPoll?.cancel();
+      unawaited(_pushSub?.cancel());
+    });
     return const AsyncValue.loading();
   }
 
-  /// 轮询（对齐鸿蒙 MorePage）：公告 30s、待更新 10min，仅管理员；
-  /// 失败保留旧值（我的页不因公告挂掉而整体报错）。
+  /// 公告刷新：首选推送流 `/api/v1/push/me/stream`（notification/status 事件），
+  /// 流不可用时回退 30s 轮询；待更新没有服务端流端点，保留 10min 轮询。
+  /// 仅管理员（公告口径对齐鸿蒙 MorePage）。
   void _startPolling() {
-    final notices =
-        Timer.periodic(const Duration(seconds: 30), (_) => _refreshNotices());
     final updates = Timer.periodic(
       const Duration(minutes: 10),
       (_) => _refreshPendingUpdate(),
     );
     ref.onDispose(() {
-      notices.cancel();
       updates.cancel();
     });
+  }
+
+  Future<void> _observePushStream() async {
+    final sse = ref.read(sseClientProvider);
+    try {
+      final sub = sse
+          .events('/api/v1/push/me/stream', terminalEvents: const {})
+          .listen((event) {
+        if (event.name == 'notification' || event.name == 'status') {
+          unawaited(_refreshNotices());
+        }
+      });
+      _pushSub = sub;
+      await sub.asFuture<void>();
+      McErrorLog.log('我的页推送流结束，回退 30s 轮询', context: 'more.sse');
+      _fallbackNoticesPolling();
+    } on SseUnsupportedException catch (e) {
+      McErrorLog.log(e, context: 'more.sse');
+      _fallbackNoticesPolling();
+    } catch (e) {
+      McErrorLog.log(e, context: 'more.sse');
+      _fallbackNoticesPolling();
+    }
+  }
+
+  void _fallbackNoticesPolling() {
+    if (_disposed || _noticesPoll != null) return;
+    _noticesPoll =
+        Timer.periodic(const Duration(seconds: 30), (_) => _refreshNotices());
   }
 
   bool get _isAdmin =>
@@ -97,8 +137,9 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
         noticeCount: count,
         reminderCount: count + (cur.pendingUpdateLabel != null ? 1 : 0),
       ));
-    } catch (_) {
-      // 失败保留旧值。
+    } catch (e) {
+      // 失败保留旧值（记日志，不静默）。
+      McErrorLog.log(e, context: 'more.refreshNotices');
     }
   }
 
@@ -110,8 +151,9 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
       if (cur == null) return;
       state = AsyncValue.data(
           cur.copyWith(pendingUpdateLabel: _pendingLabel(pending)));
-    } catch (_) {
-      // 失败保留旧值。
+    } catch (e) {
+      // 失败保留旧值（记日志，不静默）。
+      McErrorLog.log(e, context: 'more.refreshPendingUpdate');
     }
   }
 
@@ -123,8 +165,9 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
       final session = await _api.me();
       // 头像实时回写（根 Tab / 启动页共用会话快照），改头像无需重登。
       final liveAvatar = session?['avatar_url']?.toString() ?? '';
-      if (liveAvatar.isNotEmpty && liveAvatar != appSession.avatarUrl) {
-        await appSession.saveProfile(avatarUrl: liveAvatar);
+      final sessionStore = ref.read(sessionStoreProvider);
+      if (liveAvatar.isNotEmpty && liveAvatar != sessionStore.avatarUrl) {
+        await sessionStore.saveProfile(avatarUrl: liveAvatar);
       }
       final results = await Future.wait<Object?>([
         _safeNotices(),
@@ -218,7 +261,8 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
       final newId = await _api.forkSession(id);
       await _refreshSessions();
       return newId;
-    } catch (_) {
+    } catch (e) {
+      McErrorLog.log(e, context: 'more.forkSession');
       return null;
     }
   }
@@ -232,7 +276,9 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
         hasMore: sessions.length >= _pageSize,
         loadingMore: false,
       ));
-    } catch (_) {}
+    } catch (e) {
+      McErrorLog.log(e, context: 'more.refreshSessions');
+    }
   }
 }
 

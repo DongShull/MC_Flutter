@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/api/device_requests_api.dart';
+import '../../../core/api/mc_error.dart';
 import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../state/controllers.dart';
@@ -280,8 +281,9 @@ class ProfileActions {
         break;
       }
       await storage.write(key: 'mc_servers', value: jsonEncode(servers));
-    } catch (_) {
-      // 快照清理失败不阻断登出。
+    } catch (e) {
+      // 快照清理失败不阻断登出（记日志，不静默）。
+      McErrorLog.log(e, context: 'profileActions.cleanup');
     }
   }
 

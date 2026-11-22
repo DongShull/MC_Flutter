@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/mc_error.dart';
 import '../../../core/api/session_providers.dart';
 import 'mc_api.dart';
 import 'models.dart';
@@ -259,7 +260,9 @@ class MaintenanceController extends Notifier<AsyncValue<MaintenanceState>> {
         pending: cur.pending,
         storage: s,
       ));
-    } catch (_) {}
+    } catch (e) {
+      McErrorLog.log(e, context: 'settings.loadStorage');
+    }
   }
 }
 

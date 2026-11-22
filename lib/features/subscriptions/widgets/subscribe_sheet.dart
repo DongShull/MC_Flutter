@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/api/mc_error.dart';
 import '../../../core/image/image_urls.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -98,7 +99,9 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
                 rs.firstOrNull?.id;
           });
         }
-      } catch (_) {}
+      } catch (e) {
+        McErrorLog.log(e, context: 'subscribeSheet.ruleSets');
+      }
     } catch (e) {
       if (mounted) {
         setState(() {

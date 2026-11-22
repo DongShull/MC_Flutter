@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../api/mc_error.dart';
+
 /// 内外双地址自动选连（1:1 对齐鸿蒙 ServerRoutes.ets / iOS ServerRoutes）：
 /// 登录地址只是这台服务器在这台设备上的**身份锚点**，真正发请求的地址按网络现场选。
 /// - 地址簿来自 GET /server/addresses（旧服务器没有就只有登录地址）。
@@ -52,8 +54,9 @@ class ServerRoutes extends ChangeNotifier {
       kind = storedKind.isEmpty ? 'login' : storedKind;
       routeLabel = _labelOf(kind);
       notifyListeners();
-    } catch (_) {
-      // 落盘读不到就当没配置过。
+    } catch (e) {
+      // 落盘读不到就当没配置过（记日志，不静默）。
+      McErrorLog.log(e, context: 'serverRoutes.restore');
     }
   }
 
@@ -80,8 +83,9 @@ class ServerRoutes extends ChangeNotifier {
       try {
         book = await fetchBook();
         if (_instanceId.isEmpty) _instanceId = book?.instanceId ?? '';
-      } catch (_) {
-        // 旧服务器没有地址簿：只有登录地址可用。
+      } catch (e) {
+        // 旧服务器没有地址簿：只有登录地址可用（记日志，不静默）。
+        McErrorLog.log(e, context: 'serverRoutes.fetchBook');
       }
       _lanOrigins.clear();
       _wanOrigins.clear();
@@ -110,8 +114,9 @@ class ServerRoutes extends ChangeNotifier {
         _wanOrigins.add(origin);
       }
       await pick();
-    } catch (_) {
-      // 选路失败保持登录地址。
+    } catch (e) {
+      // 选路失败保持登录地址（记日志，不静默）。
+      McErrorLog.log(e, context: 'serverRoutes.pick');
     } finally {
       notifyListeners();
     }
@@ -224,7 +229,8 @@ class ServerRoutes extends ChangeNotifier {
       if (res.data!['status'] != 'ok') return null;
       final id = res.data!['instance_id']?.toString() ?? '';
       return id.isEmpty ? null : id;
-    } catch (_) {
+    } catch (e) {
+      McErrorLog.log(e, context: 'serverRoutes.probeInstance');
       return null;
     }
   }

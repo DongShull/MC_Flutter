@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
 import '../../../core/api/agent_sse_client.dart';
+import '../../../core/api/mc_error.dart';
 import '../../../core/api/session_providers.dart';
 import 'activity_api.dart';
 import 'models.dart';
@@ -91,7 +92,10 @@ class ActivityController extends Notifier<ActivitySnapshot> {
   @override
   ActivitySnapshot build() {
     ref.onDispose(_stopTimers);
-    unawaited(refresh().then((_) {}, onError: (_) {})); // 初始加载失败不冒泡（UI 已显示 error 态）
+    // 初始加载失败不冒泡（UI 已显示 error 态），但记日志。
+    unawaited(refresh().then((_) {}, onError: (Object e) {
+      McErrorLog.log(e, context: 'activity.refresh');
+    }));
     _startTimers();
     _observeJobsStream();
     // build() 阶段 state 尚未初始化，读它直接抛 Bad state（IndexedStack 全页构建时必炸）。
@@ -99,6 +103,9 @@ class ActivityController extends Notifier<ActivitySnapshot> {
   }
 
   /// jobs 增量流（对齐 Kotlin observeJobsStream：ready→全量刷，job→防抖刷新）。
+  /// 注意：下载任务（10s）与播放活动（8s）没有对应的服务端流端点
+  /// （服务端只有 /jobs/stream 与 /push/me/stream），故仍用轮询；
+  /// jobs 流本身已接，失败时回退 15s 轮询。
   Future<void> _observeJobsStream() async {
     final sse = AgentSseClient(ref.read(sessionStoreProvider));
     try {
@@ -114,13 +121,21 @@ class ActivityController extends Notifier<ActivitySnapshot> {
             });
           }
         },
-        onError: (_) {}, // 由 onDone 分支统一处理回退
+        onError: (Object e) {
+          // 流错误由下方 asFuture 分支统一处理回退，这里只记日志。
+          McErrorLog.log(e, context: 'activity.jobsStream');
+        },
       );
       _jobsStreamSub = sub;
       // 流结束（服务器关闭/网络中断且重试耗尽）→ 回退轮询。
       await sub.asFuture<void>();
+      McErrorLog.log('任务推送流结束，回退 15s 轮询', context: 'activity.jobsStream');
       _fallbackJobsPolling();
-    } catch (_) {
+    } on SseUnsupportedException catch (e) {
+      McErrorLog.log(e, context: 'activity.jobsStream');
+      _fallbackJobsPolling();
+    } catch (e) {
+      McErrorLog.log(e, context: 'activity.jobsStream');
       _fallbackJobsPolling();
     }
   }
@@ -147,14 +162,16 @@ class ActivityController extends Notifier<ActivitySnapshot> {
     _jobsStreamSub = null;
   }
 
-  /// 轮询失败静默（保持上一帧数据），仅首载失败才落 error。
+  /// 轮询失败记日志后静默（保持上一帧数据），仅首载失败才落 error。
   Future<void> _poll(Future<void> load) async {
     try {
       await load;
-    } on ApiException {
-      // 轮询静默失败，等下一轮。
-    } catch (_) {
-      // 网络层异常同样静默。
+    } on ApiException catch (e) {
+      // 轮询失败，等下一轮。
+      McErrorLog.log(e, context: 'activity.poll');
+    } catch (e) {
+      // 网络层异常同样等下一轮。
+      McErrorLog.log(e, context: 'activity.poll');
     }
   }
 

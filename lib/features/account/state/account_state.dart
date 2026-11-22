@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/api/mc_client.dart';
+import '../../../core/api/mc_error.dart';
 import '../../../core/api/session_providers.dart';
 import '../../../core/platform/download_channel.dart';
 import '../../../core/session/session_store.dart';
@@ -179,8 +180,9 @@ class AccountController extends Notifier<AccountUiState> {
             .whereType<Map<String, dynamic>>()) {
           servers.add(SavedServer.fromJson(item));
         }
-      } catch (_) {
-        // 快照损坏当作空（不认识的版本跳过不崩溃）。
+      } catch (e) {
+        // 快照损坏当作空（不认识的版本跳过不崩溃），记日志不静默。
+        McErrorLog.log(e, context: 'account.savedServers');
       }
     }
     state = state.copyWith(
@@ -229,8 +231,9 @@ class AccountController extends Notifier<AccountUiState> {
             .map(DeviceView.fromJson)
             .toList(),
       );
-    } catch (_) {
-      // 设备清单拉不到不打断账号切换主流程。
+    } catch (e) {
+      // 设备清单拉不到不打断账号切换主流程（记日志，不静默）。
+      McErrorLog.log(e, context: 'account.devices');
     }
   }
 
@@ -350,8 +353,9 @@ class AccountController extends Notifier<AccountUiState> {
           }
           await prefs.remove(_offlineTasksKey);
         }
-      } catch (_) {
-        // 清理失败仅清状态，不阻断登出。
+      } catch (e) {
+        // 清理失败仅清状态，不阻断登出（记日志，不静默）。
+        McErrorLog.log(e, context: 'account.logoutCleanup');
       }
     }
     await _session.logout();

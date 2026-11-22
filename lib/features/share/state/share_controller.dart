@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
+import '../../../core/api/mc_error.dart';
 import '../../../core/api/guest_playback_api.dart';
 import '../../../core/player/player_page_args.dart';
 import 'mc_api.dart';
@@ -135,8 +136,9 @@ class ShareController extends FamilyNotifier<ShareUiState, String> {
     try {
       final view = await _api.shareEpisodes(arg, season);
       state = state.copyWith(episodes: view.episodes);
-    } catch (_) {
-      // 分集拉取失败不打断主流程，季切换时会重试。
+    } catch (e) {
+      // 分集拉取失败不打断主流程，季切换时会重试（记日志，不静默）。
+      McErrorLog.log(e, context: 'share.episodes');
     }
   }
 

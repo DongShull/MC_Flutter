@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../network/server_routes.dart';
 import '../session/session_store.dart';
 import 'api_exception.dart';
+import 'mc_error.dart';
 import 'retry_interceptor.dart';
 
 /// 三通道网络层（对齐 iOS 三 URLSession / 原 General|Live|Playback 三通道设计）：
@@ -88,18 +89,147 @@ class McClient {
   }) async {
     final dio = _dio[channel]!;
     final token = _session.token;
-    final res = await dio.request<Map<String, dynamic>>(
-      '$baseUrl$path',
-      data: body,
-      queryParameters: query,
-      options: Options(
-        method: method,
-        headers: {
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-      ),
+    try {
+      final res = await dio.request<Map<String, dynamic>>(
+        '$baseUrl$path',
+        data: body,
+        queryParameters: query,
+        options: Options(
+          method: method,
+          headers: {
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+        ),
+      );
+      return res;
+    } on DioException catch (e) {
+      // 传输层异常统一分级为 ApiException（P1 错误分级）：调用方只认
+      // ApiException / McError，不再直接面对 DioException。
+      throw McError.classify(e).toApiException();
+    }
+  }
+
+  /// 取原始字节（libraryCover 等取流/图片端点，不走信封）。
+  Future<List<int>> getBytes(
+    Channel channel,
+    String path, {
+    Map<String, dynamic>? query,
+  }) async {
+    final dio = _dio[channel]!;
+    final token = _session.token;
+    try {
+      final res = await dio.get<List<int>>(
+        '$baseUrl$path',
+        queryParameters: query,
+        options: Options(
+          responseType: ResponseType.bytes,
+          headers: {
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+        ),
+      );
+      return res.data ?? const <int>[];
+    } on DioException catch (e) {
+      throw McError.classify(e).toApiException();
+    }
+  }
+
+  /// 信封解包为原始 data（dynamic）：业务失败抛 ApiException，data 为 null
+  /// 时返回 null（与旧 unwrapEnvelope 的“data 空返回整个 body”不同，
+  /// 类型化 McApi 专用；旧行为保留给既有调用方）。
+  Future<dynamic> unwrapDynamic(
+    Channel channel,
+    String method,
+    String path, {
+    Object? body,
+    Map<String, dynamic>? query,
+  }) async {
+    final res = await _send(channel, method, path, body: body, query: query);
+    return _decodeData(res);
+  }
+
+  /// 信封解包为对象 Map（McApi 类型化方法用；data 非对象时抛 ApiException）。
+  Future<Map<String, dynamic>> unwrapModel(
+    Channel channel,
+    String method,
+    String path, {
+    Object? body,
+    Map<String, dynamic>? query,
+  }) async {
+    final data = await unwrapDynamic(
+      channel,
+      method,
+      path,
+      body: body,
+      query: query,
     );
-    return res;
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return data.cast<String, dynamic>();
+    throw const ApiException(
+      'network.empty',
+      '服务器返回为空或格式不对',
+    );
+  }
+
+  /// 可空对象解包：data 为 null 时返回 null（如 device/token 未批准时）。
+  Future<Map<String, dynamic>?> unwrapNullableModel(
+    Channel channel,
+    String method,
+    String path, {
+    Object? body,
+    Map<String, dynamic>? query,
+  }) async {
+    final data = await unwrapDynamic(
+      channel,
+      method,
+      path,
+      body: body,
+      query: query,
+    );
+    if (data == null) return null;
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return data.cast<String, dynamic>();
+    throw const ApiException(
+      'network.empty',
+      '服务器返回格式不对',
+    );
+  }
+
+  /// 信封解包为列表：data 非列表时返回空列表（列表端点缺字段时不炸调用方）。
+  Future<List<dynamic>> unwrapList(
+    Channel channel,
+    String method,
+    String path, {
+    Object? body,
+    Map<String, dynamic>? query,
+  }) async {
+    final data = await unwrapDynamic(
+      channel,
+      method,
+      path,
+      body: body,
+      query: query,
+    );
+    if (data is List<dynamic>) return data;
+    return const <dynamic>[];
+  }
+
+  /// 响应体解码（String 体经 compute 在 isolate 里解析；空体抛 ApiException）。
+  Future<dynamic> _decodeData(Response<Map<String, dynamic>> res) async {
+    final raw = res.data;
+    if (raw is String) {
+      // raw 本身是 Map?，is 检查不提升它，用 as 收窄（模式变量语法被旧版 analyzer 拒）。
+      final decoded = await compute(_decodeJson, raw as String);
+      return decodeEnvelope(decoded);
+    }
+    if (raw == null) {
+      throw ApiException(
+        'network.empty',
+        '服务器返回为空',
+        httpStatus: res.statusCode,
+      );
+    }
+    return decodeEnvelope(raw);
   }
 
   /// 信封解包：非 ok 抛 ApiException，ok 返回 data。
@@ -118,13 +248,19 @@ class McClient {
       fileField: await MultipartFile.fromFile(filePath,
           filename: fileName, contentType: DioMediaType(contentType.split('/')[0], contentType.split('/')[1])),
     });
-    final res = await dio.post<Map<String, dynamic>>(path,
-        data: form, queryParameters: query);
-    final data = res.data;
-    if (data == null) {
-      throw ApiException('network.empty', '服务器返回为空', httpStatus: res.statusCode);
+    try {
+      final res = await dio.post<Map<String, dynamic>>('$baseUrl$path',
+          data: form, queryParameters: query);
+      final data = res.data;
+      if (data == null) {
+        throw ApiException('network.empty', '服务器返回为空', httpStatus: res.statusCode);
+      }
+      return unwrapEnvelope<T>(data);
+    } on DioException catch (e) {
+      throw McError.classify(e).toApiException();
+    } on ApiException {
+      rethrow;
     }
-    return unwrapEnvelope<T>(data);
   }
 
   Future<T> unwrap<T>(

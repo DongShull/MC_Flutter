@@ -1,5 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/mc_error.dart';
+
+
+
+
 import 'mc_api.dart';
 import 'models.dart';
 
@@ -199,10 +204,14 @@ class KindWallController extends AutoDisposeFamilyNotifier<KindWallState, KindWa
     try {
       final summary = await _api.libraryKindSummary(arg.kind);
       state = state.copyWith(loading: false, summary: summary);
-    } catch (_) {}
+    } catch (e) {
+      McErrorLog.log(e, context: 'personKind.summary');
+    }
     try {
       state = state.copyWith(genres: await _api.libraryKindGenres(arg.kind));
-    } catch (_) {}
+    } catch (e) {
+      McErrorLog.log(e, context: 'personKind.genres');
+    }
     await reload();
   }
 

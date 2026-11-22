@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter/scheduler.dart';
 
+import '../api/mc_error.dart';
+
 /// 果冻拉伸动效（对应飞牛 flutter_assets/shaders/stretch_effect.frag）。
 ///
 /// 实现分两条路线，运行时自动降级：
@@ -211,8 +213,9 @@ class _McStretchContainerState extends State<McStretchContainer>
         _snapshot?.dispose();
         _snapshot = image;
       });
-    } catch (_) {
-      // 快照失败（如测试环境无 GPU 层）→ 保持 Dart 回退路线。
+    } catch (e) {
+      // 快照失败（如测试环境无 GPU 层）→ 保持 Dart 回退路线（记日志，不静默）。
+      McErrorLog.log(e, context: 'mcStretch.snapshot');
     }
   }
 

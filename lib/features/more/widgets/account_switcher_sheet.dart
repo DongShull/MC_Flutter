@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/api/mc_error.dart';
 import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/mc_strings.dart';
 import '../state/controllers.dart';
@@ -78,8 +79,9 @@ class _AccountSwitcherSheetState extends ConsumerState<_AccountSwitcherSheet> {
             ));
           }
         }
-      } catch (_) {
-        // 快照损坏当作空（不崩溃）。
+      } catch (e) {
+        // 快照损坏当作空（不崩溃），记日志不静默。
+        McErrorLog.log(e, context: 'accountSwitcher.snapshot');
       }
     }
     if (mounted) setState(() => _options = options);
@@ -179,8 +181,9 @@ class _AccountSwitcherSheetState extends ConsumerState<_AccountSwitcherSheet> {
           break;
         }
         await storage.write(key: 'mc_servers', value: jsonEncode(servers));
-      } catch (_) {
-        // 快照清理失败不阻断。
+      } catch (e) {
+        // 快照清理失败不阻断（记日志，不静默）。
+        McErrorLog.log(e, context: 'accountSwitcher.cleanup');
       }
     }
     await _loadOptions();

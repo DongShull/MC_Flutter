@@ -5,7 +5,6 @@ import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
-import '../../../core/session/session_store.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../state/controllers.dart';
 import '../widgets/conversations_section.dart';
@@ -90,7 +89,8 @@ class _MorePageState extends ConsumerState<MorePage> {
                       username: username,
                       roleLabel: roleLabel,
                       // 实时优先：me() 拉到的 avatar_url 覆盖登录快照，改头像无需重登。
-                      avatarUrl: (data?.session?['avatar_url'] ?? appSession.avatarUrl)
+                      avatarUrl: (data?.session?['avatar_url'] ??
+                              ref.watch(sessionStoreProvider).avatarUrl)
                           ?.toString(),
                       onSwitchAccount: () =>
                           ProfileActions.switchAccount(context),

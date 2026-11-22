@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
+import '../../../core/api/mc_error.dart';
 import '../../../core/api/session_providers.dart';
 import '../../../core/api/episodes_api.dart';
 import '../../../core/api/mc_client.dart';
@@ -486,8 +487,9 @@ class DetailController extends FamilyNotifier<DetailState, String> {
               ))
           .toList();
       state = state.copyWith(episodes: {...state.episodes, seasonNumber: list});
-    } catch (_) {
-      // 分集拉取失败不阻塞详情页
+    } catch (e) {
+      // 分集拉取失败不阻塞详情页（记日志，不静默）。
+      McErrorLog.log(e, context: 'detail.episodes');
     }
   }
 
@@ -504,7 +506,9 @@ class DetailController extends FamilyNotifier<DetailState, String> {
         query: excludeSeries ? const {'exclude_series': 'true'} : null,
       );
       similar = J.listOfMap(body, ['items', 'results', 'data']).map(DetailEntry.fromJson).toList();
-    } catch (_) {}
+    } catch (e) {
+      McErrorLog.log(e, context: 'detail.similar');
+    }
     final seriesParts = <DetailEntry>[];
     if (seriesId != null) {
       try {
@@ -514,7 +518,9 @@ class DetailController extends FamilyNotifier<DetailState, String> {
           '/api/v1/collections/$seriesId/series',
         );
         seriesParts.addAll(J.listOfMap(body, ['parts', 'items']).map(DetailEntry.fromJson));
-      } catch (_) {}
+      } catch (e) {
+        McErrorLog.log(e, context: 'detail.seriesParts');
+      }
       // 系列没出来（只有一部 / 拉不到上游档案）：再拉一次不排除的相似推荐
       if (seriesParts.length <= 1 && excludeSeries) {
         try {
@@ -524,7 +530,9 @@ class DetailController extends FamilyNotifier<DetailState, String> {
             '/api/v1/libraries/$_libraryId/items/$_itemId/similar',
           );
           similar = J.listOfMap(body, ['items', 'results', 'data']).map(DetailEntry.fromJson).toList();
-        } catch (_) {}
+        } catch (e) {
+          McErrorLog.log(e, context: 'detail.similarRetry');
+        }
       }
     }
     state = state.copyWith(
@@ -551,7 +559,9 @@ class DetailController extends FamilyNotifier<DetailState, String> {
           played: body['played'] == true,
         ),
       );
-    } catch (_) {}
+    } catch (e) {
+      McErrorLog.log(e, context: 'detail.loadMarks');
+    }
   }
 
   /// POST /playback/marks：只传要改的那一项，失败回滚。
@@ -609,7 +619,9 @@ class DetailController extends FamilyNotifier<DetailState, String> {
           ),
         );
       }
-    } catch (_) {}
+    } catch (e) {
+      McErrorLog.log(e, context: 'detail.loadResume');
+    }
   }
 
   void toggleOverview() => state = state.copyWith(overviewExpanded: !state.overviewExpanded);

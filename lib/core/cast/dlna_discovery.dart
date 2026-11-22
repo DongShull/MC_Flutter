@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
+import '../api/mc_error.dart';
 /// DLNA/SSDP 设备发现（纯 Dart，对齐 UPnP DeviceArchitecture 1.1）：
 /// M-SEARCH 组播 239.255.255.250:1900，收集 MediaRenderer 应答的 LOCATION/USN。
 class DlnaDevice {
@@ -136,7 +138,8 @@ class DlnaDiscovery {
         friendlyName: name,
         controlUrl: _absolute(location, controlUrl),
       );
-    } catch (_) {
+    } catch (e) {
+      McErrorLog.log(e, context: 'dlna.parseDevice');
       return null;
     }
   }

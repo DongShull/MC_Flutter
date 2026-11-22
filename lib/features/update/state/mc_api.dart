@@ -2,14 +2,12 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
-import '../../../core/api/mc_client.dart';
-import '../../../core/api/session_providers.dart';
-import '../../../core/session/session_store.dart';
+import '../../../core/api/mc_api.dart';
 import 'models.dart';
 
 /// 更新检查 API 单例。
 final updateApiProvider = Provider<UpdateApi>((ref) => UpdateApi(
-      ref.watch(sessionStoreProvider),
+      ref.watch(mcApiProvider),
       product: UpdatePolicy.product,
     ));
 
@@ -26,16 +24,17 @@ extension UpdateSourceText on UpdateSource {
 /// 客户端自身新版检查（对齐原 core/update AppUpdater.check）：
 /// 先查官网 GitHub Release（tag 过滤 + release.json 附件），连不上（国内网络）再改问
 /// 自己的服务器 GET /app/clients/{product}/latest（服务器沿用它的 GitHub 出口代查）。
+///
+/// P1 薄代理：服务端兜底 [serverLatest] 委托给核心层 [McApi]；
+/// 官网直查（[officialLatest] / [_getJson]，非服务端接口）保留原实现。
 class UpdateApi {
-  UpdateApi(this._session, {this.product = 'android'});
+  UpdateApi(this._api, {this.product = 'android'});
 
-  final SessionStore _session;
+  final McApi _api;
   final String product;
-  McClient? _client;
   Dio? _officialDio;
 
   static const _githubApi = 'https://api.github.com/repos/movieclaw/movieclaw';
-  static const _prefix = '/api/v1';
 
   /// 查最新版：来源标记 official / server；两边都失败时抛出说明两边原因的错误。
   Future<(ClientReleaseView, UpdateSource)> latest({bool force = false}) async {
@@ -99,17 +98,21 @@ class UpdateApi {
     throw const ApiException('update.official', '官网没有这个客户端的正式发布');
   }
 
-  /// 服务器兜底：GET /app/clients/{product}/latest（统一走 McClient，Channel.general）。
+  /// 服务器兜底：GET /app/clients/{product}/latest（核心层 McApi）。
+  /// 服务端无发布信息时信封 data 为 null：McApi 抛 network.empty，
+  /// 按旧语义（旧代码把信封整体当默认模型解析）返回空版本模型，
+  /// 使 latest() 走到“已是最新”而非“检查失败”。
   Future<ClientReleaseView> serverLatest({bool refresh = false}) async {
-    await _session.restore();
-    final client = _client ??= McClient(session: _session);
-    final body = await client.unwrap<Map<String, dynamic>>(
-      Channel.general,
-      'GET',
-      '$_prefix/app/clients/$product/latest',
-      query: refresh ? const {'refresh': '1'} : null,
-    );
-    return ClientReleaseView.fromJson(body);
+    try {
+      final result =
+          await _api.appClientsLatest(product, refresh: refresh);
+      return ClientReleaseView.fromJson(result.toJson());
+    } on ApiException catch (e) {
+      if (e.code == 'network.empty') {
+        return ClientReleaseView(product: product);
+      }
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>> _getJson(String url) async {
@@ -127,7 +130,7 @@ class UpdateApi {
     throw const ApiException('update.official', '官网返回格式不对');
   }
 
-  static String _brief(Object e) => switch (e) {
+  static String _brief(Object? e) => switch (e) {
         ApiException api => api.message,
         _ => e.toString(),
       };

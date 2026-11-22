@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../state/shell_badges.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -46,6 +47,8 @@ class RootShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final badges = ref.watch(shellBadgesProvider);
     final form = ref.watch(mcFormProvider);
+    // 会话单源头（P1）：有 ref 的地方走 sessionStoreProvider（appSession 的薄代理）。
+    final session = ref.watch(sessionStoreProvider);
 
     final body = AnnotatedRegion<SystemUiOverlayStyle>(
       // 沉浸式（对齐鸿蒙窗口沉浸）：状态栏与导航条全透明，内容延伸到条后。
@@ -69,7 +72,7 @@ class RootShell extends ConsumerWidget {
         body: body,
         bottomNavigationBar: collapsed
             ? _collapseKnob(context)
-            : _phoneBottomBar(context, badges),
+            : _phoneBottomBar(context, badges, session),
       );
     }
 
@@ -116,7 +119,8 @@ class RootShell extends ConsumerWidget {
   }
 
   /// 悬浮胶囊底栏：348×54、圆角 999、图标-only（仅手机形态使用）。
-  Widget _phoneBottomBar(BuildContext context, ShellBadges badges) {
+  Widget _phoneBottomBar(
+      BuildContext context, ShellBadges badges, SessionStore session) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     // 注意：不能包 Center——它会把 bottomNavigationBar 撑成整屏高，把 body 挤成 0（真机白屏元凶）。
     return SafeArea(
@@ -138,7 +142,7 @@ class RootShell extends ConsumerWidget {
           child: Row(
             children: [
               for (var i = 0; i < _labels.length; i++)
-                Expanded(child: _tabSlot(i, badges, dark)),
+                Expanded(child: _tabSlot(i, badges, dark, session)),
             ],
           ),
         ),
@@ -170,17 +174,17 @@ class RootShell extends ConsumerWidget {
     );
   }
 
-  Widget _tabSlot(int i, ShellBadges badges, bool dark) {
+  Widget _tabSlot(int i, ShellBadges badges, bool dark, SessionStore session) {
     final selected = i == index;
     final badgeDot = _dotColor(i, badges);
 
     Widget iconWidget;
     if (i == _labels.length - 1) {
       // 末格 = 账号头像
-      final nickname = appSession.username;
+      final nickname = session.username;
       final initial =
           nickname.isEmpty ? '?' : String.fromCharCode(nickname.runes.first);
-      final avatar = appSession.avatarUrl;
+      final avatar = session.avatarUrl;
       iconWidget = Container(
         width: 26,
         height: 26,

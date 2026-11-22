@@ -1,5 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/mc_error.dart';
+
+
+
+
 import 'mc_api.dart';
 import 'models.dart';
 
@@ -245,11 +250,15 @@ class LibraryDetailController extends AutoDisposeFamilyNotifier<LibraryDetailSta
     // facets 与索引失败不影响主墙。
     try {
       state = state.copyWith(facets: await _api.libraryFacets(id, filterQuery: q));
-    } catch (_) {}
+    } catch (e) {
+      McErrorLog.log(e, context: 'libraryDetail.facets');
+    }
     if (state.filter.sort == 'title') {
       try {
         state = state.copyWith(index: await _api.libraryItemIndex(id, filterQuery: q));
-      } catch (_) {}
+      } catch (e) {
+        McErrorLog.log(e, context: 'libraryDetail.index');
+      }
     } else {
       state = state.copyWith(index: const []);
     }

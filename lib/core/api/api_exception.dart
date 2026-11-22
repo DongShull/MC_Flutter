@@ -22,10 +22,10 @@ class ApiException implements Exception {
   String toString() => 'ApiException($code, $message)';
 }
 
-/// /api/v1 统一信封：{success, code, message, data}。
-/// 兼容大小写（服务端返回 code:"OK"）与 success 布尔字段；
-/// 无信封裸数据（无 code 且无 success 键）原样通过。
-T unwrapEnvelope<T>(Map<String, dynamic> body) {
+/// 信封解包核心：ok 时返回 `data`（可能为 null），非 ok 抛 [ApiException]。
+/// 无信封裸数据（无 code 且无 success 键）原样返回 data（即整个 body 里没有
+/// data 键时返回 null，由调用方按裸数据处理）。
+dynamic decodeEnvelope(Map<String, dynamic> body) {
   final raw = body['code'];
   final code = (raw ?? '').toString();
   final hasEnvelope = raw != null || body.containsKey('success');
@@ -35,10 +35,17 @@ T unwrapEnvelope<T>(Map<String, dynamic> body) {
       code == '0' ||
       code == '200' ||
       code.toLowerCase() == 'success';
-  if (ok) {
-    final data = body['data'];
-    if (data == null) return body as T;
-    return data as T;
+  if (!ok) {
+    throw ApiException(code, (body['message'] ?? '').toString());
   }
-  throw ApiException(code, (body['message'] ?? '').toString());
+  return body['data'];
+}
+
+/// /api/v1 统一信封：{success, code, message, data}。
+/// 兼容大小写（服务端返回 code:"OK"）与 success 布尔字段；
+/// 无信封裸数据（无 code 且无 success 键）原样通过。
+T unwrapEnvelope<T>(Map<String, dynamic> body) {
+  final data = decodeEnvelope(body);
+  if (data == null) return body as T;
+  return data as T;
 }

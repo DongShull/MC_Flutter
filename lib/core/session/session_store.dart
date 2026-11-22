@@ -170,5 +170,8 @@ class SessionStore {
   }
 }
 
-/// 全 App 唯一会话实例（main 启动即 restore，router 重定向/各域 provider 共享）。
+/// 全 App 唯一会话实例（P1 会话单源头：就是这一个对象）。
+/// main 启动即 restore，router 重定向/各域 provider 共享。
+/// [sessionStoreProvider] 只是它的薄代理（同一实例），不要再 new 第二个
+/// SessionStore（历史教训：18 个 feature 各自 new 导致实例分裂）。
 final SessionStore appSession = SessionStore();

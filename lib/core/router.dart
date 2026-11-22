@@ -27,6 +27,8 @@ final mcRouter = GoRouter(
   initialLocation: feat_onboarding.routeOnboarding,
   // 启动已恢复会话（main 里 appSession.restore）→ 先过启动页（展示身份）再进主界面；
   // 未登录时启动页/主界面不可直达，回登录页。
+  // 会话单源头（P1）：redirect 只读全局单例 appSession（唯一实例）——
+  // redirect 回调拿不到可用的 ref，不能走 sessionStoreProvider。
   redirect: (context, state) {
     final loc = state.matchedLocation;
     final onOnboarding = loc == feat_onboarding.routeOnboarding;

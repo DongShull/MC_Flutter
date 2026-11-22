@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/api/mc_client.dart';
+import '../../../core/api/mc_error.dart';
 import '../../../core/api/session_providers.dart';
 import '../../../core/player/session/playback_session_api.dart';
 import '../../../core/platform/download_channel.dart';
@@ -161,8 +162,9 @@ class OfflineController extends Notifier<OfflineState> {
       for (final t in pending) {
         await _launch(t);
       }
-    } catch (_) {
-      // 恢复失败不阻塞页面：当作没有历史任务。
+    } catch (e) {
+      // 恢复失败不阻塞页面：当作没有历史任务（记日志，不静默）。
+      McErrorLog.log(e, context: 'offline.restore');
     }
   }
 
@@ -317,7 +319,8 @@ class OfflineController extends Notifier<OfflineState> {
         },
       );
       return session.playable ? session.streamUrl : null;
-    } catch (_) {
+    } catch (e) {
+      McErrorLog.log(e, context: 'offline.resolveStream');
       return null;
     }
   }
@@ -426,8 +429,9 @@ class OfflineController extends Notifier<OfflineState> {
       if (await file.exists()) {
         try {
           await file.delete();
-        } catch (_) {
-          // 删不掉（被占用等）先留着，列表已移除。
+        } catch (e) {
+          // 删不掉（被占用等）先留着，列表已移除（记日志，不静默）。
+          McErrorLog.log(e, context: 'offline.deleteFile');
         }
       }
       await _persistTasks();
@@ -491,8 +495,9 @@ class OfflineController extends Notifier<OfflineState> {
       if (await file.exists()) {
         try {
           await file.delete();
-        } catch (_) {
-          // 留给下次清理。
+        } catch (e) {
+          // 留给下次清理（记日志，不静默）。
+          McErrorLog.log(e, context: 'offline.deleteFile');
         }
       }
       await _persistTasks();
@@ -535,8 +540,9 @@ class OfflineController extends Notifier<OfflineState> {
           totalBytes: cap.totalBytes,
         ),
       );
-    } catch (_) {
-      // 拿不到真实容量就走占位，不阻塞页面。
+    } catch (e) {
+      // 拿不到真实容量就走占位，不阻塞页面（记日志，不静默）。
+      McErrorLog.log(e, context: 'offline.capacity');
     }
   }
 

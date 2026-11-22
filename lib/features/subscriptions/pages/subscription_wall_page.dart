@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/api/mc_error.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/mc_strings.dart';
 import '../../../core/designsystem/state_views.dart';
@@ -63,8 +64,9 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
           _ruleSetNames = {for (final r in rules) r.id: r.name};
           _libraryNames = {for (final l in libs) l.id: l.name};
         });
-      } catch (_) {
-        // 非管理员拿不到规则组/媒体库：第三行降级隐藏。
+      } catch (e) {
+        // 非管理员拿不到规则组/媒体库：第三行降级隐藏（记日志，不静默）。
+        McErrorLog.log(e, context: 'subscriptionWall.names');
       }
       if (!mounted) return;
       setState(() {

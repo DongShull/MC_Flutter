@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
 import '../../../core/api/mc_client.dart';
+import '../../../core/api/mc_error.dart';
 import '../../../core/network/server_routes.dart';
 import '../../../core/api/session_providers.dart';
 
@@ -121,7 +122,8 @@ class OnboardingController extends Notifier<OnboardingState> {
       // 登录成功：拉地址簿并选路（内网先探、外网晚 250ms，鸿蒙 ServerRoutes.configure 对应）。
       unawaited(ServerRoutes.instance.configure(host, () async {
         final loginClient = McClient(session: session, baseUrlOverride: host);
-        final res = await loginClient.get(Channel.general, '/server/addresses');
+        // 既有 bug 修复（P1）：旧路径 '/server/addresses' 缺 /api/v1 前缀恒 404。
+        final res = await loginClient.get(Channel.general, '/api/v1/server/addresses');
         if (res.statusCode != 200 || res.data == null) return null;
         return ServerAddressesView.fromJson(res.data!);
       }));
@@ -137,8 +139,9 @@ class OnboardingController extends Notifier<OnboardingState> {
             : (me['username'] ?? '').toString();
         await session.saveProfile(
             username: name, avatarUrl: me['avatar_url']?.toString());
-      } catch (_) {
-        // 拿不到身份不阻断登录。
+      } catch (e) {
+        // 拿不到身份不阻断登录（记日志，不静默）。
+        McErrorLog.log(e, context: 'onboarding.me');
       }
       state = state.copyWith(busy: false, done: true);
     } on ApiException catch (e) {

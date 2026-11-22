@@ -1,5 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/mc_error.dart';
+
+
+
+
 import 'home_rows.dart';
 import 'mc_api.dart';
 import 'models.dart';
@@ -153,8 +158,9 @@ class LibraryCustomizeController extends Notifier<CustomizeState> {
             },
           );
         }
-      } catch (_) {
-        // 单行预览失败不阻塞其他行。
+      } catch (e) {
+        // 单行预览失败不阻塞其他行（记日志，不静默）。
+        McErrorLog.log(e, context: 'libraryCustomize.rowPreview');
       }
     }
   }
@@ -276,7 +282,9 @@ class LibraryCustomizeController extends Notifier<CustomizeState> {
     try {
       final libs = await _api.libraries();
       _mark(HomeRows.defaultRows(libs.where((l) => !l.excludeFromHome).toList()));
-    } catch (_) {}
+    } catch (e) {
+      McErrorLog.log(e, context: 'libraryCustomize.loadLibraries');
+    }
   }
 
   /// 保存：以服务器完整偏好为底，只替换 home.rows（PUT 整体覆盖）。
