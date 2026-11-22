@@ -255,3 +255,20 @@ t15/t16 子代理产出，验收 analyze No issues + test 36/36。
 - 依赖：workmanager 0.10.10、crypto、fake_async 1.3.3（仅测试）。
 - 验证：`flutter analyze` No issues；`flutter test` 141/141（75 既有 + 66 新增 P3 测试，见 test/*_test.dart）。另修一处实现 bug：sidx 总长多算 4 字节（应为 40+12n）。
 - 未完成（详见 hidden_files/P3.md）：iOS Swift 插件未编译验证；WorkManager 后台与 DLNA 真机均未验证；归档目录/准备态对账/离线本地播放未移植；画质记忆写路径无触发 UI；自动跳过总开关无设置入口（默认开）；HLS 投屏策略未决策；GENA 事件订阅未做。
+
+---
+
+## 全面重写 rewrite/flutter-unified（2026-11-22，用户两次确认继续）
+
+> 目标已变：不再只是“安卓 1:1”。用 Flutter 替代 iOS、安卓、鸿蒙、web 四端；替代 web 的含义是 app 覆盖目前只能在 web 端做的功能，用户只用 app 就能完成全部操作，不用再打开浏览器。播放器：统一 Dart 接口，iOS/macOS 用 AVPlayer，安卓用 Media3/ExoPlayer，web 用 HTML5 video，鸿蒙先调研。
+> 验收口径以 `docs/PARITY.md` 为准，不以本文件旧的“18/18 完成”为准；`docs/FEATURE_BREAKDOWN.md` 是 2026-11-19 快照，已过期，以 PARITY.md 为准。
+
+- P0：四端 parity 清单（50 项：有 21 / 薄 14 / 无 13 / 未确认 2；设置 25 项：有 4 / 薄 2 / 无 19，P4 后 25/25 原生）、CI、构建产物脱轨。基线 analyze 0 问题、test 36/36。
+- P1-core：类型化 McApi 309 方法 + 414 生成模型；静默 catch 62→0；统一 SSE；会话单源头 appSession；修 6 个真 bug（含 fetchServerAddresses 缺 /api/v1 恒 404）。
+- P1-player：统一 PlayerService 接口 + 四后端；能力矩阵 14 项；video_player 2.14.1 有轨选择、无字幕 API；media_kit 选型未决。
+- P2：浏览闭环（搜索下载目标、详情字幕生成/下载宿主、画质记忆、诊断面板最小版）；切轨决策：服务端重开续播。
+- P3：看门狗+断线重连、自动跳过+UpNext、离线后台/fmp4/归档、DLNA 走查（真机未验证）。
+- P4：设置 25/25 原生，设备页合并，Agent 技能/媒体卡片/附件。
+- P5：见 `hidden_files/P5.md`（工作区）。README 已换成真实项目说明。
+- 最终验证（合并后）：flutter analyze 0 问题，flutter test 230/230 通过。
+- 未做 / 需用户决策：media_kit 安卓原型、鸿蒙目标可达性、推送正式方案、theme-sdk 是否移植、插件页是否引入 webview_flutter、release 正式签名与包体积实测（本机无 Android SDK/Xcode）。
