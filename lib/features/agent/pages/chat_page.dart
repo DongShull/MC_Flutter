@@ -1,6 +1,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/state_views.dart';
@@ -43,7 +44,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<void> _submit() async {
     final controller = ref.read(chatProvider.notifier);
     final text = _input.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty && ref.read(chatProvider).attachments.isEmpty) return;
     _input.clear();
     if (_editingMessageId != null) {
       final id = _editingMessageId;
@@ -52,6 +53,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     } else {
       await controller.send(text);
     }
+  }
+
+  /// 选图并上传附件（对齐安卓 AgentComposerBar：图片先传后发）。
+  Future<void> _pickAttachment() async {
+    final picker = ImagePicker();
+    final x = await picker.pickImage(
+        source: ImageSource.gallery, maxWidth: 2048, imageQuality: 90);
+    if (x == null) return;
+    await ref.read(chatProvider.notifier).uploadAttachment(x.path);
   }
 
   @override
@@ -177,8 +187,53 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         ? double.infinity
                         : 720,
                   ),
-                  child: Row(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (chat.attachments.isNotEmpty ||
+                          chat.uploadingAttachment)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              for (final a in chat.attachments)
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.only(right: 8),
+                                  child: Chip(
+                                    label: Text(
+                                      a.name.length > 18
+                                          ? '${a.name.substring(0, 18)}…'
+                                          : a.name,
+                                    ),
+                                    onDeleted: () => ref
+                                        .read(chatProvider.notifier)
+                                        .removeAttachment(a.attachmentId),
+                                  ),
+                                ),
+                              if (chat.uploadingAttachment)
+                                const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                ),
+                            ],
+                          ),
+                        ),
+                      Row(
                 children: [
+                  McFocusRing(
+                    borderRadius: 20,
+                    child: IconButton(
+                      tooltip: '添加图片',
+                      icon: const Icon(McIcons.attachment2Fill),
+                      onPressed: chat.uploadingAttachment
+                          ? null
+                          : _pickAttachment,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: TextField(
                       controller: _input,
@@ -209,6 +264,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   ),
                 ],
                 ),
+                    ],
+                  ),
               ),
             ),
           ),

@@ -29,3 +29,13 @@
 
 > 重构注记：已下沉 core 复用（session/McClient provider、格式化、状态视图、防抖/序号守卫）。
 - M6 多设备：会话列表与输入区 expanded 限宽 720 居中，FAB/发送/模型 chip/停止按钮包 McFocusRing。
+
+## P4（2026-11-22）
+- 技能页：pages/skills_page.dart（GET /api/v1/skills，路由 /agent/skills，会话列表页 AppBar 技能入口）。
+- 媒体卡片：state/media_cards.dart（show_media_cards_v1 参数解析，移植自 web lib/agent-media-cards.ts）
+  + widgets/media_cards.dart（按编号现取数据：标题/媒体项/订阅/媒体库，点卡片跳详情）；渲染点在
+  ProcessBlockView（工具调用折叠块下方，流式与历史回放同一路径）。
+- 附件：AgentApi.start 支持 attachments；ChatState 增加 attachments/uploadingAttachment；
+  chat_page 输入框左侧附件按钮（image_picker 选图 → POST /sessions/attachments），
+  待发送附件以 Chip 展示、可移除；发送时随消息提交，发完清空。
+  未确认：纯附件（无文字）发送时服务端是否接受空 content（见 P4.md）。

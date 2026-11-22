@@ -99,6 +99,22 @@ class _SubscriptionsPageState extends ConsumerState<SubscriptionsPage> {
           onViewAll: () => context.push('/subscriptions/wall?kind=movie'),
         ),
         const SizedBox(height: 36),
+        // P4：规则集与订阅设置入口（与设置分区同一页，避免两处实现）。
+        ListTile(
+          leading: const Icon(Icons.rule),
+          title: const Text('规则集'),
+          subtitle: const Text('订阅抓取的资源筛选规则'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => context.push('/settings/rule-sets'),
+        ),
+        ListTile(
+          leading: const Icon(Icons.tune),
+          title: const Text('订阅设置'),
+          subtitle: const Text('智能默认、智能计划与记忆'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => context.push('/settings/subscription'),
+        ),
+        const SizedBox(height: 36),
       ],
     );
     return ListView(

@@ -6,8 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/api/agent_sse_client.dart';
+import '../../../core/api/mc_api.dart';
 import '../../../core/api/mc_error.dart';
 import '../../../core/api/mc_client.dart';
+import '../../../core/api/models.dart' as core;
 import '../../../core/api/session_providers.dart';
 import 'models.dart';
 
@@ -16,9 +18,10 @@ final agentClientProvider = mcClientProvider;
 
 /// agent API 封装。
 class AgentApi {
-  AgentApi(this._client);
+  AgentApi(this._client, this._api);
 
   final McClient _client;
+  final McApi _api;
 
   /// GET /agent/sessions：会话列表。
   Future<List<SessionSummary>> sessions() async {
@@ -37,12 +40,13 @@ class AgentApi {
     return SessionTranscript.fromJson(body);
   }
 
-  /// POST /agent/sessions：开始会话（body {content, sessionId?, model?, thinkingLevel?}）。
+  /// POST /agent/sessions：开始会话（body {content, sessionId?, model?, thinkingLevel?, attachments?}）。
   Future<Map<String, dynamic>> start({
     required String content,
     String? sessionId,
     String? model,
     String? thinkingLevel,
+    List<String> attachmentIds = const [],
   }) async {
     return _client.unwrap<Map<String, dynamic>>(
       Channel.general,
@@ -53,6 +57,7 @@ class AgentApi {
         if (sessionId != null) 'sessionId': sessionId,
         'model': model ?? '',
         if (thinkingLevel != null) 'thinkingLevel': thinkingLevel,
+        if (attachmentIds.isNotEmpty) 'attachments': attachmentIds,
       },
     );
   }
@@ -110,10 +115,29 @@ class AgentApi {
         .map(LlmModelOption.fromJson)
         .toList();
   }
+
+  /// POST /api/v1/sessions/attachments：上传附件（对齐安卓 AgentComposerBar）。
+  Future<core.AgentAttachment> uploadAttachment(String filePath) =>
+      _api.uploadAgentAttachment(filePath: filePath);
+
+  /// GET /api/v1/skills：Agent 技能列表。
+  Future<List<core.SkillView>> skills() => _api.skillsList();
+
+  /// 媒体卡片取数（对齐 web agent-media-cards.tsx 的现取接口）。
+  Future<core.TitleDetails> titleDetails(String titleRef) =>
+      _api.titleDetails(titleRef);
+  Future<core.PlaybackItemView> playbackItem(int mediaItemId) =>
+      _api.playbackItem(mediaItemId);
+  Future<core.SubscriptionView> subscription(int subscriptionId) =>
+      _api.subscription(subscriptionId);
+  Future<core.LibraryView> libraryById(int libraryId) =>
+      _api.libraryById(libraryId);
 }
 
-final agentApiProvider =
-    Provider<AgentApi>((ref) => AgentApi(ref.watch(agentClientProvider)));
+final agentApiProvider = Provider<AgentApi>((ref) => AgentApi(
+      ref.watch(agentClientProvider),
+      ref.watch(mcApiProvider),
+    ));
 
 /// SSE 流式客户端（复用全局 SessionStore 的 baseUrl/token）。
 final agentSseClientProvider = Provider<AgentSseClient>(
@@ -182,6 +206,8 @@ class ChatState {
     this.loading = false,
     this.sending = false,
     this.error,
+    this.attachments = const <core.AgentAttachment>[],
+    this.uploadingAttachment = false,
   });
 
   final String? sessionId;
@@ -193,6 +219,8 @@ class ChatState {
   final bool loading;
   final bool sending;
   final String? error;
+  final List<core.AgentAttachment> attachments;
+  final bool uploadingAttachment;
 
   ChatState copyWith({
     String? sessionId,
@@ -205,6 +233,8 @@ class ChatState {
     bool? sending,
     String? error,
     bool clearError = false,
+    List<core.AgentAttachment>? attachments,
+    bool? uploadingAttachment,
   }) =>
       ChatState(
         sessionId: sessionId ?? this.sessionId,
@@ -216,6 +246,9 @@ class ChatState {
         loading: loading ?? this.loading,
         sending: sending ?? this.sending,
         error: clearError ? null : (error ?? this.error),
+        attachments: attachments ?? this.attachments,
+        uploadingAttachment:
+            uploadingAttachment ?? this.uploadingAttachment,
       );
 }
 
@@ -431,9 +464,14 @@ class ChatController extends Notifier<ChatState> {
   }
 
   /// 发送：新会话 POST /agent/sessions；已有会话同样 POST（带 sessionId）。
+  /// 附件 id 随首次发送提交（对齐安卓 AgentNewSessionScreen），发完清空。
   Future<void> send(String text) async {
     final content = text.trim();
-    if (content.isEmpty || state.sending) return;
+    if ((content.isEmpty && state.attachments.isEmpty) || state.sending) {
+      return;
+    }
+    final attachmentIds =
+        state.attachments.map((a) => a.attachmentId).toList();
     state = state.copyWith(
       sending: true,
       bubbles: [
@@ -441,7 +479,7 @@ class ChatController extends Notifier<ChatState> {
         Bubble(
             id: 'local-${DateTime.now().microsecondsSinceEpoch}',
             role: 'user',
-            text: content),
+            text: content.isEmpty ? '[图片附件]' : content),
         const Bubble(id: 'streaming', role: 'assistant', text: '', streaming: true),
       ],
     );
@@ -451,7 +489,9 @@ class ChatController extends Notifier<ChatState> {
         sessionId: state.sessionId,
         model: state.modelRef,
         thinkingLevel: state.thinkingLevel,
+        attachmentIds: attachmentIds,
       );
+      state = state.copyWith(attachments: const []);
       final sessionId = state.sessionId ??
           accepted['sessionId']?.toString() ??
           accepted['session_id']?.toString();
@@ -463,6 +503,31 @@ class ChatController extends Notifier<ChatState> {
     } finally {
       state = state.copyWith(sending: false);
     }
+  }
+
+  /// 上传附件（图片）：成功后挂在输入框上方，发送时随消息提交。
+  Future<void> uploadAttachment(String filePath) async {
+    if (state.uploadingAttachment) return;
+    state = state.copyWith(uploadingAttachment: true, clearError: true);
+    try {
+      final attachment = await _api.uploadAttachment(filePath);
+      state = state.copyWith(
+        attachments: [...state.attachments, attachment],
+        uploadingAttachment: false,
+      );
+    } catch (e) {
+      state = state.copyWith(
+          uploadingAttachment: false, error: '附件上传失败：$e');
+    }
+  }
+
+  /// 移除一个待发送附件。
+  void removeAttachment(String attachmentId) {
+    state = state.copyWith(
+      attachments: state.attachments
+          .where((a) => a.attachmentId != attachmentId)
+          .toList(),
+    );
   }
 
   /// 改写重发（对齐 beginEdit -> retry）：填回原文后由 retry(messageId) 提交。

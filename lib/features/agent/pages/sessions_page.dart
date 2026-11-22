@@ -32,7 +32,19 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
     final form = McFormWatch.of(context);
     final windowClass = mcWindowClassOf(form);
     return Scaffold(
-      appBar: AppBar(title: const Text('AI 助手')),
+      appBar: AppBar(
+        title: const Text('AI 助手'),
+        actions: [
+          McFocusRing(
+            borderRadius: 24,
+            child: IconButton(
+              tooltip: '技能',
+              icon: const Icon(Icons.psychology),
+              onPressed: () => context.push('$routeAgentLocal/skills'),
+            ),
+          ),
+        ],
+      ),
       floatingActionButton: McFocusRing(
         borderRadius: 20,
         child: FloatingActionButton.extended(

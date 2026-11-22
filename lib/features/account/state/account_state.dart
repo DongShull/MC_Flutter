@@ -86,39 +86,15 @@ class MeView {
   final String? role;
 }
 
-/// 一台已登录设备（GET /auth/devices 的条目；对齐 Kotlin 设备管理段）。
-class DeviceView {
-  const DeviceView({
-    required this.id,
-    this.name,
-    this.platform,
-    this.current = false,
-    this.lastSeen,
-  });
-
-  factory DeviceView.fromJson(Map<String, dynamic> json) => DeviceView(
-        id: (json['id'] ?? '').toString(),
-        name: json['name']?.toString(),
-        platform: json['platform']?.toString(),
-        current: json['current'] == true,
-        lastSeen: json['last_seen']?.toString() ?? json['lastSeen']?.toString(),
-      );
-
-  final String id;
-  final String? name;
-  final String? platform;
-  final bool current;
-  final String? lastSeen;
-}
-
-/// 账户页 UI 状态：本机账号快照 + 当前登录 + 用户信息 + 设备清单。
+/// 账户页 UI 状态：本机账号快照 + 当前登录 + 用户信息。
+/// P4：设备清单已移出本域，唯一实现在 settings（/settings/devices），
+/// 本域不再拉 GET /auth/devices，也不再提供改名/吊销/清理。
 class AccountUiState {
   const AccountUiState({
     this.servers = const <SavedServer>[],
     this.currentOrigin,
     this.currentUsername,
     this.me,
-    this.devices = const <DeviceView>[],
     this.busy = false,
     this.error,
   });
@@ -127,7 +103,6 @@ class AccountUiState {
   final String? currentOrigin;
   final String? currentUsername;
   final MeView? me;
-  final List<DeviceView> devices;
   final bool busy;
   final String? error;
 
@@ -137,7 +112,6 @@ class AccountUiState {
     String? currentUsername,
     MeView? me,
     bool clearMe = false,
-    List<DeviceView>? devices,
     bool? busy,
     String? error,
     bool clearError = false,
@@ -147,14 +121,13 @@ class AccountUiState {
         currentOrigin: currentOrigin ?? this.currentOrigin,
         currentUsername: currentUsername ?? this.currentUsername,
         me: clearMe ? null : (me ?? this.me),
-        devices: devices ?? this.devices,
         busy: busy ?? this.busy,
         error: clearError ? null : (error ?? this.error),
       );
 }
 
 /// 账户控制器（对齐 Kotlin AccountSwitcherViewModel）：
-/// 本机多账号快照的切换 / 移除 / 全部退出，在线时拉用户信息与设备清单。
+/// 本机多账号快照的切换 / 移除 / 全部退出，在线时拉用户信息。
 class AccountController extends Notifier<AccountUiState> {
   static const _serversKey = 'mc_servers';
 
@@ -193,7 +166,6 @@ class AccountController extends Notifier<AccountUiState> {
           : _guessUsername(servers, _session.baseUrl!),
     );
     loadMe();
-    loadDevices();
   }
 
   String? _guessUsername(List<SavedServer> servers, String origin) {
@@ -213,64 +185,6 @@ class AccountController extends Notifier<AccountUiState> {
           .read(accountClientProvider)
           .unwrap<Map<String, dynamic>>(Channel.general, 'GET', '/api/v1/auth/me');
       state = state.copyWith(me: MeView.fromJson(body), clearError: true);
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
-    }
-  }
-
-  /// GET /auth/devices（设备管理清单）。
-  Future<void> loadDevices() async {
-    if (!_session.isReady) return;
-    try {
-      final body = await ref
-          .read(accountClientProvider)
-          .unwrap<List<dynamic>>(Channel.general, 'GET', '/api/v1/auth/devices');
-      state = state.copyWith(
-        devices: body
-            .whereType<Map<String, dynamic>>()
-            .map(DeviceView.fromJson)
-            .toList(),
-      );
-    } catch (e) {
-      // 设备清单拉不到不打断账号切换主流程（记日志，不静默）。
-      McErrorLog.log(e, context: 'account.devices');
-    }
-  }
-
-  /// PATCH /auth/devices/{id}：重命名设备。
-  Future<void> renameDevice(String id, String name) async {
-    try {
-      await ref.read(accountClientProvider).unwrap<Map<String, dynamic>>(
-            Channel.general,
-            'PATCH',
-            '/api/v1/auth/devices/$id',
-            body: {'name': name},
-          );
-      await loadDevices();
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
-    }
-  }
-
-  /// DELETE /auth/devices/{id}：吊销一台设备。
-  Future<void> revokeDevice(String id) async {
-    try {
-      await ref
-          .read(accountClientProvider)
-          .delete(Channel.general, '/api/v1/auth/devices/$id');
-      await loadDevices();
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
-    }
-  }
-
-  /// POST /auth/devices/cleanup：清理其他所有设备。
-  Future<void> cleanupDevices() async {
-    try {
-      await ref
-          .read(accountClientProvider)
-          .post(Channel.general, '/api/v1/auth/devices/cleanup');
-      await loadDevices();
     } catch (e) {
       state = state.copyWith(error: e.toString());
     }

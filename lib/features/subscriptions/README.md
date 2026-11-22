@@ -45,3 +45,8 @@
 - 本域自持 sessionStoreProvider（state/mc_api.dart），不依赖其他 feature。
 - 路由：/subscriptions 主名不变；新增 /subscriptions/wall?kind=、/subscriptions/wall/:id、/subscriptions/detail/:id。
 - 多设备适配：订阅墙网格列数随宽度自适应（mcGridCrossAxisCount，cellExtent 150）；订阅卡 TV 形态包 McFocusRing；phone 布局零差异。
+
+## P4（2026-11-22）
+- 订阅首页底部增加规则集与订阅设置入口（跳 /settings/rule-sets、/settings/subscription，与设置分区同一页）。
+- 规则集编辑器在 settings/pages/rule_sets_page.dart；智能默认/智能计划/智能记忆在
+  settings/pages/subscription_settings_page.dart。

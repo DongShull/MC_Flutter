@@ -96,7 +96,9 @@ class _AccountPageState extends ConsumerState<AccountPage> {
             child: IconButton(
               tooltip: '设备管理',
               icon: const Icon(McIcons.device),
-              onPressed: () => context.push('$routeAccountLocal/devices'),
+              // 设备管理唯一实现在 settings（/settings/devices），
+              // account 不再保留重复页（P4 合并）。
+              onPressed: () => context.push('/settings/devices'),
             ),
           ),
         ],

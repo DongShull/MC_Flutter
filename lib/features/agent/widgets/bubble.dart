@@ -2,7 +2,9 @@
 import 'package:flutter/material.dart';
 
 import '../state/agent_state.dart';
+import '../state/media_cards.dart';
 import '../../../core/designsystem/mc_icons.dart';
+import 'media_cards.dart';
 
 /// 对话气泡（1:1 对齐 Kotlin Bubble 渲染）：
 /// user = 半透明白玻璃（white 10%，圆角 18），点按浮现 复制/改写；
@@ -151,6 +153,12 @@ class ProcessBlockView extends StatelessWidget {
     final label = inProgress
         ? (bubble.toolCalls.isEmpty ? '思考中…' : '正在执行中…')
         : (bubble.processSummary ?? '过程');
+    // 生成式 UI：show_media_cards_v1 调用画卡片组，其余工具只留一行名字。
+    final mediaGroups = bubble.toolCalls
+        .where((c) => isMediaCardsTool(c.name))
+        .map((c) => parseMediaCardsArgs(c.name, c.arguments))
+        .whereType<MediaCardGroup>()
+        .toList();
     return Theme(
       data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
       child: ExpansionTile(
@@ -192,6 +200,8 @@ class ProcessBlockView extends StatelessWidget {
                 ),
               ),
             ),
+          for (final group in mediaGroups)
+            MediaCardsWidget(group: group),
         ],
       ),
     );
