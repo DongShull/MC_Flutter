@@ -1,0 +1,34 @@
+# MC_Flutter CI — analyze + test on every push / PR to main and rewrite/*
+name: flutter-ci
+
+on:
+  push:
+    branches: [main, 'rewrite/**']
+  pull_request:
+    branches: [main, 'rewrite/**']
+
+jobs:
+  analyze-test:
+    name: analyze + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter 3.50.1
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.1'
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test

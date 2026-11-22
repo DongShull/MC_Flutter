@@ -31,6 +31,13 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+**/build/
+# Android/Gradle build outputs（android/build，含 problems-report.html；
+# 注意：原先只有 /build/，根不含 android/build/，导致
+# android/build/reports/problems/problems-report.html 已被误入仓，
+# 见 docs/PARITY.md「构建产物」一节；新规则只防新增，已入仓文件需另行
+# git rm --cached 才能脱离版本控制）
+android/build/
 /coverage/
 
 # Symbolication related
