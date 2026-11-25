@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,13 +25,15 @@ Future<void> main() async {
   await AppBootstrap.ensureMinimum();
   // 启动即恢复会话（决定首屏是否跳过 onboarding，属首帧前最小集）。
   await appSession.restore();
-  runZonedGuarded(() {
-    runApp(const ProviderScope(child: McApp()));
-    // 首帧真正栅格化后，再跑非首屏任务（会话恢复/预热钩子）。
-    AppBootstrap.runAfterFirstFrame(() {
-      debugPrint('mc_flutter: first frame rasterized, post-frame tasks done');
-    });
-  }, (error, stack) {
+  // 未捕获异步异常兜底：用 PlatformDispatcher.onError（官方推荐），不再套 runZonedGuarded——
+  // 绑定已在根 Zone 初始化，再进子 Zone 调 runApp 会触发 "Zone mismatch"。
+  PlatformDispatcher.instance.onError = (error, stack) {
     debugPrint('uncaught zone error: $error\n$stack');
+    return true;
+  };
+  runApp(const ProviderScope(child: McApp()));
+  // 首帧真正栅格化后，再跑非首屏任务（会话恢复/预热钩子）。
+  AppBootstrap.runAfterFirstFrame(() {
+    debugPrint('mc_flutter: first frame rasterized, post-frame tasks done');
   });
 }

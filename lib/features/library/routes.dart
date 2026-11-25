@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 
 import 'pages/collection_pages.dart';
+import 'pages/favorites_page.dart';
 import 'pages/library_detail_page.dart';
 import 'pages/library_customize_page.dart';
 import 'pages/person_kind_pages.dart';
@@ -11,6 +12,7 @@ const routeLibrary = '/library';
 /// 子页面路由（本 feature 内新增）。
 const routeLibraryCollections = '/library/collections';
 const routeLibraryCustomize = '/library/customize';
+const routeLibraryFavorites = '/library/favorites';
 
 String routeLibraryDetail(int libraryId) => '/library/detail/$libraryId';
 String routeLibraryCollection(int collectionId) => '/library/collection/$collectionId';
@@ -22,6 +24,10 @@ final List<GoRoute> routes = [
   GoRoute(
     path: routeLibraryCollections,
     builder: (context, state) => const LibraryCollectionsPage(),
+  ),
+  GoRoute(
+    path: routeLibraryFavorites,
+    builder: (context, state) => const LibraryFavoritesPage(),
   ),
   GoRoute(
     path: routeLibraryCustomize,

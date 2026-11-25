@@ -8,7 +8,8 @@
 
 | 页面 | 安卓源文件 | Flutter 文件 |
 |------|-----------|--------------|
-| 媒体库首页（行清单透视） | LibraryScreen.kt | pages/library_home_page.dart |
+| 媒体库首页（鸿蒙 1:1，Round 24） | LibraryHomeView.ets / LibraryNavHost.ets | pages/library_home_page.dart |
+| 我的收藏（全部） | FavoritesPage.ets（浏览部分） | pages/favorites_page.dart |
 | 单库筛选墙 | LibraryDetailScreen.kt | pages/library_detail_page.dart |
 | 合集详情 / 合集清单 | LibraryCollectionScreen.kt | pages/collection_pages.dart |
 | 自定义首页 | LibraryCustomizeScreen.kt | pages/library_customize_page.dart |

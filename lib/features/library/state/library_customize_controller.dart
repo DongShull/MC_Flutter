@@ -107,12 +107,12 @@ class LibraryCustomizeController extends Notifier<CustomizeState> {
           if (state.favorites.isNotEmpty) continue;
           final sort = k.sort == 'unwatched_first' ? null : k.sort;
           state = state.copyWith(
-            favorites: await _api.favorites(
+            favorites: (await _api.favorites(
               limit: 20,
               unwatchedFirst: k.sort == 'unwatched_first',
               sort: sort,
               order: HomeRows.orderParam(sort ?? 'favorited_at', k.reversed),
-            ),
+            )).items,
           );
         } else if (k is LibraryRowKind) {
           if (state.rowItems.containsKey(row.id)) continue;

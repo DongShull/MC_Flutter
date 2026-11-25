@@ -69,8 +69,8 @@ class LibraryApi {
     return _listField(body['items'], UpNextItem.fromJson);
   }
 
-  /// GET /playback/favorites
-  Future<List<LibraryItemView>> favorites({
+  /// GET /playback/favorites → items + total
+  Future<FavoritesResult> favorites({
     int limit = 20,
     int offset = 0,
     bool unwatchedFirst = false,
@@ -87,10 +87,41 @@ class LibraryApi {
         if (order != null) 'order': order,
       },
     );
-    final items = body['items'];
-    return items is List<dynamic>
-        ? items.whereType<Map<String, dynamic>>().map(LibraryItemView.fromJson).toList()
-        : <LibraryItemView>[];
+    final items = _listField(body['items'], LibraryItemView.fromJson);
+    final total = body['total'];
+    return FavoritesResult(
+      items: items,
+      total: total is num ? total.toInt() : items.length,
+    );
+  }
+
+  /// DELETE /playback/history（scope=all [+since] / scope=library&library_id=）
+  /// → 删除的观看状态行数（deleted_states）。
+  Future<int> clearPlaybackHistory({
+    required String scope,
+    DateTime? since,
+    int? libraryId,
+  }) async {
+    final body = await client.unwrap<dynamic>(
+      Channel.general, 'DELETE', '$_prefix/playback/history',
+      query: {
+        'scope': scope,
+        if (since != null) 'since': since.toUtc().toIso8601String(),
+        if (libraryId != null) 'library_id': libraryId,
+      },
+    );
+    final deleted = body is Map<String, dynamic> ? body['deleted_states'] : null;
+    return deleted is num ? deleted.toInt() : 0;
+  }
+
+  /// GET /auth/me → role（admin / member）；首页空态据此决定文案。
+  Future<String> currentRole() async {
+    final body = await client.unwrap<Map<String, dynamic>>(
+      Channel.general, 'GET', '$_prefix/auth/me',
+    );
+    final user = body['user'];
+    final role = body['role'] ?? (user is Map<String, dynamic> ? user['role'] : null);
+    return role?.toString() ?? '';
   }
 
   /// GET /libraries/{id}/items（三个接口筛选参数同形：g/d/c/w/rating_gte/rt/lang/res/hdr/stock）

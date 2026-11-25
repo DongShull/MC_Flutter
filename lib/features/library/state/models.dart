@@ -60,6 +60,53 @@ class LibraryCapabilitiesView {
       );
 }
 
+/// 扫描 / 整理的实时进度（ScanProgressView）。
+class ScanProgress {
+  const ScanProgress({this.phase, this.processed = 0, this.total = 0});
+
+  final String? phase;
+  final int processed;
+  final int total;
+
+  static ScanProgress? maybe(dynamic v) => v is Map<String, dynamic>
+      ? ScanProgress(
+          phase: v['phase']?.toString(),
+          processed: _asInt(v['processed']),
+          total: _asInt(v['total']),
+        )
+      : null;
+}
+
+/// 整库元数据刷新状态（MetadataRefreshView）；active 只取首条「标题 · 阶段」。
+class MetadataRefresh {
+  const MetadataRefresh({
+    this.refreshing = false,
+    this.processed = 0,
+    this.total = 0,
+    this.activeLine,
+  });
+
+  final bool refreshing;
+  final int processed;
+  final int total;
+  final String? activeLine;
+
+  static MetadataRefresh? maybe(dynamic v) {
+    if (v is! Map<String, dynamic>) return null;
+    final active = (v['active'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+    return MetadataRefresh(
+      refreshing: _asBool(v['refreshing']),
+      processed: _asInt(v['processed']),
+      total: _asInt(v['total']),
+      activeLine: active.isEmpty
+          ? null
+          : '${_asStr(active.first['title'])} · ${_asStr(active.first['phase'])}',
+    );
+  }
+}
+
 /// 一个媒体库（LibraryView）。
 class LibraryView {
   const LibraryView({
@@ -70,6 +117,12 @@ class LibraryView {
     this.viewerAccess = true,
     this.isDefault = false,
     this.scanning = false,
+    this.organizing = false,
+    this.customCover = false,
+    this.scanProgress,
+    this.organizeProgress,
+    this.metadataRefresh,
+    this.lastScanDeferred = 0,
     this.stats = const LibraryStats(),
     this.capabilities = const LibraryCapabilitiesView(),
   });
@@ -81,8 +134,26 @@ class LibraryView {
   final bool viewerAccess;
   final bool isDefault;
   final bool scanning;
+  final bool organizing;
+
+  /// 封面是用户上传的自定义图（空库也照样出图）。
+  final bool customCover;
+  final ScanProgress? scanProgress;
+  final ScanProgress? organizeProgress;
+  final MetadataRefresh? metadataRefresh;
+
+  /// 最近一次扫描后等待入账的文件数（last_scan.deferred）。
+  final int lastScanDeferred;
   final LibraryStats stats;
   final LibraryCapabilitiesView capabilities;
+
+  /// 库状态指纹（首页据此判断是否需要重拉各行条目）。
+  String get fingerprint => [
+        id, name, kind, excludeFromHome, viewerAccess, isDefault, scanning,
+        organizing, customCover, scanProgress?.processed, organizeProgress?.processed,
+        metadataRefresh?.refreshing, metadataRefresh?.processed, lastScanDeferred,
+        stats.itemCount, stats.fileCount, stats.totalSizeBytes,
+      ].join('|');
 
   factory LibraryView.fromJson(Map<String, dynamic> j) => LibraryView(
         id: _asInt(j['id']),
@@ -92,6 +163,14 @@ class LibraryView {
         viewerAccess: j['viewer_access'] == null ? true : _asBool(j['viewer_access']),
         isDefault: _asBool(j['is_default']),
         scanning: _asBool(j['scanning']),
+        organizing: _asBool(j['organizing']),
+        customCover: _asBool(j['custom_cover']),
+        scanProgress: ScanProgress.maybe(j['scan_progress']),
+        organizeProgress: ScanProgress.maybe(j['organize_progress']),
+        metadataRefresh: MetadataRefresh.maybe(j['metadata_refresh']),
+        lastScanDeferred: j['last_scan'] is Map<String, dynamic>
+            ? _asInt((j['last_scan'] as Map<String, dynamic>)['deferred'])
+            : 0,
         stats: j['stats'] is Map<String, dynamic>
             ? LibraryStats.fromJson(j['stats'] as Map<String, dynamic>)
             : const LibraryStats(),
@@ -99,6 +178,38 @@ class LibraryView {
             ? LibraryCapabilitiesView.fromJson(j['capabilities'] as Map<String, dynamic>)
             : const LibraryCapabilitiesView(),
       );
+}
+
+/// 最近一次入库批次的剧集摘要（LibraryRecentAdditionView）。
+class LibraryRecentAddition {
+  const LibraryRecentAddition({
+    this.seasonCount = 0,
+    this.episodeCount = 0,
+    this.seasonNumber,
+    this.firstEpisodeNumber,
+    this.lastEpisodeNumber,
+    this.completeSeason = false,
+  });
+
+  final int seasonCount;
+  final int episodeCount;
+  final int? seasonNumber;
+  final int? firstEpisodeNumber;
+  final int? lastEpisodeNumber;
+  final bool completeSeason;
+
+  static LibraryRecentAddition? maybe(dynamic v) => v is Map<String, dynamic>
+      ? LibraryRecentAddition(
+          seasonCount: _asInt(v['season_count']),
+          episodeCount: _asInt(v['episode_count']),
+          seasonNumber: v['season_number'] == null ? null : _asInt(v['season_number']),
+          firstEpisodeNumber:
+              v['first_episode_number'] == null ? null : _asInt(v['first_episode_number']),
+          lastEpisodeNumber:
+              v['last_episode_number'] == null ? null : _asInt(v['last_episode_number']),
+          completeSeason: _asBool(v['complete_season']),
+        )
+      : null;
 }
 
 /// 海报墙 / 横滚行通用的一条作品（LibraryItemView）。
@@ -118,6 +229,10 @@ class LibraryItemView {
     this.seasons = const [],
     this.resolutions = const [],
     this.isFavorite = false,
+    this.addedAt,
+    this.recentAddition,
+    this.favoriteSeasonNumber,
+    this.favoriteEpisodeNumber,
   });
 
   final int mediaItemId;
@@ -142,6 +257,14 @@ class LibraryItemView {
   final List<String> resolutions;
   final bool isFavorite;
 
+  /// 最近一次文件入账时间（「最近添加」依据；长按信息「N 天前入库」）。
+  final String? addedAt;
+  final LibraryRecentAddition? recentAddition;
+
+  /// 收藏层级（仅收藏列表）：整剧为 null；收藏了某季/某集时有值。
+  final int? favoriteSeasonNumber;
+  final int? favoriteEpisodeNumber;
+
   factory LibraryItemView.fromJson(Map<String, dynamic> j) => LibraryItemView(
         mediaItemId: _asInt(j['media_item_id']),
         kind: j['kind']?.toString() ?? 'movie',
@@ -158,10 +281,26 @@ class LibraryItemView {
         resolutions:
             (j['resolutions'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
         isFavorite: _asBool(j['is_favorite']),
+        addedAt: j['added_at']?.toString(),
+        recentAddition: LibraryRecentAddition.maybe(j['recent_addition']),
+        favoriteSeasonNumber: j['favorite_season_number'] == null
+            ? null
+            : _asInt(j['favorite_season_number']),
+        favoriteEpisodeNumber: j['favorite_episode_number'] == null
+            ? null
+            : _asInt(j['favorite_episode_number']),
       );
 }
 
-/// 「接下来继续」的一条（UpNextItem）。
+/// `GET /playback/favorites` 的结果（FavoritesView）。
+class FavoritesResult {
+  const FavoritesResult({this.items = const [], this.total = 0});
+
+  final List<LibraryItemView> items;
+  final int total;
+}
+
+/// 「接下来继续」的一条（UpNextItemView）。
 class UpNextItem {
   const UpNextItem({
     required this.mediaItemId,
@@ -170,12 +309,21 @@ class UpNextItem {
     this.title = '',
     this.year,
     this.posterUrl,
+    this.posterAspect = 0.66,
+    this.backdropUrl,
     this.episodeStillUrl,
+    this.episodeStillOriginalUrl,
+    this.overview,
+    this.genres = const [],
     this.seasonNumber = 0,
     this.episodeNumber = 0,
     this.episodeTitle,
-    this.progressPercent = 0,
+    this.unwatchedAheadCount = 0,
+    this.positionMs = 0,
+    this.durationMs,
+    this.progressPercent,
     this.advanced = false,
+    this.lastPlayedAt,
   });
 
   final int mediaItemId;
@@ -184,12 +332,23 @@ class UpNextItem {
   final String title;
   final int? year;
   final String? posterUrl;
+  final double posterAspect;
+  final String? backdropUrl;
   final String? episodeStillUrl;
+  final String? episodeStillOriginalUrl;
+  final String? overview;
+  final List<String> genres;
   final int seasonNumber;
   final int episodeNumber;
   final String? episodeTitle;
-  final int progressPercent;
+  final int unwatchedAheadCount;
+  final int positionMs;
+  final int? durationMs;
+  final double? progressPercent;
   final bool advanced;
+  final String? lastPlayedAt;
+
+  bool get isEpisode => kind == 'tv';
 
   factory UpNextItem.fromJson(Map<String, dynamic> j) => UpNextItem(
         mediaItemId: _asInt(j['media_item_id']),
@@ -198,12 +357,22 @@ class UpNextItem {
         title: _asStr(j['title']),
         year: j['year'] == null ? null : _asInt(j['year']),
         posterUrl: j['poster_url']?.toString(),
+        posterAspect: _asDouble(j['poster_aspect'], 0.66),
+        backdropUrl: j['backdrop_url']?.toString(),
         episodeStillUrl: j['episode_still_url']?.toString(),
+        episodeStillOriginalUrl: j['episode_still_original_url']?.toString(),
+        overview: j['overview']?.toString(),
+        genres: (j['genres'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
         seasonNumber: _asInt(j['season_number']),
         episodeNumber: _asInt(j['episode_number']),
         episodeTitle: j['episode_title']?.toString(),
-        progressPercent: _asInt(j['progress_percent']),
+        unwatchedAheadCount: _asInt(j['unwatched_ahead_count']),
+        positionMs: _asInt(j['position_ms']),
+        durationMs: j['duration_ms'] == null ? null : _asInt(j['duration_ms']),
+        progressPercent:
+            j['progress_percent'] == null ? null : _asDouble(j['progress_percent']),
         advanced: _asBool(j['advanced']),
+        lastPlayedAt: j['last_played_at']?.toString(),
       );
 }
 

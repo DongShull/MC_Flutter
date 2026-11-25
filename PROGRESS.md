@@ -246,3 +246,23 @@
 - ⑦玻璃材质：core/designsystem/mc_glass.dart（GlassTone 五档色值 1:1 抄 GlassControls.ets，135° 渐变+1px edge+blur18 BackdropFilter），切换账号按钮/SectionPicker 选中段接入。
 
 t15/t16 子代理产出，验收 analyze No issues + test 36/36。
+
+## Round 24：Windows 开发环境 + 鸿蒙「媒体库首页」1:1 对齐（2026-11-25）
+
+环境（本机 Windows）：
+- Flutter 3.50.0 装在 `%USERPROFILE%\dev\flutter`（国内镜像 storage.flutter-io.cn / pub.flutter-io.cn，用户环境变量已写入 PATH、PUB_HOSTED_URL、FLUTTER_STORAGE_BASE_URL、ANDROID_HOME、JAVA_HOME=JDK 21）。
+- Android SDK：`%LOCALAPPDATA%\Android\Sdk`（platform-tools、platforms 34/35/36、build-tools 36、NDK 28.2.13676358）。注意新版 sdkmanager.bat 在 PowerShell 里会把 `platforms;android-36` 的分号拆开，需 `cmd /c` 引号包裹安装。
+- `~/.gradle/init.d/cn-mirrors.gradle`：把所有工程（含插件子工程 buildscript）的 mavenCentral/google 重定向到阿里云——本机直连 repo.maven.apache.org TLS 握手失败。
+- 真机：小米 8 Lite（Android 10）`flutter run -d 2dd02e3f` 跑通。
+- pub get 走镜像会把 pubspec.lock 的 url 改成 pub.flutter-io.cn：不要提交这类改动。
+
+媒体库首页（对齐 LibraryNavHost + LibraryHomeView + HeroBanner + LibraryHomeStore + LibraryShared）：
+- 标题栏：媒体库 + ⋯（自定义首页/全部合集）· 搜索 · 玻璃胶囊「片段」；统计行用 libraryStatsSummary 口径。
+- 接下来继续：大图轮播（前 6 条、5s 自动、胶囊指示点、继续播放 · N%/详情）+ ⋯ 清空观看记录（今天/一周/全部/某库，DELETE /playback/history）。
+- 我的媒体库：横滑库卡片（/libraries/{id}/cover 拼贴、扫描/整理/刷元数据进度环、N 个新文件入库中、默认角标）、「全部合集 ›」。
+- 海报行：LibraryPosterCell（比例不符模糊铺底）、长按显示季集摘要/入库时间/收藏层级；收藏行「查看全部 N 部」→ 新增 /library/favorites。
+- 数据：并发取数、库状态指纹不变不重拉、轮询 3/5/10/30s、瞬时失败挂提示条、账号切换清数据；鸿蒙首页不渲染类型色块行，同步去掉。
+- core 新增：McTokens（鸿蒙 AppTheme 令牌）、mcFromNow/mcFromNowIso/mcPad2。
+- 顺带修复：main.dart runZonedGuarded 导致的 "Zone mismatch" 启动报错，改用 PlatformDispatcher.onError。
+- 未做（下一步）：首页磁盘快照（冷启动先上屏缓存）、片段入口蜂窝网络确认、空库「创建第一个媒体库」入口（依赖二期建库页）。
+- 验收：analyze No issues；test 36/36。

@@ -1,174 +1,308 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/session_providers.dart';
 import 'home_rows.dart';
 import 'mc_api.dart';
 import 'models.dart';
 
-/// 媒体库首页状态（对齐 Kotlin LibraryScreen.kt 的 LibraryHome ViewModel）：
-/// 有序行清单 + 每行内容。隐藏行不发请求；同一来源同一排序只请求一次。
+/// 媒体库首页的整页数据（1:1 对齐鸿蒙 LibraryHomeStore.ets + LibraryHomeView 的轮询口径）：
+/// - 库、合集、接下来继续、收藏、各行条目并发取；
+/// - 库状态、要取的行、合集都没变时不重拉各行条目（空闲 30 秒一轮不必打 1+N 个请求）；
+/// - 瞬时失败不清已有数据，只置 failed 让页面挂提示条；一次都没成功过才整页报错；
+/// - 有库在扫描/整理时 busyUntil 往后 12 秒，期间保持 3 秒快轮询（同 Web recentlyBusy）。
 class LibraryHomeState {
   const LibraryHomeState({
-    this.loading = false,
-    this.error,
-    this.rows = const [],
+    this.libraries,
+    this.collections = const [],
+    this.prefs,
     this.upNext = const [],
-    this.favorites = const [],
-    this.rowItems = const {},
-    this.kindGenres = const {},
-    this.kindSummaries = const {},
+    this.favorites = const FavoritesResult(),
+    this.itemsByKey = const {},
+    this.failed = false,
+    this.busyUntil = 0,
+    this.isAdmin = false,
   });
 
-  final bool loading;
-  final String? error;
+  /// null = 还没成功拿到过库列表。
+  final List<LibraryView>? libraries;
+  final List<CollectionView> collections;
 
-  /// 合并后的全部行（含隐藏行；渲染时过滤 hidden）。
-  final List<HomeRow> rows;
-
-  /// 「接下来继续」行内容。
+  /// 首页行清单偏好（ui.preferences.home.rows）；null = 还没拉到。
+  final List<HomeRowPref>? prefs;
   final List<UpNextItem> upNext;
+  final FavoritesResult favorites;
 
-  /// 「我的收藏」行内容。
-  final List<LibraryItemView> favorites;
+  /// 各行条目，键见 [LibraryHomeController.fetchKey] / [LibraryHomeController.coverKey]。
+  final Map<String, List<LibraryItemView>> itemsByKey;
+  final bool failed;
 
-  /// 逐行取数结果，键 = 行 id。
-  final Map<String, List<LibraryItemView>> rowItems;
+  /// 扫描/整理结束后的 12 秒快轮询窗口（epoch 毫秒）。
+  final int busyUntil;
+  final bool isAdmin;
 
-  /// 类型色块行内容，键 = `genres:<kind>`（元素为 TMDB 类型块原始 JSON）。
-  final Map<String, List<Map<String, dynamic>>> kindGenres;
+  /// 当前账号能浏览的库（超管只有管理权的库不出现在首页卡片里）。
+  List<LibraryView> get visibleLibraries =>
+      (libraries ?? const <LibraryView>[]).where((l) => l.viewerAccess).toList();
 
-  /// 类型行计数，键 = `genres:<kind>`。
-  final Map<String, LibraryKindSummaryView> kindSummaries;
+  /// 要渲染的行：合并规则后去掉隐藏行；鸿蒙首页不渲染类型色块行。
+  List<HomeRow> get rows => HomeRows.build(prefs ?? const [], libraries ?? const [], collections)
+      .where((r) => !r.hidden && r.kind is! GenresRowKind)
+      .toList();
 
-  /// 隐藏行之外真正要渲染的行。
-  List<HomeRow> get visibleRows => rows.where((r) => !r.hidden).toList();
-
-  /// 顶部统计一行：N 部 · 共占用 S（所有可见库求和）。
-  (int, int) get storageStats {
-    var count = 0;
-    var bytes = 0;
-    for (final r in rows) {
-      final k = r.kind;
-      if (k is LibraryRowKind) {
-        count += k.library.stats.itemCount;
-        bytes += k.library.stats.totalSizeBytes;
-      }
-    }
-    return (count, bytes);
-  }
+  bool get recentlyBusy => busyUntil > DateTime.now().millisecondsSinceEpoch;
 
   LibraryHomeState copyWith({
-    bool? loading,
-    String? error,
-    List<HomeRow>? rows,
+    List<LibraryView>? libraries,
+    List<CollectionView>? collections,
+    List<HomeRowPref>? prefs,
     List<UpNextItem>? upNext,
-    List<LibraryItemView>? favorites,
-    Map<String, List<LibraryItemView>>? rowItems,
-    Map<String, List<Map<String, dynamic>>>? kindGenres,
-    Map<String, LibraryKindSummaryView>? kindSummaries,
+    FavoritesResult? favorites,
+    Map<String, List<LibraryItemView>>? itemsByKey,
+    bool? failed,
+    int? busyUntil,
+    bool? isAdmin,
   }) =>
       LibraryHomeState(
-        loading: loading ?? this.loading,
-        error: error,
-        rows: rows ?? this.rows,
+        libraries: libraries ?? this.libraries,
+        collections: collections ?? this.collections,
+        prefs: prefs ?? this.prefs,
         upNext: upNext ?? this.upNext,
         favorites: favorites ?? this.favorites,
-        rowItems: rowItems ?? this.rowItems,
-        kindGenres: kindGenres ?? this.kindGenres,
-        kindSummaries: kindSummaries ?? this.kindSummaries,
+        itemsByKey: itemsByKey ?? this.itemsByKey,
+        failed: failed ?? this.failed,
+        busyUntil: busyUntil ?? this.busyUntil,
+        isAdmin: isAdmin ?? this.isAdmin,
       );
 }
 
 class LibraryHomeController extends Notifier<LibraryHomeState> {
+  /// 每行取的条数（同 Web）。
+  static const rowCount = 20;
+
+  Timer? _poll;
+  Future<void>? _inFlight;
+  String? _owner;
+  String? _rowsFingerprint;
+  bool _roleLoaded = false;
+
   @override
-  LibraryHomeState build() => const LibraryHomeState();
+  LibraryHomeState build() {
+    ref.onDispose(() => _poll?.cancel());
+    return const LibraryHomeState();
+  }
 
   LibraryApi get _api => ref.read(libraryApiProvider);
 
-  /// 加载首页：库 → 合集 → ui/preferences → 合并行 → 逐行取数。
-  Future<void> load() async {
-    if (state.loading) return;
-    state = state.copyWith(loading: true, error: null);
+  /// 一行取数的缓存键：同一个库同一种排序同一方向（同一个未看开关）只请求一次。
+  static String fetchKey(HomeRow row) {
+    final k = row.kind;
+    if (k is LibraryRowKind) {
+      return 'lib:${k.library.id}:${k.sort}:${k.reversed}:${k.unwatched}';
+    }
+    if (k is CollectionRowKind) return 'col:${k.collection.id}:${k.sort}:${k.reversed}';
+    return row.id;
+  }
+
+  /// 库卡片封面用的那批条目，与默认的「最近添加」行共用一份。
+  static String coverKey(int libraryId) => 'lib:$libraryId:added_at:false:false';
+
+  /// 兼容旧调用（自定义首页保存后刷新）：等同 [reload]。
+  Future<void> load() => reload();
+
+  /// 刷新整页；并发调用合并为同一次。完成后按忙闲排下一轮轮询。
+  Future<void> reload() {
+    _poll?.cancel();
+    final running = _inFlight;
+    if (running != null) return running;
+    final task = _load().whenComplete(() {
+      _inFlight = null;
+      _scheduleNextPoll();
+    });
+    _inFlight = task;
+    return task;
+  }
+
+  /// 页面离开（dispose）时停轮询。
+  void stopPolling() => _poll?.cancel();
+
+  void _scheduleNextPoll() {
+    _poll?.cancel();
+    _poll = Timer(Duration(seconds: _pollInterval()), reload);
+  }
+
+  /// 轮询间隔：忙 3s / 刷元数据 5s / 有待入账 10s / 空闲 30s（同 Web）。
+  int _pollInterval() {
+    final libs = state.libraries ?? const <LibraryView>[];
+    if (libs.any((l) => l.scanning || l.organizing) || state.recentlyBusy) return 3;
+    if (libs.any((l) => l.metadataRefresh?.refreshing ?? false)) return 5;
+    if (libs.any((l) => !l.scanning && !l.organizing && l.lastScanDeferred > 0)) return 10;
+    return 30;
+  }
+
+  /// 以当前账号身份使用：换了账号就清空旧账号的数据。
+  void _adopt() {
+    final session = ref.read(sessionStoreProvider);
+    final key = '${session.baseUrl ?? ''}|${session.username}';
+    if (key == _owner) return;
+    _owner = key;
+    _rowsFingerprint = null;
+    _roleLoaded = false;
+    state = const LibraryHomeState();
+  }
+
+  Future<void> _load() async {
+    _adopt();
+    final owner = _owner;
     try {
-      final libs = await _api.libraries();
-      final collections = await _api.collections();
-      final prefsRaw = await _api.uiPreferences();
-      final homeJson = prefsRaw['home'];
-      final rowsJson = homeJson is Map<String, dynamic>
-          ? homeJson['rows'] as List<dynamic>? ?? []
-          : const <dynamic>[];
-      final prefs = rowsJson
-          .whereType<Map<String, dynamic>>()
-          .map(HomeRowPref.fromJson)
+      // 偏好：拉到为止（失败保持 null，下一轮再拉；写成 [] 会覆盖用户自定义的行）。
+      var prefs = state.prefs;
+      if (prefs == null) {
+        try {
+          final raw = await _api.uiPreferences();
+          final home = raw['home'];
+          final rowsJson =
+              home is Map<String, dynamic> ? home['rows'] as List<dynamic>? ?? [] : const [];
+          prefs = rowsJson.whereType<Map<String, dynamic>>().map(HomeRowPref.fromJson).toList();
+        } catch (_) {}
+      }
+      final plan = HomeRows.build(prefs ?? const [], const [], const [])
+          .where((r) => !r.hidden)
           .toList();
-      final rows = HomeRows.build(prefs, libs, collections);
-      state = state.copyWith(loading: false, rows: rows);
-      // 逐行取数（与 Kotlin 同口径：隐藏行不发请求）。
-      await _loadRowData(state.visibleRows);
-    } catch (e) {
-      state = state.copyWith(loading: false, error: '与后端通信失败，正在自动重试');
+      final wantsUpNext = plan.any((r) => r.kind is UpNextRowKind);
+      final favKind = plan.map((r) => r.kind).whereType<FavoritesRowKind>().firstOrNull;
+
+      // 接下来继续、收藏两行只看行清单，与库、合集同时发请求。
+      final libsTask = _api.libraries();
+      final colsTask = _api.collections().catchError((_) => state.collections);
+      final upNextTask = wantsUpNext
+          ? _api.upNext(limit: rowCount).then<List<UpNextItem>?>((v) => v).catchError((_) => null)
+          : Future<List<UpNextItem>?>.value(const []);
+      final favTask = favKind == null
+          ? Future<FavoritesResult?>.value(const FavoritesResult())
+          : _fetchFavorites(favKind);
+      if (!_roleLoaded) unawaited(_loadRole());
+
+      final libs = await libsTask;
+      final cols = await colsTask;
+      if (owner != _owner) return;
+
+      final busy = libs.any((l) => l.scanning || l.organizing);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      state = state.copyWith(
+        libraries: libs,
+        collections: cols,
+        prefs: prefs,
+        failed: false,
+        busyUntil: busy ? now + 12000 : null,
+      );
+
+      // 各行条目：库状态、要取的行、合集都没变时跳过。
+      final fetches = _rowFetches(state.rows, libs);
+      final fingerprint = [
+        for (final l in libs) l.fingerprint,
+        '#',
+        ...(fetches.keys.toList()..sort()),
+        '#',
+        for (final c in cols) '${c.id}:${c.name}:${c.sort}:${c.itemCount}',
+      ].join(',');
+      if (fingerprint != _rowsFingerprint) {
+        final next = <String, List<LibraryItemView>>{};
+        await Future.wait([
+          for (final e in fetches.entries)
+            e.value().then((items) => next[e.key] = items).catchError((_) => next[e.key] = []),
+        ]);
+        if (owner != _owner) return;
+        _rowsFingerprint = fingerprint;
+        state = state.copyWith(itemsByKey: next);
+      }
+
+      final upNext = await upNextTask;
+      final favorites = await favTask;
+      if (owner != _owner) return;
+      state = state.copyWith(upNext: upNext, favorites: favorites);
+    } catch (_) {
+      if (owner == _owner) state = state.copyWith(failed: true);
     }
   }
 
-  Future<void> _loadRowData(List<HomeRow> rows) async {
+  Future<FavoritesResult?> _fetchFavorites(FavoritesRowKind k) async {
+    try {
+      final unwatchedFirst = k.sort == 'unwatched_first';
+      final sort = unwatchedFirst ? 'favorited_at' : k.sort;
+      return await _api.favorites(
+        limit: rowCount,
+        unwatchedFirst: unwatchedFirst,
+        sort: sort,
+        order: unwatchedFirst ? null : HomeRows.orderParam(sort, k.reversed),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _loadRole() async {
+    try {
+      final role = await _api.currentRole();
+      _roleLoaded = true;
+      state = state.copyWith(isAdmin: role == 'admin');
+    } catch (_) {}
+  }
+
+  /// 显示中的行各自要打的请求，按缓存键去重；排序与截断交给服务端。
+  Map<String, Future<List<LibraryItemView>> Function()> _rowFetches(
+    List<HomeRow> rows,
+    List<LibraryView> libs,
+  ) {
+    final fetches = <String, Future<List<LibraryItemView>> Function()>{};
     for (final row in rows) {
-      try {
-        final k = row.kind;
-        if (k is UpNextRowKind) {
-          if (state.upNext.isNotEmpty) continue;
-          state = state.copyWith(upNext: await _api.upNext(limit: 20));
-        } else if (k is FavoritesRowKind) {
-          if (state.favorites.isNotEmpty) continue;
-          final sort = k.sort == 'unwatched_first' ? null : k.sort;
-          state = state.copyWith(
-            favorites: await _api.favorites(
-              limit: 20,
-              unwatchedFirst: k.sort == 'unwatched_first',
-              sort: sort,
-              order: HomeRows.orderParam(sort ?? 'favorited_at', k.reversed),
-            ),
+      final k = row.kind;
+      if (k is LibraryRowKind) {
+        // 「最近观看」行只要播过的（w=seen）。
+        final watch = k.sort == 'last_played' ? 'seen' : (k.unwatched ? 'unwatched' : null);
+        final order = HomeRows.orderParam(k.sort, k.reversed);
+        fetches[fetchKey(row)] = () => _api.libraryItems(
+              k.library.id,
+              limit: rowCount,
+              filterQuery: {
+                'sort': k.sort,
+                if (order != null) 'order': order,
+                if (watch != null) 'w': watch,
+              },
+            );
+      } else if (k is CollectionRowKind) {
+        fetches[fetchKey(row)] = () => _api.collectionItems(
+              k.collection.id,
+              limit: rowCount,
+              sort: k.sort,
+              order: HomeRows.orderParam(k.sort, k.reversed),
+            );
+      } else if (k is LibrariesRowKind) {
+        // 库卡片封面与默认的「最近添加」行共用一份条目。
+        for (final lib in libs.where((l) => l.viewerAccess)) {
+          fetches.putIfAbsent(
+            coverKey(lib.id),
+            () => () => _api.libraryItems(lib.id,
+                limit: rowCount, filterQuery: const {'sort': 'added_at'}),
           );
-        } else if (k is LibraryRowKind) {
-          if (state.rowItems.containsKey(row.id)) continue;
-          final items = await _api.libraryItems(
-            k.library.id,
-            limit: 20,
-            filterQuery: _rowQuery(k.sort, k.reversed, k.unwatched),
-          );
-          state = state.copyWith(
-            rowItems: {...state.rowItems, row.id: items},
-          );
-        } else if (k is CollectionRowKind) {
-          if (state.rowItems.containsKey(row.id)) continue;
-          final items = await _api.collectionItems(
-            k.collection.id,
-            limit: 20,
-            sort: k.sort,
-            order: HomeRows.orderParam(k.sort, k.reversed),
-          );
-          state = state.copyWith(rowItems: {...state.rowItems, row.id: items});
-        } else if (k is GenresRowKind) {
-          if (state.kindGenres.containsKey(row.id)) continue;
-          final genres = await _api.libraryKindGenres(k.kind);
-          state = state.copyWith(kindGenres: {...state.kindGenres, row.id: genres});
-          final summary = await _api.libraryKindSummary(k.kind);
-          state = state.copyWith(kindSummaries: {...state.kindSummaries, row.id: summary});
         }
-      } catch (_) {
-        // 单行失败不拖垮整页：该行渲染为空态，下拉刷新重试。
       }
     }
+    return fetches;
   }
 
-  Map<String, String?> _rowQuery(String sort, bool reversed, bool unwatched) {
-    final order = HomeRows.orderParam(sort, reversed);
-    return {
-      'sort': sort,
-      if (order != null) 'order': order,
-      if (unwatched) 'w': 'unwatched',
-    };
+  /// 清空观看记录（scope=all [+since] / scope=library）；返回删除的行数。
+  Future<int> clearHistory({DateTime? since, int? libraryId}) async {
+    final deleted = await _api.clearPlaybackHistory(
+      scope: libraryId == null ? 'all' : 'library',
+      since: since,
+      libraryId: libraryId,
+    );
+    await reload();
+    return deleted;
   }
 }
 
 final libraryHomeProvider =
-    NotifierProvider<LibraryHomeController, LibraryHomeState>(
-        LibraryHomeController.new);
+    NotifierProvider<LibraryHomeController, LibraryHomeState>(LibraryHomeController.new);
