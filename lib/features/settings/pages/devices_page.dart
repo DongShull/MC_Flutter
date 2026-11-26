@@ -138,11 +138,11 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
     );
     if (code == null || code.isEmpty || !mounted) return;
     try {
+      final normalized = code.trim().toUpperCase();
       await ref.read(mcClientProvider).unwrap<dynamic>(
             Channel.general,
             'POST',
-            '/api/v1/auth/device/approve',
-            body: {'user_code': code.toUpperCase(), 'code': code.toUpperCase()},
+            '/api/v1/auth/devices/requests/${Uri.encodeComponent(normalized)}/approve',
           );
       if (!mounted) return;
       McToast.success('已批准该终端免密登录');

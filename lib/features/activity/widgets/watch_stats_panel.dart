@@ -67,7 +67,7 @@ class WatchStatsPanel extends StatelessWidget {
                 if (memberId != null)
                   McChip(
                     label: '取消成员筛选',
-                    icon: McIcons.close2,
+                    icon: McIcons.close,
                     compact: true,
                     selected: true,
                     onTap: () => onMemberSelected(null),

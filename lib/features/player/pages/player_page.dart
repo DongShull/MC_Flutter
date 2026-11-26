@@ -399,6 +399,48 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     }
   }
 
+  void _showChaptersSheet() {
+    final chapters = _controller.sessionInfo?.chapters ?? const [];
+    if (chapters.isEmpty) return;
+    _noteActivity();
+    showMcSheet<void>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 420),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(8, 4, 8, 10),
+                child: Text('影片章节快速跳转', style: McText.title),
+              ),
+              McInsetGroup(
+                margin: EdgeInsets.zero,
+                children: [
+                  for (var i = 0; i < chapters.length; i++)
+                    McInsetRow(
+                      icon: McIcons.playCircle,
+                      iconColor: McTokens.accent,
+                      title: chapters[i].title,
+                      subtitle: mcFormatClock(chapters[i].startMs ~/ 1000),
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _controller.seekTo(
+                          Duration(milliseconds: chapters[i].startMs),
+                        );
+                      },
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showCastSheet() {
     final url = _controller.lastStreamUrl;
     if (url == null || url.isEmpty) {
@@ -827,6 +869,29 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                             ],
                           ),
                         ),
+                        if (_controller.sessionInfo != null &&
+                            _controller.sessionInfo!.chapters.isNotEmpty) ...[
+                          McFocusRing(
+                            borderRadius: 22,
+                            child: McGlassIconButton(
+                              icon: McIcons.list2,
+                              size: 38,
+                              tooltip: '章节列表',
+                              onTap: _showChaptersSheet,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        McFocusRing(
+                          borderRadius: 22,
+                          child: McGlassIconButton(
+                            icon: McIcons.cpu,
+                            size: 38,
+                            tooltip: '实时技术诊断 (I)',
+                            onTap: _toggleDiagnosticsHud,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
                         McFocusRing(
                           borderRadius: 22,
                           child: McGlassIconButton(
@@ -1141,8 +1206,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                       ),
                     ),
                   ),
-                ..._overlays(playback),
                 if (playback.status == PlayerStatus.ready) _chrome(playback),
+                ..._overlays(playback),
                 if (_locked)
                   Align(
                     alignment: Alignment.centerLeft,

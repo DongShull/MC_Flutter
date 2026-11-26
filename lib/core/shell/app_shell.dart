@@ -252,7 +252,7 @@ class _ResumeAccessoryBar extends StatelessWidget {
               width: 32,
               height: 30,
               child: Icon(
-                McIcons.close2,
+                McIcons.close,
                 size: 14,
                 color: McTokens.textMuted,
               ),

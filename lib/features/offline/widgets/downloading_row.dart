@@ -135,7 +135,7 @@ class DownloadingRow extends StatelessWidget {
               },
             ),
             McInsetRow(
-              icon: McIcons.close2,
+              icon: McIcons.close,
               title: '取消下载',
               destructive: true,
               onTap: () {

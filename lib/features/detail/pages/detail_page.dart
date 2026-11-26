@@ -567,8 +567,14 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                             entry: entry,
                             onSeriesTap: (id) =>
                                 context.push('/library/collection/$id'),
-                            onCollectionTap: (_) =>
-                                context.push('/library/collections'),
+                            onCollectionTap: (name) {
+                              final cid = entry.collectionIds[name];
+                              if (cid != null) {
+                                context.push('/library/collection/$cid');
+                              } else {
+                                context.push('/library/collections');
+                              }
+                            },
                           ),
                         ],
                       ),
@@ -642,7 +648,14 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                 child: MetaLinks(
                   entry: entry,
                   onSeriesTap: (id) => context.push('/library/collection/$id'),
-                  onCollectionTap: (_) => context.push('/library/collections'),
+                  onCollectionTap: (name) {
+                    final cid = entry.collectionIds[name];
+                    if (cid != null) {
+                      context.push('/library/collection/$cid');
+                    } else {
+                      context.push('/library/collections');
+                    }
+                  },
                 ),
               ),
               if (entry.overview != null && entry.overview!.isNotEmpty)
@@ -686,25 +699,6 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Apple Music 式底边取色整页渐变背景，随深滚自然回归纯黑
-          IgnorePointer(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 520),
-              curve: Curves.easeOutCubic,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: const [0.0, 0.55, 1.0],
-                  colors: [
-                    ambient,
-                    ambient.withValues(alpha: 0.42),
-                    McTokens.bg,
-                  ],
-                ),
-              ),
-            ),
-          ),
           NotificationListener<ScrollNotification>(
             onNotification: (n) {
               if (n.metrics.axis == Axis.vertical && n.depth == 0) {

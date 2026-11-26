@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 
 import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, TargetPlatform, kIsWeb;
+    show defaultTargetPlatform, TargetPlatform;
 
 /// 平台目标探测（1:1 对齐飞牛 trim_base_plugin.HarmonyUtilApi 的设计）：
 /// 飞牛在 Dart 侧运行时问原生「是不是鸿蒙 / 鸿蒙版本号」，同一份 Dart 业务代码
@@ -17,7 +17,6 @@ abstract final class McPlatform {
   /// Platform.isAndroid 仍为 true，必须问原生），拿不到时降级为 android。
   static Future<McPlatformTarget> target() async {
     if (_cached != null) return _cached!;
-    if (kIsWeb) return _cached = McPlatformTarget.other;
     final tp = defaultTargetPlatform;
     if (tp == TargetPlatform.iOS) return _cached = McPlatformTarget.ios;
     if (tp != TargetPlatform.android) return _cached = McPlatformTarget.other;

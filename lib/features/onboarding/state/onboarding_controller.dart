@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
@@ -69,7 +68,6 @@ class OnboardingController extends Notifier<OnboardingState> {
 
   static (String kind, String defaultName, String platformLabel)
       _platformMeta() {
-    if (kIsWeb) return ('ios', 'MovieClaw Web', 'Web · Flutter');
     if (Platform.isIOS) return ('ios', 'iPhone / iPad', 'iOS · Flutter');
     if (Platform.isMacOS) return ('macos', 'Mac', 'macOS · Flutter');
     if (Platform.isWindows) return ('windows', 'Windows PC', 'Windows · Flutter');
@@ -94,7 +92,11 @@ class OnboardingController extends Notifier<OnboardingState> {
   }
 
   String _normalizeBase(String raw) {
-    var s = raw.trim();
+    var s = raw
+        .trim()
+        .replaceAll('：', ':')
+        .replaceAll('。', '.')
+        .replaceAll(' ', '');
     if (s.isEmpty) return s;
     if (!s.startsWith('http://') && !s.startsWith('https://')) {
       s = ServerRoutes.isPrivateHost(s) ? 'http://$s' : 'https://$s';

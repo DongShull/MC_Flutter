@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:media_kit/media_kit.dart';
 
 import 'app.dart';
 import 'core/api/mc_client.dart';
@@ -40,6 +42,12 @@ Future<void> main() async {
       );
 
   await AppBootstrap.ensureMinimum();
+  if ((Platform.isLinux || Platform.isWindows) &&
+      !Platform.environment.containsKey('FLUTTER_TEST')) {
+    try {
+      MediaKit.ensureInitialized();
+    } catch (_) {}
+  }
   await Future.wait([
     appSession.restore(),
     ServerRoutes.instance.init(),

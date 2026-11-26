@@ -101,7 +101,7 @@ class _LibraryPersonPageState extends ConsumerState<LibraryPersonPage> {
                                               maxCrossAxisExtent: 130,
                                               mainAxisSpacing: 14,
                                               crossAxisSpacing: 12,
-                                              childAspectRatio: 0.55,
+                                              childAspectRatio: 0.515,
                                             )
                                           : SliverGridDelegateWithFixedCrossAxisCount(
                                               crossAxisCount:
@@ -117,12 +117,13 @@ class _LibraryPersonPageState extends ConsumerState<LibraryPersonPage> {
                                               ),
                                               mainAxisSpacing: 14,
                                               crossAxisSpacing: 12,
-                                              childAspectRatio: 0.55,
+                                              childAspectRatio: 0.515,
                                             ),
                                       delegate: SliverChildBuilderDelegate(
                                         (context, i) => mcItemCard(
                                           context,
                                           state.items[i].item,
+                                          width: null,
                                         ),
                                         childCount: state.items.length,
                                       ),
@@ -332,7 +333,7 @@ class _KindWallPageState extends ConsumerState<KindWallPage> {
                                                 maxCrossAxisExtent: 130,
                                                 mainAxisSpacing: 14,
                                                 crossAxisSpacing: 12,
-                                                childAspectRatio: 0.55,
+                                                childAspectRatio: 0.515,
                                               )
                                             : SliverGridDelegateWithFixedCrossAxisCount(
                                                 crossAxisCount:
@@ -348,11 +349,15 @@ class _KindWallPageState extends ConsumerState<KindWallPage> {
                                                 ),
                                                 mainAxisSpacing: 14,
                                                 crossAxisSpacing: 12,
-                                                childAspectRatio: 0.55,
+                                                childAspectRatio: 0.515,
                                               ),
                                         itemCount: state.items.length,
                                         itemBuilder: (context, i) =>
-                                            mcItemCard(context, state.items[i]),
+                                            mcItemCard(
+                                          context,
+                                          state.items[i],
+                                          width: null,
+                                        ),
                                       ),
                               ),
                   ),

@@ -68,7 +68,7 @@ class GuestPlaybackApi {
           'native_hls': true,
           'universal': true,
         },
-        'client': 'MovieClaw-Flutter',
+        'client': 'mc-flutter',
       },
     );
     return GuestPlaybackSession.fromJson(data);
@@ -92,14 +92,19 @@ class GuestPlaybackSession {
   final String? streamUrl;
   final int startMs;
 
-  factory GuestPlaybackSession.fromJson(Map<String, dynamic> j) =>
-      GuestPlaybackSession(
-        decision: j['decision']?.toString() ?? '',
-        sessionId: (j['sessionId'] ?? j['session_id'])?.toString(),
-        streamUrl: (j['streamUrl'] ?? j['stream_url'])?.toString(),
-        startMs: j['startMs'] is num
-            ? (j['startMs'] as num).toInt()
-            : int.tryParse((j['startMs'] ?? j['start_ms'])?.toString() ?? '') ??
-                0,
-      );
+  factory GuestPlaybackSession.fromJson(Map<String, dynamic> j) {
+    final rawDec = j['decision'];
+    final decStr = rawDec is Map
+        ? (rawDec['outcome'] ?? '').toString()
+        : (rawDec?.toString() ?? '');
+    return GuestPlaybackSession(
+      decision: decStr,
+      sessionId: (j['sessionId'] ?? j['session_id'])?.toString(),
+      streamUrl: (j['streamUrl'] ?? j['stream_url'])?.toString(),
+      startMs: j['startMs'] is num
+          ? (j['startMs'] as num).toInt()
+          : int.tryParse((j['startMs'] ?? j['start_ms'])?.toString() ?? '') ??
+              0,
+    );
+  }
 }

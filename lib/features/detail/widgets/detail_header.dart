@@ -58,6 +58,7 @@ class DetailHeader extends StatelessWidget {
       if (entry.year != null) entry.year.toString(),
       if (_runtimeText != null) _runtimeText!,
       if (entry.isTv && entry.seasons.isNotEmpty) '共 ${entry.seasons.length} 季',
+      if (entry.genres.isNotEmpty) entry.genres.take(3).join(' / '),
     ];
 
     final badges = <String>[
@@ -65,7 +66,10 @@ class DetailHeader extends StatelessWidget {
         entry.officialRating!,
       if (entry.resolution != null && entry.resolution!.isNotEmpty)
         entry.resolution!.toUpperCase(),
-      if (entry.hdr) 'HDR',
+      if (entry.hdrLabel != null && entry.hdrLabel!.isNotEmpty)
+        entry.hdrLabel!
+      else if (entry.hdr)
+        'HDR',
     ];
 
     final infoColumn = Column(
@@ -169,48 +173,62 @@ class DetailHeader extends StatelessWidget {
         fit: StackFit.expand,
         clipBehavior: Clip.none,
         children: [
-          ClipRect(
-            child: Transform.translate(
-              offset: Offset(0, parallax),
-              child: Transform.scale(
-                scale: stretch,
-                alignment: Alignment.bottomCenter,
-                child: resolvedHero.isEmpty
-                    ? Container(
-                        color: McTokens.posterPlaceholder,
-                        alignment: Alignment.center,
-                        child: const Icon(
-                          McIcons.film,
-                          size: 44,
-                          color: McTokens.textFaint,
+          Positioned.fill(
+            child: ClipRect(
+              child: Transform.translate(
+                offset: Offset(0, parallax),
+                child: Transform.scale(
+                  scale: stretch,
+                  alignment: Alignment.bottomCenter,
+                  child: resolvedHero.isEmpty
+                      ? Container(
+                          color: McTokens.posterPlaceholder,
+                          alignment: Alignment.center,
+                          child: const Icon(
+                            McIcons.film,
+                            size: 44,
+                            color: McTokens.textFaint,
+                          ),
+                        )
+                      : CachedNetworkImage(
+                          imageUrl: resolvedHero,
+                          httpHeaders: mcImageHeaders(),
+                          fadeInDuration: const Duration(milliseconds: 220),
+                          imageBuilder: (_, provider) => DecoratedBox(
+                            decoration: BoxDecoration(
+                              image: DecorationImage(
+                                image: provider,
+                                fit: BoxFit.cover,
+                                alignment: Alignment.topCenter,
+                              ),
+                            ),
+                          ),
+                          placeholder: (_, __) => const ColoredBox(
+                            color: McTokens.posterPlaceholder,
+                          ),
+                          errorWidget: (_, __, ___) => const ColoredBox(
+                            color: McTokens.posterPlaceholder,
+                          ),
                         ),
-                      )
-                    : CachedNetworkImage(
-                        imageUrl: resolvedHero,
-                        httpHeaders: mcImageHeaders(),
-                        fit: BoxFit.cover,
-                        fadeInDuration: const Duration(milliseconds: 240),
-                        placeholder: (_, __) =>
-                            const ColoredBox(color: McTokens.posterPlaceholder),
-                        errorWidget: (_, __, ___) =>
-                            const ColoredBox(color: McTokens.posterPlaceholder),
-                      ),
+                ),
               ),
             ),
           ),
-          // 四段式渐隐遮罩：将剧照底边无缝溶入 HeroEdgeColor 页面氛围色
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                stops: const [0.0, 0.42, 0.76, 1.0],
-                colors: [
-                  const Color(0x38000000),
-                  ambientColor.withValues(alpha: 0.14),
-                  ambientColor.withValues(alpha: 0.84),
-                  ambientColor,
-                ],
+          // 四段式影院黑渐隐遮罩：将剧照底边无缝溶入纯黑背景，彻底消除色差断层
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: [0.0, 0.36, 0.74, 1.0],
+                  colors: [
+                    Color(0x38000000),
+                    Color(0x14000000),
+                    Color(0xCC000000),
+                    McTokens.bg,
+                  ],
+                ),
               ),
             ),
           ),

@@ -1,16 +1,23 @@
 import '../../api/mc_client.dart';
 
-/// 服务器侧播放会话协商（全路径严格对齐 `/api/v1/playback/*`）：
-/// - `POST /api/v1/playback/sessions`（支持清晰度档位上限 `max_tier` 与软解确认 `allow_software_transcode`）
+/// 服务器侧播放会话协商（严格对齐 `movieclaw_api/schemas/playback.py`）：
+/// - `POST /api/v1/playback/sessions`（`client: 'mc-flutter'` ≤16 字符，`max_height` 画质上限）
 /// - `POST /api/v1/playback/sessions/{id}/ping`
 /// - `DELETE /api/v1/playback/sessions/{id}`
-/// - `GET /api/v1/playback/sessions/{id}/diagnostics`（实时技术 HUD）
+/// - `GET /api/v1/playback/sessions/{id}/diagnostics?token=...`
 /// - `POST /api/v1/playback/progress`
 /// - `GET /api/v1/playback/resume`
 class PlaybackSessionApi {
   PlaybackSessionApi(this._client);
 
   final McClient _client;
+
+  static int? _tierToMaxHeight(String? tier) => switch (tier) {
+        '1080p' => 1080,
+        '720p' => 720,
+        '480p' => 480,
+        _ => null,
+      };
 
   Future<PlaybackSession> start({
     int? fileId,
@@ -19,7 +26,7 @@ class PlaybackSessionApi {
     int? episodeNumber,
     Map<String, dynamic>? capability,
     String? deviceId,
-    String? client = 'MovieClaw-Flutter',
+    String? client = 'mc-flutter',
     int? startMs,
     List<int>? failedTiers,
     String? maxTier,
@@ -27,6 +34,10 @@ class PlaybackSessionApi {
     String? audioTrack,
     String? subtitleTrack,
   }) async {
+    final maxHeight = _tierToMaxHeight(maxTier);
+    final safeClient = (client != null && client.length > 16)
+        ? client.substring(0, 16)
+        : client;
     final body = await _client.unwrap<Map<String, dynamic>>(
       Channel.playback,
       'POST',
@@ -38,18 +49,18 @@ class PlaybackSessionApi {
         if (episodeNumber != null) 'episode_number': episodeNumber,
         'capability': capability ??
             {
-              'is_mobile': true,
+              'is_mobile': false,
               'native_hls': true,
               'universal': true,
+              if (allowSoftwareTranscode) 'allow_software_transcode': true,
             },
         if (failedTiers != null) 'failed_tiers': failedTiers,
-        if (maxTier != null && maxTier != 'original') 'max_tier': maxTier,
-        if (allowSoftwareTranscode) 'allow_software_transcode': true,
+        if (maxHeight != null) 'max_height': maxHeight,
         if (audioTrack != null) 'audio_track': audioTrack,
         if (subtitleTrack != null) 'subtitle_track': subtitleTrack,
         if (deviceId != null) 'device_id': deviceId,
         if (startMs != null) 'start_ms': startMs,
-        if (client != null) 'client': client,
+        if (safeClient != null) 'client': safeClient,
       },
     );
     return PlaybackSession.fromJson(body);
@@ -71,11 +82,17 @@ class PlaybackSessionApi {
     );
   }
 
-  Future<Map<String, dynamic>> diagnostics(String sessionId) async {
+  Future<Map<String, dynamic>> diagnostics(
+    String sessionId, {
+    String? token,
+  }) async {
     return _client.unwrap<Map<String, dynamic>>(
       Channel.playback,
       'GET',
       '/api/v1/playback/sessions/$sessionId/diagnostics',
+      query: {
+        if (token != null && token.isNotEmpty) 'token': token,
+      },
     );
   }
 
@@ -89,7 +106,6 @@ class PlaybackSessionApi {
     int? fileId,
     String? audioTrack,
     String? subtitleTrack,
-    String? deviceId,
   }) async {
     await _client.unwrap<Map<String, dynamic>>(
       Channel.playback,
@@ -97,15 +113,14 @@ class PlaybackSessionApi {
       '/api/v1/playback/progress',
       body: {
         'media_item_id': mediaItemId,
-        if (seasonNumber != null) 'season_number': seasonNumber,
-        if (episodeNumber != null) 'episode_number': episodeNumber,
+        'season_number': seasonNumber ?? 0,
+        'episode_number': episodeNumber ?? 0,
         if (event != null) 'event': event,
         if (positionMs != null) 'position_ms': positionMs,
         if (paused != null) 'paused': paused,
         if (fileId != null) 'file_id': fileId,
         if (audioTrack != null) 'audio_track': audioTrack,
         if (subtitleTrack != null) 'subtitle_track': subtitleTrack,
-        if (deviceId != null) 'device_id': deviceId,
       },
     );
   }
@@ -121,8 +136,8 @@ class PlaybackSessionApi {
       '/api/v1/playback/resume',
       query: {
         'media_item_id': mediaItemId,
-        if (seasonNumber != null) 'season_number': seasonNumber,
-        if (episodeNumber != null) 'episode_number': episodeNumber,
+        'season_number': seasonNumber ?? 0,
+        'episode_number': episodeNumber ?? 0,
       },
     );
   }
@@ -139,7 +154,7 @@ class PlaybackAudioTrack {
 
   factory PlaybackAudioTrack.fromJson(Map<String, dynamic> json) {
     return PlaybackAudioTrack(
-      ref: (json['ref'] ?? '').toString(),
+      ref: (json['ref'] ?? json['track_ref'] ?? '').toString(),
       codec: json['codec']?.toString(),
       channels: (json['channels'] as num?)?.toInt(),
       language: json['language']?.toString(),
@@ -180,7 +195,7 @@ class PlaybackAudioTrack {
         ? null
         : labels[lang.toLowerCase()] ?? lang;
     final parts = <String>[langLabel ?? '未知语言'];
-    if (codec != null && codec!.isNotEmpty) parts.add(codec!);
+    if (codec != null && codec!.isNotEmpty) parts.add(codec!.toUpperCase());
     if (channels != null) parts.add('$channels 声道');
     return parts.join(' · ');
   }
@@ -200,7 +215,7 @@ class PlaybackSubtitleTrack {
 
   factory PlaybackSubtitleTrack.fromJson(Map<String, dynamic> json) {
     return PlaybackSubtitleTrack(
-      trackRef: (json['track_ref'] ?? '').toString(),
+      trackRef: (json['track_ref'] ?? json['ref'] ?? '').toString(),
       kind: json['kind']?.toString() ?? '',
       language: json['language']?.toString(),
       isDefault: json['is_default'] as bool? ?? false,
@@ -267,12 +282,33 @@ class PlaybackSkipSegment {
   final int endMs;
 }
 
+class PlaybackChapter {
+  const PlaybackChapter({
+    required this.startMs,
+    required this.title,
+  });
+
+  factory PlaybackChapter.fromJson(Map<String, dynamic> json) {
+    final ms = (json['start_ms'] as num?)?.toInt() ?? 0;
+    final rawTitle = json['title']?.toString().trim() ?? '';
+    return PlaybackChapter(
+      startMs: ms,
+      title: rawTitle.isEmpty ? '章节' : rawTitle,
+    );
+  }
+
+  final int startMs;
+  final String title;
+}
+
 class PlaybackSession {
   const PlaybackSession({
     required this.decision,
     this.sessionId,
     this.streamUrl,
+    this.streamToken,
     this.startMs = 0,
+    this.durationMs,
     this.subtitleUrls = const [],
     this.masterUrl,
     this.hwBackend,
@@ -281,16 +317,22 @@ class PlaybackSession {
     this.videoCodec,
     this.audioCodec,
     this.resolution,
+    this.hdr,
+    this.bitRate,
+    this.frameRate,
     this.container,
     this.audioTracks = const [],
     this.subtitles = const [],
     this.skipSegments = const [],
+    this.chapters = const [],
   });
 
   final String decision; // plan | consent | rejected
   final String? sessionId;
   final String? streamUrl;
+  final String? streamToken;
   final int startMs;
+  final int? durationMs;
   final List<String> subtitleUrls;
   final String? masterUrl;
   final String? hwBackend;
@@ -299,10 +341,14 @@ class PlaybackSession {
   final String? videoCodec;
   final String? audioCodec;
   final String? resolution;
+  final String? hdr;
+  final int? bitRate;
+  final double? frameRate;
   final String? container;
   final List<PlaybackAudioTrack> audioTracks;
   final List<PlaybackSubtitleTrack> subtitles;
   final List<PlaybackSkipSegment> skipSegments;
+  final List<PlaybackChapter> chapters;
 
   bool get playable => decision == 'plan' && streamUrl != null;
 
@@ -310,39 +356,102 @@ class PlaybackSession {
     final d = json['decision'];
     final dMap = d is Map<String, dynamic>
         ? d
-        : (d is Map ? d.cast<String, dynamic>() : null);
+        : (d is Map ? Map<String, dynamic>.from(d) : null);
+    final src = json['source'];
+    final srcMap = src is Map<String, dynamic>
+        ? src
+        : (src is Map ? Map<String, dynamic>.from(src) : null);
+    final watch = json['watch'];
+    final watchMap = watch is Map<String, dynamic>
+        ? watch
+        : (watch is Map ? Map<String, dynamic>.from(watch) : null);
+    final videoMap = dMap?['video'] is Map
+        ? Map<String, dynamic>.from(dMap!['video'] as Map)
+        : null;
+    final audioMap = dMap?['audio'] is Map
+        ? Map<String, dynamic>.from(dMap!['audio'] as Map)
+        : null;
+
+    final videoAction = videoMap?['action']?.toString();
+    final explicitMode =
+        (dMap?['mode'] ?? dMap?['delivery'] ?? json['mode'])?.toString();
+    final resolvedMode = explicitMode ??
+        (videoAction == 'copy'
+            ? 'direct_play'
+            : (videoAction == 'transcode' ? 'transcode' : null));
+
+    final rawStreamUrl = json['stream_url']?.toString();
+    final extractedToken = rawStreamUrl != null
+        ? Uri.tryParse(rawStreamUrl)?.queryParameters['token']
+        : null;
+
+    final rawSubtitleUrls = [
+      for (final u in (json['subtitle_urls'] as List? ?? const []))
+        u.toString(),
+    ];
+    final rawSubPlans = (dMap?['subtitles'] as List? ?? const []);
+    final parsedSubtitles = <PlaybackSubtitleTrack>[];
+    for (var i = 0; i < rawSubPlans.length; i++) {
+      final item = rawSubPlans[i];
+      if (item is! Map) continue;
+      final map = Map<String, dynamic>.from(item);
+      if (map['url'] == null && i < rawSubtitleUrls.length) {
+        map['url'] = rawSubtitleUrls[i];
+      }
+      parsedSubtitles.add(PlaybackSubtitleTrack.fromJson(map));
+    }
+
     final segList =
         json['segments'] as List? ?? dMap?['segments'] as List? ?? const [];
+    final chapList = json['chapters'] as List? ?? const [];
+
     return PlaybackSession(
       decision: (dMap?['outcome'] ?? json['decision'] ?? '').toString(),
-      deliveryMode:
-          (dMap?['mode'] ?? dMap?['delivery'] ?? json['mode'])?.toString(),
+      deliveryMode: resolvedMode,
       transcodeReason:
           (dMap?['reason'] ?? dMap?['transcode_reason'])?.toString(),
-      videoCodec: (dMap?['video_codec'] ?? json['video_codec'])?.toString(),
-      audioCodec: (dMap?['audio_codec'] ?? json['audio_codec'])?.toString(),
-      resolution: (dMap?['resolution'] ?? json['resolution'])?.toString(),
-      container: (dMap?['container'] ?? json['container'])?.toString(),
+      videoCodec: (srcMap?['video_codec'] ??
+              videoMap?['codec'] ??
+              dMap?['video_codec'] ??
+              json['video_codec'])
+          ?.toString(),
+      audioCodec: (audioMap?['codec'] ??
+              dMap?['audio_codec'] ??
+              json['audio_codec'])
+          ?.toString(),
+      resolution: (srcMap?['resolution'] ??
+              dMap?['resolution'] ??
+              json['resolution'])
+          ?.toString(),
+      hdr: srcMap?['hdr']?.toString(),
+      bitRate: (srcMap?['bit_rate'] as num?)?.toInt(),
+      frameRate: (srcMap?['frame_rate'] as num?)?.toDouble(),
+      container: (srcMap?['container'] ??
+              dMap?['container'] ??
+              json['container'])
+          ?.toString(),
       audioTracks: [
-        for (final t in (dMap?['audio_tracks'] as List? ?? []))
-          if (t is Map) PlaybackAudioTrack.fromJson(t.cast<String, dynamic>()),
-      ],
-      subtitles: [
-        for (final t in (dMap?['subtitles'] as List? ?? []))
+        for (final t in (dMap?['audio_tracks'] as List? ?? const []))
           if (t is Map)
-            PlaybackSubtitleTrack.fromJson(t.cast<String, dynamic>()),
+            PlaybackAudioTrack.fromJson(Map<String, dynamic>.from(t)),
       ],
+      subtitles: parsedSubtitles,
       sessionId: json['session_id']?.toString(),
-      streamUrl: json['stream_url']?.toString(),
+      streamUrl: rawStreamUrl,
+      streamToken: extractedToken,
       startMs: (json['start_ms'] as num?)?.toInt() ?? 0,
-      subtitleUrls: [
-        for (final u in (json['subtitle_urls'] as List? ?? [])) u.toString(),
-      ],
+      durationMs: (watchMap?['duration_ms'] as num?)?.toInt(),
+      subtitleUrls: rawSubtitleUrls,
       masterUrl: json['master_url']?.toString(),
       hwBackend: json['hw_backend']?.toString(),
       skipSegments: [
         for (final s in segList)
-          if (s is Map) PlaybackSkipSegment.fromJson(s.cast<String, dynamic>()),
+          if (s is Map)
+            PlaybackSkipSegment.fromJson(Map<String, dynamic>.from(s)),
+      ],
+      chapters: [
+        for (final c in chapList)
+          if (c is Map) PlaybackChapter.fromJson(Map<String, dynamic>.from(c)),
       ],
     );
   }

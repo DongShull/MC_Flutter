@@ -61,9 +61,43 @@ class _AutomationOverviewPageState
 
   @override
   Widget build(BuildContext context) {
-    final checks = (_data?['checks'] ?? _data?['steps'] ?? _data?['items'])
-        as List<dynamic>?;
-    final ready = _data?['ready'] == true;
+    final status = (_data?['status'] ?? '').toString();
+    final ready = _data?['ready'] == true || status == 'ok';
+    final siteCheck = _data?['site_check'] is Map
+        ? Map<String, dynamic>.from(_data!['site_check'] as Map)
+        : null;
+    final downloaderOk = _data?['downloader_ok'] == true;
+    final issues = (_data?['issues'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map(Map<String, dynamic>.from)
+        .toList();
+    final libraries = (_data?['libraries'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map(Map<String, dynamic>.from)
+        .toList();
+    final legacyChecks =
+        (_data?['checks'] ?? _data?['steps'] ?? _data?['items'])
+            as List<dynamic>?;
+
+    final synthesizedChecks = <Map<String, dynamic>>[
+      if (siteCheck != null)
+        {
+          'ok': siteCheck['status'] == 'ok' || siteCheck['ok'] == true,
+          'title': (siteCheck['label'] ?? siteCheck['title'] ?? 'PT 资源搜索与站点连通')
+              .toString(),
+          'message':
+              (siteCheck['detail'] ?? siteCheck['message'] ?? '').toString(),
+        },
+      if (_data != null && _data!.containsKey('downloader_ok'))
+        {
+          'ok': downloaderOk,
+          'title': '默认下载客户端',
+          'message': downloaderOk ? '默认下载器连接正常' : '尚未配置可用的默认下载器',
+        },
+      if (legacyChecks != null)
+        ...legacyChecks.whereType<Map>().map(Map<String, dynamic>.from),
+    ];
+
     return SettingsScaffold(
       title: '自动化流水线巡检',
       actions: [
@@ -82,14 +116,40 @@ class _AutomationOverviewPageState
                           : McIcons.alertCircle,
                       text: ready
                           ? '全链路就绪：PT 索引站点 → 下载器 → 自动硬链入库 → 刮削流水线运转正常。'
-                          : '部分环节待完善，补齐下方标黄项即可实现全无人值守追更入库。',
+                          : '发现 ${issues.isNotEmpty ? '${issues.length} 项' : '部分'}待优化环节，补齐下方提示项即可实现全无人值守追更入库。',
                     ),
                     const SizedBox(height: 12),
-                    if (checks != null && checks.isNotEmpty)
+                    if (issues.isNotEmpty) ...[
                       McInsetGroup(
-                        header: '核心环节自检',
+                        header: '待处理问题 (${issues.length})',
                         children: [
-                          for (final raw in checks.whereType<Map>())
+                          for (final iss in issues)
+                            McInsetRow(
+                              icon: iss['status'] == 'error'
+                                  ? McIcons.alertCircle
+                                  : McIcons.alert1,
+                              iconColor: iss['status'] == 'error'
+                                  ? McTokens.danger
+                                  : McTokens.warning,
+                              title: (iss['title'] ?? '').toString(),
+                              subtitle: [
+                                if ((iss['detail'] ?? '').toString().isNotEmpty)
+                                  iss['detail'].toString(),
+                                if (iss['affected_libraries'] is List &&
+                                    (iss['affected_libraries'] as List)
+                                        .isNotEmpty)
+                                  '受影响库：${(iss['affected_libraries'] as List).join('、')}',
+                              ].join('\n'),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    if (synthesizedChecks.isNotEmpty) ...[
+                      McInsetGroup(
+                        header: '全局核心环节',
+                        children: [
+                          for (final raw in synthesizedChecks)
                             Builder(
                               builder: (context) {
                                 final ok = raw['ok'] == true ||
@@ -101,16 +161,56 @@ class _AutomationOverviewPageState
                                       : McIcons.alert1,
                                   iconColor:
                                       ok ? McTokens.ok : McTokens.warning,
-                                  title: (raw['title'] ?? raw['label'] ?? raw['key'] ?? '')
+                                  title: (raw['title'] ??
+                                          raw['label'] ??
+                                          raw['key'] ??
+                                          '')
                                       .toString(),
-                                  subtitle: (raw['message'] ?? raw['detail'] ?? '')
+                                  subtitle: (raw['message'] ??
+                                          raw['detail'] ??
+                                          '')
                                       .toString(),
                                 );
                               },
                             ),
                         ],
                       ),
-                    const SizedBox(height: 16),
+                      const SizedBox(height: 14),
+                    ],
+                    if (libraries.isNotEmpty) ...[
+                      McInsetGroup(
+                        header: '各媒体库入库链路 (${libraries.length})',
+                        children: [
+                          for (final lib in libraries)
+                            Builder(
+                              builder: (context) {
+                                final st = (lib['status'] ?? 'ok').toString();
+                                final ok = st == 'ok';
+                                final err = st == 'error';
+                                return McInsetRow(
+                                  icon: ok
+                                      ? McIcons.checkCircleFill
+                                      : (err
+                                          ? McIcons.alertCircle
+                                          : McIcons.alert1),
+                                  iconColor: ok
+                                      ? McTokens.ok
+                                      : (err
+                                          ? McTokens.danger
+                                          : McTokens.warning),
+                                  title:
+                                      (lib['library_name'] ?? '').toString(),
+                                  subtitle: (lib['narrative'] ??
+                                          lib['library_root'] ??
+                                          '')
+                                      .toString(),
+                                );
+                              },
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                    ],
                     McInsetGroup(
                       header: '快捷配置入口',
                       children: [

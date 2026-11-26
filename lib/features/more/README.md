@@ -11,7 +11,7 @@
 - widgets/section_picker.dart — 圆角 27 三段胶囊选择器（服务器段可带提醒红点）
 - widgets/conversations_section.dart — 会话段（管理员）：按 今天/昨天/更早 分组；行点击 /agent/session/{id}；续接（fork 跳新会话）/ 重命名（截 80 字去空白）/ 删除（确认「彻底删除」）；滚到底自动翻页
 - widgets/downloads_section.dart — 下载段：离线下载入口卡 → /offline（数据属 offline 域，禁跨 feature import）
-- widgets/server_section.dart — 服务器段：当前服务器卡（服务器设置 → /settings）+ 管理员「待处理/可用更新」瓷砖（→ /notices、/update）+ SettingsCatalog 分组入口（设备/播放/更新与维护/Web，只列有真实路由项）
+- widgets/server_section.dart — 服务器段：当前服务器卡（服务器设置 → /settings）+ 管理员「待处理/可用更新」瓷砖（→ /notices、/update）+ 原生设置分组入口（账号/媒体库/系统）
 
 ## 状态
 - state/models.dart — McNotice（group_key / grouped_under 折叠规则）、SessionSummary

@@ -5,7 +5,7 @@
 String mcFormatBytes(num bytes) {
   if (bytes < 1024) return '$bytes B';
   const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
-  var v = bytes.toDouble();
+  var v = bytes / 1024.0;
   var i = 0;
   while (v >= 1024 && i < units.length - 1) {
     v /= 1024;

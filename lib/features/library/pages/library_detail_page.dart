@@ -235,7 +235,7 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
                                                         crossAxisCount: cols,
                                                         mainAxisSpacing: 14,
                                                         crossAxisSpacing: 12,
-                                                        childAspectRatio: 0.55,
+                                                        childAspectRatio: 0.515,
                                                       ),
                                                       delegate:
                                                           SliverChildBuilderDelegate(

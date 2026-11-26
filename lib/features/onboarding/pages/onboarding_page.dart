@@ -355,7 +355,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                     ),
                     const SizedBox(height: 14),
                     McPressable(
-                      onTap: _scanConnect,
+                      onTap: mcIsDesktopPlatform() ? _openLoginCard : _scanConnect,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 12,
@@ -364,13 +364,18 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
-                              McIcons.scan,
+                            Icon(
+                              mcIsDesktopPlatform()
+                                  ? McIcons.device
+                                  : McIcons.scan,
                               size: 15,
                               color: McTokens.textMuted,
                             ),
                             const SizedBox(width: 6),
-                            Text('扫码快速接入', style: McText.caption.muted),
+                            Text(
+                              mcIsDesktopPlatform() ? '配对码快速接入' : '扫码快速接入',
+                              style: McText.caption.muted,
+                            ),
                           ],
                         ),
                       ),
@@ -386,25 +391,21 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
           Align(
             alignment: Alignment.bottomCenter,
             child: AnimatedSlide(
-              offset: _sheetOpen ? Offset.zero : const Offset(0, 1.12),
+              offset: _sheetOpen ? Offset.zero : const Offset(0, 1.25),
               duration: const Duration(milliseconds: 320),
               curve: Curves.easeOutCubic,
-              child: AnimatedOpacity(
-                opacity: _sheetOpen ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 220),
-                child: IgnorePointer(
-                  ignoring: !_sheetOpen,
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      16,
-                      16,
-                      16,
-                      math.max(16.0, kbHeight + 12),
-                    ),
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: cardMaxWidth),
-                      child: _buildLoginSheet(state),
-                    ),
+              child: IgnorePointer(
+                ignoring: !_sheetOpen,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    16,
+                    16,
+                    math.max(16.0, kbHeight + 12),
+                  ),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: cardMaxWidth),
+                    child: _buildLoginSheet(state),
                   ),
                 ),
               ),
@@ -416,22 +417,20 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
   }
 
   Widget _buildLoginSheet(OnboardingState state) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(McTokens.sheetRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-        child: DecoratedBox(
+    final content = DecoratedBox(
           decoration: BoxDecoration(
             color: const Color(0xEB151821),
             borderRadius: BorderRadius.circular(McTokens.sheetRadius),
             border: Border.all(color: McTokens.lineStrong, width: 1),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0xCC000000),
-                blurRadius: 36,
-                offset: Offset(0, 14),
-              ),
-            ],
+            boxShadow: _sheetOpen
+                ? const [
+                    BoxShadow(
+                      color: Color(0xCC000000),
+                      blurRadius: 36,
+                      offset: Offset(0, 14),
+                    ),
+                  ]
+                : const [],
           ),
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
@@ -454,16 +453,18 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                         ],
                       ),
                     ),
+                    if (!mcIsDesktopPlatform()) ...[
+                      McGlassIconButton(
+                        icon: McIcons.scan,
+                        size: 36,
+                        iconSize: 17,
+                        tooltip: '扫码填入地址',
+                        onTap: state.busy ? null : _scanConnect,
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                     McGlassIconButton(
-                      icon: McIcons.scan,
-                      size: 36,
-                      iconSize: 17,
-                      tooltip: '扫码填入地址',
-                      onTap: state.busy ? null : _scanConnect,
-                    ),
-                    const SizedBox(width: 8),
-                    McGlassIconButton(
-                      icon: McIcons.close2,
+                      icon: McIcons.close,
                       size: 36,
                       iconSize: 17,
                       tooltip: '收起',
@@ -618,7 +619,18 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
               ],
             ),
           ),
-        ),
+        );
+    if (!_sheetOpen) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(McTokens.sheetRadius),
+        child: content,
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(McTokens.sheetRadius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+        child: content,
       ),
     );
   }
@@ -683,23 +695,25 @@ class _CosmosPainter extends CustomPainter {
       size.height * 0.90 + planetRadius,
     );
 
-    // 大气外层冷青蓝辉光
+    // 大气外层冷青蓝辉光（纯径向渐变着色器，避免软件/OpenGL 光栅化器超大高斯模糊分块撕裂）
+    final outerRadius = planetRadius + 56.0;
+    final innerStop = ((planetRadius - 6.0) / outerRadius).clamp(0.0, 0.99);
+    final peakStop = ((planetRadius + 8.0) / outerRadius).clamp(innerStop, 0.995);
+    final haloRect = Rect.fromCircle(center: planetCenter, radius: outerRadius);
     final glowPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 58
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 32)
-      ..shader = const LinearGradient(
-        colors: [
-          Color(0x0036E2BD),
-          Color(0x384C9DFF),
-          Color(0x527FB0FF),
-          Color(0x389A6BFF),
-          Color(0x0036E2BD),
+      ..shader = RadialGradient(
+        colors: const [
+          Color(0x00000000),
+          Color(0x426BA2FF),
+          Color(0x1C4C8DFF),
+          Color(0x00000000),
         ],
-      ).createShader(
-        Rect.fromLTWH(0, size.height * 0.72, size.width, size.height * 0.28),
-      );
-    canvas.drawCircle(planetCenter, planetRadius, glowPaint);
+        stops: [innerStop, peakStop, (peakStop + 0.018).clamp(0.0, 1.0), 1.0],
+      ).createShader(haloRect);
+    canvas.drawRect(
+      Rect.fromLTWH(0, size.height * 0.65, size.width, size.height * 0.35),
+      glowPaint,
+    );
 
     // 行星暗体遮罩
     canvas.drawCircle(

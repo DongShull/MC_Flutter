@@ -80,6 +80,8 @@ class DetailEntry {
     this.officialRating,
     this.resolution,
     this.hdr = false,
+    this.hdrLabel,
+    this.genres = const [],
     this.posterUrl,
     this.backdropUrl,
     this.audioTracks = const [],
@@ -87,6 +89,7 @@ class DetailEntry {
     this.seriesName,
     this.seriesCollectionId,
     this.collections = const [],
+    this.collectionIds = const {},
     this.seasons = const [],
     this.cast = const [],
     this.resumeEpisode,
@@ -108,6 +111,8 @@ class DetailEntry {
   final String? officialRating;
   final String? resolution;
   final bool hdr;
+  final String? hdrLabel;
+  final List<String> genres;
   final String? posterUrl;
   final String? backdropUrl;
   final List<String> audioTracks;
@@ -117,6 +122,7 @@ class DetailEntry {
   final int? seriesCollectionId;
   /// 合集名列表（文字链接行）
   final List<String> collections;
+  final Map<String, int> collectionIds;
   final List<SeasonInfo> seasons;
   /// 演职员（前 40 由页面截断）
   final List<CastMember> cast;
@@ -131,36 +137,106 @@ class DetailEntry {
 
   factory DetailEntry.fromJson(Map<String, dynamic> j) {
     final media = J.map(j, 'media');
+    final localMeta = J.map(j, 'local_meta');
     final series = J.map(j, 'series');
-    final seasons = J.listOfMap(j, ['seasons']).map(SeasonInfo.fromJson).toList();
+    final rawFiles = (j['files'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map(Map<String, dynamic>.from)
+        .toList();
+    final primaryFile = rawFiles.isNotEmpty ? rawFiles.first : const <String, dynamic>{};
+
+    // seasons 可能是 List<int>（如 [1, 2]）或 List<Map>
+    final parsedSeasons = <SeasonInfo>[];
+    final rawSeasons = j['seasons'];
+    if (rawSeasons is List) {
+      for (final s in rawSeasons) {
+        if (s is num) {
+          parsedSeasons.add(SeasonInfo(number: s.toInt()));
+        } else if (s is Map) {
+          parsedSeasons.add(SeasonInfo.fromJson(Map<String, dynamic>.from(s)));
+        }
+      }
+    }
+
+    // collections 可能是 List<String> 或 List<{id, name}>
+    final parsedCollections = <String>[];
+    final parsedCollectionIds = <String, int>{};
+    final rawCols = j['collections'] ?? j['collection_names'];
+    if (rawCols is List) {
+      for (final c in rawCols) {
+        if (c is String && c.trim().isNotEmpty) {
+          parsedCollections.add(c.trim());
+        } else if (c is Map) {
+          final m = Map<String, dynamic>.from(c);
+          final name = (m['name'] ?? m['title'] ?? '').toString().trim();
+          final cid = J.i(m, ['id', 'collection_id']);
+          if (name.isNotEmpty) {
+            parsedCollections.add(name);
+            if (cid != null) parsedCollectionIds[name] = cid;
+          }
+        }
+      }
+    }
+
+    // 合并导演与演员（支持 local_meta.director_credits + local_meta.actors + 顶层 cast/people）
+    final parsedCast = <CastMember>[
+      for (final d in J.listOfMap(localMeta, ['director_credits']))
+        CastMember(
+          name: J.s(d, ['name', 'person_name']) ?? '',
+          role: '导演',
+          profileUrl: J.s(d, ['thumb_url', 'profile_url', 'photo_url']),
+          personId: J.i(d, ['tmdb_person_id', 'person_id', 'id']),
+        ),
+      ...J.listOfMap(localMeta, ['actors']).map(CastMember.fromJson),
+      ...J.listOfMap(j, ['cast', 'people']).map(CastMember.fromJson),
+    ].where((c) => c.name.isNotEmpty).toList();
+
+    final hdrStr = J.s(primaryFile, ['hdr']) ?? J.s(media, ['hdr']);
+    final isHdr = media['hdr'] == true ||
+        primaryFile['hdr'] == true ||
+        (hdrStr != null && hdrStr.isNotEmpty && hdrStr.toLowerCase() != 'sdr');
+    final fileDurMins = ((primaryFile['duration_seconds'] as num?)?.toInt() ?? 0) ~/ 60;
+
     return DetailEntry(
       id: J.i(j, ['id', 'item_id', 'media_item_id']) ?? 0,
       libraryId: J.i(j, ['library_id']) ?? 0,
       kind: J.s(j, ['kind', 'type', 'item_kind']) ?? 'movie',
       title: J.s(j, ['title', 'name']) ?? '',
-      originalTitle: J.s(j, ['original_title', 'original_name']),
-      tagline: J.s(j, ['tagline']),
-      overview: J.s(j, ['overview', 'plot', 'summary']),
+      originalTitle: J.s(j, ['original_title', 'english_title', 'original_name']),
+      tagline: J.s(j, ['tagline']) ?? J.s(localMeta, ['tagline']),
+      overview: J.s(j, ['overview', 'plot', 'summary']) ??
+          J.s(localMeta, ['plot', 'overview', 'summary']),
       year: J.i(j, ['year', 'production_year']),
-      runtimeMinutes: J.i(j, ['runtime_minutes', 'runtime', 'duration_minutes']),
-      rating: J.d(j, ['rating', 'community_rating', 'vote_average']),
+      runtimeMinutes: J.i(j, ['runtime_minutes', 'runtime', 'duration_minutes']) ??
+          J.i(localMeta, ['runtime_minutes', 'runtime']) ??
+          (fileDurMins > 0 ? fileDurMins : null),
+      rating: J.d(j, ['rating', 'community_rating', 'vote_average']) ??
+          J.d(localMeta, ['rating', 'vote_average']),
       officialRating: J.s(j, ['official_rating', 'content_rating']),
-      resolution: J.s(media, ['resolution', 'resolution_label']),
-      hdr: media['hdr'] == true,
+      resolution: J.s(media, ['resolution', 'resolution_label']) ??
+          J.s(primaryFile, ['resolution']),
+      hdr: isHdr,
+      hdrLabel: (hdrStr != null && hdrStr.isNotEmpty && hdrStr != 'true')
+          ? hdrStr.toUpperCase()
+          : (isHdr ? 'HDR' : null),
+      genres: <String>{
+        ...J.list(j, ['genres']),
+        ...J.list(localMeta, ['genres']),
+      }.toList(),
       posterUrl: J.s(j, ['poster_url', 'poster']),
       backdropUrl: J.s(j, ['backdrop_url', 'backdrop']),
       audioTracks: J.list(media, ['audio_tracks', 'audio']),
       subtitleTracks: J.list(media, ['subtitle_tracks', 'subtitles']),
       seriesName: J.s(series, ['name', 'series_name']) ?? J.s(j, ['series_name']),
       seriesCollectionId: J.i(series, ['id', 'collection_id']) ?? J.i(j, ['series_collection_id']),
-      collections: J.list(j, ['collection_names', 'collections']),
-      seasons: seasons,
-      cast: J.listOfMap(j, ['cast', 'people']).map(CastMember.fromJson).toList(),
+      collections: parsedCollections,
+      collectionIds: parsedCollectionIds,
+      seasons: parsedSeasons,
+      cast: parsedCast,
       resumeEpisode: J.i(j, ['resume_episode']),
       tmdbId: J.i(j, ['tmdb_id', 'tmdb']),
-      fileIds: ((j['files'] ?? const []) as List<dynamic>)
-          .whereType<Map>()
-          .map((e) => J.i(e.cast<String, dynamic>(), ['id', 'file_id']))
+      fileIds: rawFiles
+          .map((e) => J.i(e, ['id', 'file_id']))
           .whereType<int>()
           .toList(),
     );
@@ -253,8 +329,8 @@ class CastMember {
   factory CastMember.fromJson(Map<String, dynamic> j) => CastMember(
         name: J.s(j, ['name', 'person_name']) ?? '',
         role: J.s(j, ['role', 'character']),
-        profileUrl: J.s(j, ['profile_url', 'photo_url']),
-        personId: J.i(j, ['person_id', 'id']),
+        profileUrl: J.s(j, ['thumb_url', 'profile_url', 'photo_url']),
+        personId: J.i(j, ['tmdb_person_id', 'person_id', 'id']),
       );
 }
 

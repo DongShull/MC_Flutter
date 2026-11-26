@@ -400,7 +400,7 @@ class _DiscoveryFilterMenuState extends State<DiscoveryFilterMenu> {
                     const Divider(height: 1, color: McTokens.line),
                     _MenuRow(
                       title: '清空条件',
-                      icon: McIcons.close2,
+                      icon: McIcons.close,
                       danger: true,
                       onTap: () => widget.onApply(const DiscoveryFilter()),
                     ),

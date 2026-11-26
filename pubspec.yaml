@@ -23,6 +23,10 @@ dependencies:
   url_launcher: ^6.3.0              # 外链/浏览器（对应 Android Custom Tabs）
   share_plus: ^10.0.0               # 系统分享（对应 Android Intent.ACTION_SEND）
   image_picker: ^1.1.2              # 头像选择（对应 Android Photo Picker）
+  media_kit_libs_linux: ^1.2.1
+  media_kit_libs_windows_video: ^1.0.11
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
 
 dev_dependencies:
   flutter_test:

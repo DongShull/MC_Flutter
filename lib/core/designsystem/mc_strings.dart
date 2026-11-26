@@ -102,8 +102,6 @@ abstract final class McStrings {
   static const settingsPlaybackSubtitle = '远程转码与播放体验';
   static const settingsMaintenanceTitle = '更新与维护';
   static const settingsMaintenanceSubtitle = '版本更新与应用重启';
-  static const settingsWebTitle = 'Web';
-  static const settingsWebSubtitle = '在浏览器里打开服务器管理页';
   static const accountSwitcherTitle = '切换账号';
   static const accountSwitchedToastPrefix = '已切换到 ';
   static const accountSwitchFailedToast = '切换失败：目标账号没有已存令牌';

@@ -412,10 +412,32 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, i) {
         final f = _unidentified[i];
-        final id = (f['id'] as num? ?? f['file_id'] as num? ?? 0).toInt();
-        final path = (f['path'] ?? f['rel_path'] ?? f['filename'] ?? '')
+        final nestedFiles = (f['files'] as List<dynamic>? ?? const [])
+            .whereType<Map>()
+            .map(Map<String, dynamic>.from)
+            .toList();
+        final fileIds = <int>[
+          if (nestedFiles.isNotEmpty)
+            for (final nf in nestedFiles)
+              (nf['id'] as num? ?? nf['file_id'] as num? ?? 0).toInt()
+          else
+            (f['id'] as num? ?? f['file_id'] as num? ?? 0).toInt(),
+        ].where((id) => id > 0).toList();
+        final path = (f['label'] ??
+                f['file_path'] ??
+                f['path'] ??
+                f['rel_path'] ??
+                f['filename'] ??
+                (nestedFiles.isNotEmpty ? nestedFiles.first['file_path'] : null) ??
+                '')
             .toString();
-        final size = (f['size_bytes'] as num? ?? 0).toInt();
+        final libName = (f['library_name'] ?? '').toString();
+        final reason = (f['reason'] ?? '').toString();
+        final size = (f['total_size_bytes'] as num? ??
+                f['size_bytes'] as num? ??
+                0)
+            .toInt();
+        final title = path.contains('/') ? path.split('/').last : path;
         return Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -436,7 +458,7 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      path.split('/').last,
+                      title.isEmpty ? '未命名文件' : title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: McText.ui.semibold,
@@ -444,9 +466,11 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
                     const SizedBox(height: 3),
                     Text(
                       [
+                        if (libName.isNotEmpty) libName,
+                        if (nestedFiles.length > 1) '${nestedFiles.length} 个文件',
                         if (size > 0) mcFormatBytes(size),
-                        path,
-                      ].join(' · '),
+                        if (reason.isNotEmpty) reason else path,
+                      ].where((s) => s.isNotEmpty).join(' · '),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: McText.micro.faint,
@@ -459,9 +483,9 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
                 label: '手动认领',
                 selected: true,
                 compact: true,
-                onTap: id <= 0
+                onTap: fileIds.isEmpty
                     ? null
-                    : () => _openClaimSheet(id, path.split('/').last),
+                    : () => _openClaimSheet(fileIds, title),
               ),
             ],
           ),
@@ -470,15 +494,27 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
     );
   }
 
-  Future<void> _openClaimSheet(int fileId, String fileName) async {
+  Future<void> _openClaimSheet(List<int> fileIds, String fileName) async {
     final claimed = await showMcSheet<bool>(
       context: context,
       maxWidth: 580,
-      builder: (_) => _ClaimFileSheet(fileId: fileId, fileName: fileName),
+      builder: (_) => _ClaimFileSheet(fileIds: fileIds, fileName: fileName),
     );
     if (claimed == true && mounted) {
       await _reload();
     }
+  }
+
+  List<int> _extractTrashFileIds(Map<String, dynamic> row) {
+    final files = row['files'];
+    if (files is List && files.isNotEmpty) {
+      return [
+        for (final item in files.whereType<Map>())
+          (item['id'] as num? ?? item['file_id'] as num? ?? 0).toInt(),
+      ].where((id) => id > 0).toList();
+    }
+    final single = (row['id'] as num? ?? row['file_id'] as num? ?? 0).toInt();
+    return single > 0 ? [single] : const [];
   }
 
   Widget _buildTrashTab() {
@@ -489,10 +525,9 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
         text: '被移除的媒体文件会暂存于此，方便随时恢复或彻底清理。',
       );
     }
-    final allIds = [
-      for (final f in _trashed)
-        (f['id'] as num? ?? f['file_id'] as num? ?? 0).toInt(),
-    ].where((id) => id > 0).toList();
+    final allIds = <int>{
+      for (final f in _trashed) ..._extractTrashFileIds(f),
+    }.toList();
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -545,25 +580,64 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
             for (final f in _trashed)
               Builder(
                 builder: (context) {
-                  final id =
-                      (f['id'] as num? ?? f['file_id'] as num? ?? 0).toInt();
-                  final path =
-                      (f['path'] ?? f['filename'] ?? '未知文件').toString();
-                  final size = (f['size_bytes'] as num? ?? 0).toInt();
+                  final rowIds = _extractTrashFileIds(f);
+                  final mediaItem = f['media_item'] is Map
+                      ? Map<String, dynamic>.from(f['media_item'] as Map)
+                      : null;
+                  final libraryMap = f['library'] is Map
+                      ? Map<String, dynamic>.from(f['library'] as Map)
+                      : null;
+                  final filesList = (f['files'] as List<dynamic>? ?? const [])
+                      .whereType<Map>()
+                      .map(Map<String, dynamic>.from)
+                      .toList();
+                  final firstFile = filesList.isNotEmpty ? filesList.first : f;
+                  final fallbackName = (firstFile['file_name'] ??
+                          firstFile['filename'] ??
+                          firstFile['file_path'] ??
+                          firstFile['path'] ??
+                          '未知文件')
+                      .toString();
+                  final displayTitle = mediaItem != null &&
+                          (mediaItem['title'] ?? '').toString().isNotEmpty
+                      ? [
+                          mediaItem['title'].toString(),
+                          if (mediaItem['year'] != null)
+                            '(${mediaItem['year']})',
+                        ].join(' ')
+                      : fallbackName.split('/').last;
+                  final size = (f['total_bytes'] as num? ??
+                          firstFile['size_bytes'] as num? ??
+                          0)
+                      .toInt();
+                  final fileCount =
+                      (f['file_count'] as num? ?? filesList.length).toInt();
+                  final libName = (libraryMap?['name'] ?? '').toString();
+                  final trigger =
+                      (f['trigger_label'] ?? f['note'] ?? '').toString();
+                  final subtitleParts = <String>[
+                    if (libName.isNotEmpty) libName,
+                    if (fileCount > 1) '$fileCount 个文件',
+                    if (size > 0) mcFormatBytes(size),
+                    if (trigger.isNotEmpty)
+                      trigger
+                    else if (fallbackName != '未知文件')
+                      fallbackName.split('/').last,
+                  ];
                   return McInsetRow(
                     icon: McIcons.fileVideo1,
-                    title: path.split('/').last,
-                    subtitle: size > 0 ? '${mcFormatBytes(size)} · $path' : path,
+                    title: displayTitle,
+                    subtitle: subtitleParts.join(' · '),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         McChip(
                           label: '恢复',
                           compact: true,
-                          onTap: id <= 0
+                          onTap: rowIds.isEmpty
                               ? null
                               : () async {
-                                  await _api.restoreTrashedFiles([id]);
+                                  await _api.restoreTrashedFiles(rowIds);
                                   if (mounted) McToast.success('已恢复文件');
                                   await _reload();
                                 },
@@ -576,10 +650,10 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
                             size: 17,
                             color: McTokens.danger,
                           ),
-                          onPressed: id <= 0
+                          onPressed: rowIds.isEmpty
                               ? null
                               : () async {
-                                  await _api.purgeTrashedFiles([id]);
+                                  await _api.purgeTrashedFiles(rowIds);
                                   if (mounted) McToast.success('已彻底删除');
                                   await _reload();
                                 },
@@ -829,7 +903,7 @@ class _LibraryEditorSheetState extends ConsumerState<_LibraryEditorSheet> {
                     title: p,
                     trailing: IconButton(
                       icon: const Icon(
-                        McIcons.close2,
+                        McIcons.close,
                         size: 16,
                         color: McTokens.textMuted,
                       ),
@@ -1009,9 +1083,9 @@ class _ServerDirPickerSheetState extends ConsumerState<_ServerDirPickerSheet> {
 
 /// 待识别文件手动认领弹层（搜索 TMDB 词条并绑定 `file-title-assignments`）。
 class _ClaimFileSheet extends ConsumerStatefulWidget {
-  const _ClaimFileSheet({required this.fileId, required this.fileName});
+  const _ClaimFileSheet({required this.fileIds, required this.fileName});
 
-  final int fileId;
+  final List<int> fileIds;
   final String fileName;
 
   @override
@@ -1082,7 +1156,7 @@ class _ClaimFileSheetState extends ConsumerState<_ClaimFileSheet> {
     setState(() => _binding = true);
     try {
       await ref.read(libraryApiProvider).assignFileTitle(
-            fileIds: [widget.fileId],
+            fileIds: widget.fileIds,
             titleRef: titleRef,
           );
       if (mounted) {

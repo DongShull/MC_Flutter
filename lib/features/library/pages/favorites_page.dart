@@ -137,7 +137,7 @@ class _LibraryFavoritesPageState extends ConsumerState<LibraryFavoritesPage> {
               crossAxisCount: columns,
               mainAxisSpacing: 16,
               crossAxisSpacing: 12,
-              childAspectRatio: McTokens.posterAspect * 0.78,
+              childAspectRatio: 0.515,
             ),
             itemCount: _items.length,
             itemBuilder: (context, i) {

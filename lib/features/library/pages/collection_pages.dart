@@ -223,7 +223,7 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
                                                 maxCrossAxisExtent: 130,
                                                 mainAxisSpacing: 14,
                                                 crossAxisSpacing: 12,
-                                                childAspectRatio: 0.55,
+                                                childAspectRatio: 0.515,
                                               )
                                             : SliverGridDelegateWithFixedCrossAxisCount(
                                                 crossAxisCount:
@@ -239,7 +239,7 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
                                                 ),
                                                 mainAxisSpacing: 14,
                                                 crossAxisSpacing: 12,
-                                                childAspectRatio: 0.55,
+                                                childAspectRatio: 0.515,
                                               ),
                                         delegate: SliverChildBuilderDelegate(
                                           (context, i) {

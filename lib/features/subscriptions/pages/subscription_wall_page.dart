@@ -128,7 +128,7 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
           maxCrossAxisExtent: 150,
           mainAxisSpacing: 14,
           crossAxisSpacing: 12,
-          childAspectRatio: 126 / 220,
+          childAspectRatio: 0.515,
         );
       }
       return SliverGridDelegateWithFixedCrossAxisCount(
@@ -139,7 +139,7 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
         ),
         mainAxisSpacing: 14,
         crossAxisSpacing: 12,
-        childAspectRatio: 126 / 220,
+        childAspectRatio: 0.515,
       );
     }
 

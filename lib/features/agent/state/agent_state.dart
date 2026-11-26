@@ -18,30 +18,30 @@ class AgentApi {
 
   final McClient _client;
 
-  /// GET /api/v1/agent/sessions：会话列表。
+  /// GET /api/v1/sessions：会话列表。
   Future<List<SessionSummary>> sessions() async {
     final body = await _client.unwrap<List<dynamic>>(
       Channel.general,
       'GET',
-      '/api/v1/agent/sessions',
+      '/api/v1/sessions',
     );
     return body
-        .whereType<Map<String, dynamic>>()
-        .map(SessionSummary.fromJson)
+        .whereType<Map>()
+        .map((m) => SessionSummary.fromJson(Map<String, dynamic>.from(m)))
         .toList();
   }
 
-  /// GET /api/v1/agent/sessions/{id}：转录。
+  /// GET /api/v1/sessions/{id}：转录。
   Future<SessionTranscript> transcript(String sessionId) async {
     final body = await _client.unwrap<Map<String, dynamic>>(
       Channel.general,
       'GET',
-      '/api/v1/agent/sessions/$sessionId',
+      '/api/v1/sessions/$sessionId',
     );
     return SessionTranscript.fromJson(body);
   }
 
-  /// POST /api/v1/agent/sessions：开始或继续会话。
+  /// POST /api/v1/sessions：开始或继续会话。
   Future<Map<String, dynamic>> start({
     required String content,
     String? sessionId,
@@ -51,25 +51,28 @@ class AgentApi {
     return _client.unwrap<Map<String, dynamic>>(
       Channel.general,
       'POST',
-      '/api/v1/agent/sessions',
+      '/api/v1/sessions',
       body: {
         'content': content,
+        if (sessionId != null) 'session_id': sessionId,
         if (sessionId != null) 'sessionId': sessionId,
         'model': model ?? '',
+        if (thinkingLevel != null && thinkingLevel.isNotEmpty)
+          'thinking_level': thinkingLevel,
         if (thinkingLevel != null && thinkingLevel.isNotEmpty)
           'thinkingLevel': thinkingLevel,
       },
     );
   }
 
-  /// POST /api/v1/agent/sessions/{id}/stop。
+  /// POST /api/v1/sessions/{id}/stop。
   Future<void> stop(String sessionId) => _client.unwrap<Map<String, dynamic>>(
         Channel.general,
         'POST',
-        '/api/v1/agent/sessions/$sessionId/stop',
+        '/api/v1/sessions/$sessionId/stop',
       );
 
-  /// POST /api/v1/agent/sessions/{id}/retry。
+  /// POST /api/v1/sessions/{id}/retry。
   Future<Map<String, dynamic>> retry({
     required String sessionId,
     String? messageId,
@@ -78,60 +81,64 @@ class AgentApi {
       _client.unwrap<Map<String, dynamic>>(
         Channel.general,
         'POST',
-        '/api/v1/agent/sessions/$sessionId/retry',
+        '/api/v1/sessions/$sessionId/retry',
         body: {
           if (messageId != null) 'messageId': messageId,
           if (content != null) 'content': content,
         },
       );
 
-  /// POST /api/v1/agent/sessions/{id}/fork：从当前或指定消息分叉出新会话。
+  /// POST /api/v1/sessions/{id}/fork：从当前或指定消息分叉出新会话。
   Future<String?> forkSession(String sessionId, {String? entryId}) async {
     final body = await _client.unwrap<Map<String, dynamic>>(
       Channel.general,
       'POST',
-      '/api/v1/agent/sessions/$sessionId/fork',
+      '/api/v1/sessions/$sessionId/fork',
       body: {
         if (entryId != null && entryId.isNotEmpty) 'entry_id': entryId,
         if (entryId != null && entryId.isNotEmpty) 'messageId': entryId,
       },
     );
+    final nested = body['session'];
+    if (nested is Map && nested['id'] != null) {
+      return nested['id'].toString();
+    }
     return body['id']?.toString() ??
         body['sessionId']?.toString() ??
         body['session_id']?.toString();
   }
 
-  /// POST /api/v1/agent/sessions/{id}/compact-context。
+  /// POST /api/v1/sessions/{id}/compact-context。
   Future<void> compactContext(String sessionId) =>
       _client.unwrap<Map<String, dynamic>>(
         Channel.general,
         'POST',
-        '/api/v1/agent/sessions/$sessionId/compact-context',
+        '/api/v1/sessions/$sessionId/compact-context',
       );
 
-  /// PATCH /api/v1/agent/sessions/{id}：重命名。
+  /// PATCH /api/v1/sessions/{id}：重命名。
   Future<void> rename(String sessionId, String title) =>
       _client.unwrap<Map<String, dynamic>>(
         Channel.general,
         'PATCH',
-        '/api/v1/agent/sessions/$sessionId',
+        '/api/v1/sessions/$sessionId',
         body: {'title': title},
       );
 
-  /// DELETE /api/v1/agent/sessions/{id}。
+  /// DELETE /api/v1/sessions/{id}。
   Future<void> delete(String sessionId) =>
-      _client.delete(Channel.general, '/api/v1/agent/sessions/$sessionId');
+      _client.delete(Channel.general, '/api/v1/sessions/$sessionId');
 
-  /// GET /api/v1/agent/llm/models：可选模型。
+  /// GET /api/v1/llm/models：可选模型。
   Future<List<LlmModelOption>> models() async {
     final body = await _client.unwrap<List<dynamic>>(
       Channel.general,
       'GET',
-      '/api/v1/agent/llm/models',
+      '/api/v1/llm/models',
     );
     return body
-        .whereType<Map<String, dynamic>>()
-        .map(LlmModelOption.fromJson)
+        .whereType<Map>()
+        .map((m) => LlmModelOption.fromJson(Map<String, dynamic>.from(m)))
         .toList();
   }
 
@@ -329,8 +336,8 @@ class ChatController extends Notifier<ChatState> {
   String? _lastEventId;
 
   static const _eventPathCandidates = <String>[
-    '/api/v1/agent/sessions',
     '/api/v1/sessions',
+    '/api/v1/agent/sessions',
   ];
   static String? _eventsBase;
 
@@ -514,6 +521,9 @@ class ChatController extends Notifier<ChatState> {
           thinkingParts = [...thinkingParts, message.content];
           break;
         default:
+          if (message.thinking != null && message.thinking!.isNotEmpty) {
+            thinkingParts = [...thinkingParts, message.thinking!];
+          }
           if (message.toolCalls.isNotEmpty) {
             toolCalls = [...toolCalls, ...message.toolCalls];
           }

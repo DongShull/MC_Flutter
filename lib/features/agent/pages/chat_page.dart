@@ -474,7 +474,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       McPressable(
                         onTap: () => setState(() => _editingMessageId = null),
                         child: const Icon(
-                          McIcons.close2,
+                          McIcons.close,
                           size: 16,
                           color: McTokens.textMuted,
                         ),

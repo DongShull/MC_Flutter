@@ -875,7 +875,7 @@ class _ActiveJobRow extends StatelessWidget {
           if (onCancel != null) ...[
             const SizedBox(width: 6),
             McGlassIconButton(
-              icon: McIcons.close2,
+              icon: McIcons.close,
               size: 32,
               iconSize: 15,
               tooltip: '取消',

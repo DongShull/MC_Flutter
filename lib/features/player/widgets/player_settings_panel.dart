@@ -343,7 +343,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                             ],
                             Expanded(child: Text(title, style: McText.titleSm)),
                             McGlassIconButton(
-                              icon: McIcons.close2,
+                              icon: McIcons.close,
                               size: 32,
                               iconSize: 16,
                               onTap: widget.onDismiss,

@@ -162,7 +162,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(
-                                McIcons.close2,
+                                McIcons.close,
                                 size: 12,
                                 color: McTokens.text,
                               ),
@@ -381,7 +381,7 @@ class _HistorySection extends ConsumerWidget {
                       child: const Padding(
                         padding: EdgeInsets.fromLTRB(4, 7, 10, 7),
                         child: Icon(
-                          McIcons.close2,
+                          McIcons.close,
                           size: 13,
                           color: McTokens.textFaint,
                         ),
@@ -437,7 +437,7 @@ class _MediaResultBody extends ConsumerWidget {
             crossAxisCount: cols,
             mainAxisSpacing: 18,
             crossAxisSpacing: 12,
-            childAspectRatio: 0.54,
+            childAspectRatio: 0.515,
           ),
           itemCount: s.mediaHits.length,
           itemBuilder: (context, i) {
@@ -801,7 +801,7 @@ class _LibraryResultBody extends ConsumerWidget {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: McChip(
-                  icon: McIcons.close2,
+                  icon: McIcons.close,
                   label: '只看「${s.selectedPerson!.name}」的作品',
                   selected: true,
                   onTap: () => ref.read(searchProvider.notifier).clearPerson(),

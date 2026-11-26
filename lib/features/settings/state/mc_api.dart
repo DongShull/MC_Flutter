@@ -21,9 +21,6 @@ class SettingsApi {
 
   static const _prefix = '/api/v1';
 
-  /// 当前服务器基址（给「网页托管」分区拼浏览器 URL 用）。
-  String get origin => _session.baseUrl ?? '';
-
   // ---- 账号 ----
 
   /// GET /auth/me → SessionView。

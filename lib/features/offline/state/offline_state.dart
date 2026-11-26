@@ -238,7 +238,7 @@ class OfflineController extends Notifier<OfflineState> {
               .unwrap<dynamic>(
                 Channel.general,
                 'POST',
-                '/api/v1/playback/viewings',
+                '/api/v1/offline/viewings',
                 body: {
                   'items': [
                     {

@@ -57,14 +57,19 @@ class ShellBadgesController extends Notifier<ShellBadges> {
     if (!ref.read(sessionStoreProvider).isReady) return;
     var attention = 0, active = 0, live = 0, update = false;
     try {
-      final jobs = await client
-          .unwrap<List<dynamic>>(
+      final rawJobs = await client
+          .unwrap<dynamic>(
             Channel.general,
             'GET',
             '/api/v1/jobs',
           )
           .timeout(const Duration(seconds: 8));
-      for (final j in jobs.whereType<Map<String, dynamic>>()) {
+      final jobs = rawJobs is List
+          ? rawJobs
+          : (rawJobs is Map
+              ? (rawJobs['items'] as List? ?? const <dynamic>[])
+              : const <dynamic>[]);
+      for (final j in jobs.whereType<Map>()) {
         final needs =
             j['needs_attention'] == true || j['status'] == 'attention';
         if (needs) {
@@ -90,7 +95,7 @@ class ShellBadgesController extends Notifier<ShellBadges> {
           .unwrap<Map<String, dynamic>>(
             Channel.general,
             'GET',
-            '/api/v1/pending-update',
+            '/api/v1/app/update/pending',
           )
           .timeout(const Duration(seconds: 8));
       update = up['available'] == true ||

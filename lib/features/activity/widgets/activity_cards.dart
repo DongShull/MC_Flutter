@@ -309,7 +309,7 @@ class JobCard extends StatelessWidget {
           ),
           if (!historical && onCancel != null)
             McGlassIconButton(
-              icon: McIcons.close2,
+              icon: McIcons.close,
               size: 32,
               iconSize: 15,
               tooltip: '取消',

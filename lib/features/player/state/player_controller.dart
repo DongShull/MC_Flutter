@@ -160,9 +160,9 @@ class PlayerPlayback {
   }
 }
 
-/// 全 App 唯一播放器实例。
+/// 全 App 唯一播放器实例（桌面端自动走 `libmpv` 硬解引擎，移动端走 `AVPlayer / ExoPlayer`）。
 final playerServiceProvider = Provider<PlayerService>((ref) {
-  final service = VideoPlayerService();
+  final service = PlayerService.createDefault();
   ref.onDispose(service.close);
   return service;
 });
@@ -270,7 +270,12 @@ class PlayerController extends Notifier<PlayerPlayback> {
           url = _resolveHttpUrl(session.streamUrl!);
           _audioTracks = session.audioTracks;
           _subtitles = session.subtitles;
-          state = state.copyWith(skipSegments: session.skipSegments);
+          state = state.copyWith(
+            skipSegments: session.skipSegments,
+            duration: (session.durationMs != null && session.durationMs! > 0)
+                ? Duration(milliseconds: session.durationMs!)
+                : state.duration,
+          );
           _selectedAudioTrack ??= _firstDefault([
             for (final t in session.audioTracks)
               if (t.isDefault) t.ref,
@@ -436,8 +441,12 @@ class PlayerController extends Notifier<PlayerPlayback> {
   }
 
   void _onPlaying() => state = state.copyWith(playing: _service.playing.value);
-  void _onDuration() =>
-      state = state.copyWith(duration: _service.duration.value);
+  void _onDuration() {
+    final svcDur = _service.duration.value;
+    if (svcDur != null && svcDur > Duration.zero) {
+      state = state.copyWith(duration: svcDur);
+    }
+  }
 
   void detach() {
     _stopSession();
@@ -494,19 +503,32 @@ class PlayerController extends Notifier<PlayerPlayback> {
     Map<String, dynamic> remote = const {};
     if (_serverSessionId != null && _sessionApi != null) {
       try {
-        remote = await _sessionApi!.diagnostics(_serverSessionId!);
+        remote = await _sessionApi!.diagnostics(
+          _serverSessionId!,
+          token: s?.streamToken,
+        );
       } catch (_) {}
     }
+    final mbps = s?.bitRate != null && s!.bitRate! > 0
+        ? '${(s.bitRate! / 1000000).toStringAsFixed(1)} Mbps'
+        : null;
+    final resHdr = [
+      if (s?.resolution != null && s!.resolution!.isNotEmpty) s.resolution!,
+      if (s?.hdr != null && s!.hdr!.isNotEmpty) s.hdr!,
+    ].join(' · ');
     return {
-      'delivery': s?.deliveryMode ?? remote['mode'] ?? 'Direct / Local',
-      'container': s?.container ?? remote['container'] ?? '-',
-      'video_codec': s?.videoCodec ?? remote['video_codec'] ?? '-',
-      'audio_codec': s?.audioCodec ?? remote['audio_codec'] ?? '-',
-      'resolution': s?.resolution ?? remote['resolution'] ?? '-',
-      'hw_backend': s?.hwBackend ?? remote['hw_backend'] ?? 'None',
-      'quality_tier': state.qualityTier,
-      if (remote['fps'] != null) 'fps': remote['fps'],
-      if (remote['speed'] != null) 'transcode_speed': remote['speed'],
+      '交付模式': s?.deliveryMode == 'direct_play'
+          ? 'Direct Play (原盘直连)'
+          : (s?.deliveryMode ?? remote['processing_mode'] ?? 'Direct / Local'),
+      '封装容器': (s?.container ?? remote['container'] ?? '-').toString().toUpperCase(),
+      '视频规格': resHdr.isEmpty ? '-' : resHdr,
+      '视频编码': (s?.videoCodec ?? remote['video_codec'] ?? '-').toString().toUpperCase(),
+      '音频编码': (s?.audioCodec ?? remote['audio_codec'] ?? '-').toString().toUpperCase(),
+      if (mbps != null) '源文件码率': mbps,
+      if (s?.frameRate != null) '帧率': '${s!.frameRate} fps',
+      '转码加速': s?.hwBackend ?? remote['backend'] ?? '无需转码 (直通)',
+      '画质档位': state.qualityTier,
+      if (remote['job_speed'] != null) '转码速度': remote['job_speed'],
     };
   }
 

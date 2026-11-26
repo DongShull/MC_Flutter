@@ -50,35 +50,50 @@ class McBrandMark extends StatelessWidget {
   }
 }
 
-/// 顶栏吸顶护字黑雾（对应 Web `--page-fog: linear-gradient(180deg, rgba(0,0,0,.72), rgba(0,0,0,.46) 46%, transparent)`）。
+/// 顶栏吸顶护字黑雾（支持黑曜石磨砂，消除滚过顶栏时的白字穿透叠影）。
 class McPageFog extends StatelessWidget {
-  const McPageFog({super.key, this.height = 96, this.opacity = 1.0});
+  const McPageFog({
+    super.key,
+    this.height = 96,
+    this.opacity = 1.0,
+    this.blurSigma = 0,
+  });
 
   final double height;
   final double opacity;
+  final double blurSigma;
 
   @override
   Widget build(BuildContext context) {
     if (opacity <= 0) return const SizedBox.shrink();
+    Widget box = Container(
+      height: height,
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xEE000000),
+            Color(0xC2000000),
+            Color(0x00000000),
+          ],
+          stops: [0.0, 0.62, 1.0],
+        ),
+      ),
+    );
+    if (blurSigma > 0) {
+      box = ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+          child: box,
+        ),
+      );
+    }
     return IgnorePointer(
       child: Opacity(
         opacity: opacity.clamp(0.0, 1.0),
-        child: Container(
-          height: height,
-          width: double.infinity,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0xB8000000),
-                Color(0x75000000),
-                Color(0x00000000),
-              ],
-              stops: [0.0, 0.46, 1.0],
-            ),
-          ),
-        ),
+        child: box,
       ),
     );
   }
@@ -87,7 +102,7 @@ class McPageFog extends StatelessWidget {
 /// 一级标签根页统一沉浸式顶栏（对齐 iOS `MainTabView` + `AppTopBar`）：
 /// - 左侧：`30sp Bold` 页面大标题（或可点击切换菜单的自定义 `titleWidget`）
 /// - 右侧：页面专属玻璃圆钮 + 最右侧搜索玻璃圆钮
-/// - 背景：无实色横条，仅铺柔和 `--page-fog` 渐变黑雾，海报滚过时柔和隐没
+/// - 背景：无实色硬边，铺黑曜石磨砂渐变黑雾，海报与文字滚过时柔和隐没
 class McSliverTopBar extends StatelessWidget {
   const McSliverTopBar({
     super.key,
@@ -122,7 +137,10 @@ class McSliverTopBar extends StatelessWidget {
       elevation: 0,
       toolbarHeight: barHeight,
       titleSpacing: McTokens.pagePadding,
-      flexibleSpace: McPageFog(height: topPad + barHeight + 18),
+      flexibleSpace: McPageFog(
+        height: topPad + barHeight + 18,
+        blurSigma: 16,
+      ),
       title: titleWidget ??
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -187,6 +205,7 @@ class McFloatingDetailBar extends StatelessWidget {
             child: McPageFog(
               height: topPad + 64,
               opacity: titleVisible ? 1.0 : 0.35,
+              blurSigma: titleVisible ? 18 : 0,
             ),
           ),
           Padding(
@@ -254,40 +273,53 @@ class McSectionHeader extends StatelessWidget {
     Widget row = Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        if (leadingDotColor != null) ...[
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-              color: leadingDotColor,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 8),
-        ],
-        Flexible(
-          child: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: McText.title,
+        Expanded(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (leadingDotColor != null) ...[
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: leadingDotColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Flexible(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: McText.title,
+                ),
+              ),
+              if (countLabel != null && countLabel!.isNotEmpty) ...[
+                const SizedBox(width: 6),
+                Text(
+                  countLabel!,
+                  style: McText.ui.copyWith(color: McTokens.textFaint).tabular,
+                ),
+              ],
+              if (onTap != null && trailing == null && trailingText == null) ...[
+                const SizedBox(width: 4),
+                const Icon(
+                  McIcons.chevronRight,
+                  size: 15,
+                  color: McTokens.textFaint,
+                ),
+              ],
+            ],
           ),
         ),
-        if (countLabel != null && countLabel!.isNotEmpty) ...[
-          const SizedBox(width: 6),
-          Text(
-            countLabel!,
-            style: McText.ui.copyWith(color: McTokens.textFaint).tabular,
-          ),
-        ],
-        if (onTap != null && trailing == null && trailingText == null) ...[
-          const SizedBox(width: 4),
-          const Icon(McIcons.chevronRight, size: 15, color: McTokens.textFaint),
-        ],
-        const Spacer(),
-        if (trailing != null)
-          trailing!
-        else if (trailingText != null && trailingText!.isNotEmpty)
+        if (trailing != null) ...[
+          const SizedBox(width: 12),
+          trailing!,
+        ] else if (trailingText != null && trailingText!.isNotEmpty) ...[
+          const SizedBox(width: 12),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -305,6 +337,7 @@ class McSectionHeader extends StatelessWidget {
               ],
             ],
           ),
+        ],
       ],
     );
     if (onTap != null) {

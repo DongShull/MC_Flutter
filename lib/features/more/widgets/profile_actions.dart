@@ -112,7 +112,7 @@ class ProfileActions {
                       child: Text('批准设备登录', style: McText.title),
                     ),
                     McGlassIconButton(
-                      icon: McIcons.close2,
+                      icon: McIcons.close,
                       size: 32,
                       iconSize: 16,
                       onTap: () => Navigator.of(dialogContext).pop(),

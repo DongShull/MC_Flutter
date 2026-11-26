@@ -20,20 +20,40 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
 
+  GtkSettings* gtk_settings = gtk_settings_get_default();
+  if (gtk_settings != nullptr) {
+    g_object_set(gtk_settings, "gtk-application-prefer-dark-theme", TRUE,
+                 nullptr);
+  }
+
+  GtkCssProvider* css_provider = gtk_css_provider_new();
+  gtk_css_provider_load_from_data(
+      css_provider,
+      "headerbar { background: #08090C; background-image: none; color: #EEF2F8; "
+      "border-bottom: 1px solid #1A1E28; box-shadow: none; min-height: 36px; }\n"
+      "headerbar .title { color: #EEF2F8; font-weight: 600; }\n"
+      "headerbar button { color: #9AA4B5; background: transparent; border: none; box-shadow: none; }\n"
+      "headerbar button:hover { color: #FFFFFF; background: rgba(255,255,255,0.10); }\n"
+      "window, .background { background-color: #000000; }\n",
+      -1, nullptr);
+  GdkScreen* screen = gdk_screen_get_default();
+  if (screen != nullptr) {
+    gtk_style_context_add_provider_for_screen(
+        screen, GTK_STYLE_PROVIDER(css_provider),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+  }
+  g_object_unref(css_provider);
+
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
-  gtk_window_set_default_size(window, 1280, 720);
+  gtk_window_set_default_size(window, 1280, 820);
 
-  // If you want to use a header bar, uncomment the following lines.
-  // Header bars are commonly used in GNOME based desktop environments and
-  // allow additional widgets to be added to the title bar.
-  // See https://docs.gtk.org/gtk3/class.HeaderBar.html
-  // GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
-  // gtk_widget_show(GTK_WIDGET(header_bar));
-  // gtk_header_bar_set_show_close_button(header_bar, TRUE);
-  // gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
-
-  gtk_window_set_title(window, "mc_flutter");
+  GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
+  gtk_header_bar_set_title(header_bar, "MovieClaw");
+  gtk_header_bar_set_show_close_button(header_bar, TRUE);
+  gtk_widget_show(GTK_WIDGET(header_bar));
+  gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
+  gtk_window_set_title(window, "MovieClaw");
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(

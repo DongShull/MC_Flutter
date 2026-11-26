@@ -26,7 +26,8 @@ Widget mcItemCard(
     child: McPosterCard(
       title: item.title,
       posterUrl: item.posterUrl,
-      aspect: item.primaryAspect,
+      aspect: McTokens.posterAspect,
+      imageAspect: item.primaryAspect,
       subtitle: [
         item.year?.toString(),
         if (item.kindLabel.isNotEmpty) item.kindLabel,

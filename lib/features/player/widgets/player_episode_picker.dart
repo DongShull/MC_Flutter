@@ -189,7 +189,7 @@ class _PlayerEpisodePickerState extends State<PlayerEpisodePicker> {
                               child: Text('选集', style: McText.titleSm),
                             ),
                             McGlassIconButton(
-                              icon: McIcons.close2,
+                              icon: McIcons.close,
                               size: 32,
                               iconSize: 16,
                               onTap: widget.onDismiss,

@@ -147,7 +147,7 @@ class _PersonPageState extends ConsumerState<PersonPage> {
                   crossAxisCount: cols,
                   mainAxisSpacing: 20,
                   crossAxisSpacing: 12,
-                  childAspectRatio: 0.54,
+                  childAspectRatio: 0.515,
                 );
                 return NotificationListener<ScrollNotification>(
                   onNotification: (n) {

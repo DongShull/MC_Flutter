@@ -33,7 +33,9 @@ class _QuickInputCardState extends ConsumerState<QuickInputCard> {
     setState(() => _sending = true);
     try {
       final accepted = await ref.read(agentApiProvider).start(content: content);
-      final newId =
+      final nested = accepted['session'];
+      final newId = (nested is Map ? nested['id']?.toString() : null) ??
+          accepted['id']?.toString() ??
           accepted['sessionId']?.toString() ??
           accepted['session_id']?.toString();
       if (!mounted) return;

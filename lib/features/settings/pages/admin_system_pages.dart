@@ -241,14 +241,16 @@ class _AiIntegrationsAdminPageState
         )
         .catchError((_) => <String, dynamic>{});
     final wh = await _mc
-        .unwrap<dynamic>(Channel.general, 'GET', '/api/v1/webhooks')
-        .catchError((_) => const <dynamic>[]);
+        .unwrap<dynamic>(Channel.general, 'GET', '/api/v1/webhook')
+        .catchError((_) => <String, dynamic>{});
     if (mounted) {
       setState(() {
         _providers = asMaps(p);
         _models = asMaps(m);
         _defaults = def;
-        _webhooks = asMaps(wh);
+        _webhooks = wh is Map
+            ? asMaps(wh['endpoints'] ?? const <dynamic>[])
+            : asMaps(wh);
         _loading = false;
       });
     }
@@ -262,11 +264,27 @@ class _AiIntegrationsAdminPageState
     );
     if (url == null || url.isEmpty || !mounted) return;
     try {
+      final cur = await _mc
+          .unwrap<Map<String, dynamic>>(Channel.general, 'GET', '/api/v1/webhook')
+          .catchError((_) => <String, dynamic>{});
+      final endpoints = [
+        for (final e in (cur['endpoints'] as List? ?? const []))
+          if (e is Map) Map<String, dynamic>.from(e),
+        {
+          'id': 'wh-${DateTime.now().millisecondsSinceEpoch}',
+          'name': Uri.tryParse(url)?.host ?? 'Webhook',
+          'url': url,
+          'enabled': true,
+        },
+      ];
       await _mc.unwrap<dynamic>(
         Channel.general,
-        'POST',
-        '/api/v1/webhooks',
-        body: {'url': url, 'enabled': true},
+        'PUT',
+        '/api/v1/webhook',
+        body: {
+          'enabled': true,
+          'endpoints': endpoints,
+        },
       );
       if (mounted) McToast.success('已添加 Webhook');
       await _load();
@@ -383,11 +401,18 @@ class _AiIntegrationsAdminPageState
                                   size: 17,
                                   color: McTokens.danger,
                                 ),
-                                onPressed: () async {
+                                 onPressed: () async {
+                                  final next = _webhooks
+                                      .where((item) => item['id'] != w['id'])
+                                      .toList();
                                   await _mc.unwrap<dynamic>(
                                     Channel.general,
-                                    'DELETE',
-                                    '/api/v1/webhooks/${w['id']}',
+                                    'PUT',
+                                    '/api/v1/webhook',
+                                    body: {
+                                      'enabled': next.isNotEmpty,
+                                      'endpoints': next,
+                                    },
                                   );
                                   await _load();
                                 },
@@ -449,10 +474,20 @@ class _NetworkTasksLogsAdminPageState
               '/api/v1/server/addresses',
             )
             .catchError((_) => <String, dynamic>{});
+        final addrList = (addr['addresses'] as List? ?? const [])
+            .whereType<Map>()
+            .map(Map<String, dynamic>.from)
+            .toList();
         _lanUrls = [
+          for (final a in addrList)
+            if (a['kind'] == 'lan' && (a['url']?.toString().isNotEmpty ?? false))
+              a['url'].toString(),
           for (final u in (addr['lan'] as List? ?? const [])) u.toString(),
         ];
         _wanUrls = [
+          for (final a in addrList)
+            if (a['kind'] == 'wan' && (a['url']?.toString().isNotEmpty ?? false))
+              a['url'].toString(),
           for (final u in (addr['wan'] as List? ?? const [])) u.toString(),
         ];
       } else if (_tab == 1) {

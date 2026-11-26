@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -24,7 +24,6 @@ final mcFormOverrideProvider = StateProvider<McDeviceForm?>((ref) => null);
 final mcSidebarCollapsedProvider = StateProvider<bool>((ref) => false);
 
 bool mcIsDesktopPlatform() {
-  if (kIsWeb) return false;
   return defaultTargetPlatform == TargetPlatform.macOS ||
       defaultTargetPlatform == TargetPlatform.windows ||
       defaultTargetPlatform == TargetPlatform.linux;

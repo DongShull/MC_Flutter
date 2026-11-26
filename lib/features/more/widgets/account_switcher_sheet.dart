@@ -274,7 +274,7 @@ class _AccountSwitcherSheetState extends ConsumerState<_AccountSwitcherSheet> {
                   ),
                 ),
               McGlassIconButton(
-                icon: McIcons.close2,
+                icon: McIcons.close,
                 size: 32,
                 iconSize: 16,
                 onTap: () => Navigator.of(context).pop(),
@@ -425,7 +425,7 @@ class _AccountCard extends StatelessWidget {
               )
             else if (onRemove != null)
               McGlassIconButton(
-                icon: McIcons.close2,
+                icon: McIcons.close,
                 size: 30,
                 iconSize: 15,
                 onTap: onRemove,

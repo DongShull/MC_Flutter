@@ -7,7 +7,6 @@ import 'pages/maintenance_page.dart';
 import 'pages/playback_page.dart';
 import 'pages/profile_page.dart';
 import 'pages/settings_page.dart';
-import 'pages/web_managed_page.dart';
 
 /// settings 模块路由（全量原生接管 Web 23 个设置与后台板块）。
 const routeSettings = '/settings';
@@ -64,12 +63,5 @@ final List<GoRoute> routes = [
   GoRoute(
     path: '$routeSettings/maintenance',
     builder: (context, state) => const MaintenancePage(),
-  ),
-  GoRoute(
-    path: '$routeSettings/web',
-    builder: (context, state) => WebManagedPage(
-      title: state.uri.queryParameters['title'] ?? '网页控制台',
-      description: state.uri.queryParameters['description'] ?? '',
-    ),
   ),
 ];

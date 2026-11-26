@@ -102,7 +102,7 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
             crossAxisCount: cols,
             mainAxisSpacing: 20,
             crossAxisSpacing: 12,
-            childAspectRatio: 0.54,
+            childAspectRatio: 0.515,
           );
 
           return CustomScrollView(

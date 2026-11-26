@@ -48,18 +48,21 @@ class SessionSummary {
               : '新对话';
 }
 
-/// 一条 transcript 消息里的工具调用。
+/// 一条 transcript 消息里的工具调用（兼容直接 `{id,name,arguments}` 与 OpenAI `{id,function:{name,arguments}}`）。
 class ToolCall {
   const ToolCall({required this.id, required this.name, this.arguments});
 
   factory ToolCall.fromJson(Map<String, dynamic> json) {
-    final rawArgs = json['arguments'] ?? json['input'];
+    final fn = json['function'] is Map
+        ? Map<String, dynamic>.from(json['function'] as Map)
+        : null;
+    final rawArgs = fn?['arguments'] ?? json['arguments'] ?? json['input'];
     final argsStr = rawArgs == null
         ? null
         : (rawArgs is String ? rawArgs : jsonEncode(rawArgs));
     return ToolCall(
       id: (json['id'] ?? '').toString(),
-      name: (json['name'] ?? '').toString(),
+      name: (fn?['name'] ?? json['name'] ?? '').toString(),
       arguments: argsStr,
     );
   }
@@ -195,26 +198,63 @@ class AgentSkill {
   final String? prompt;
 }
 
-/// transcript 消息主体。
+/// transcript 消息主体（兼容 `content` 为纯字符串或 `[{type:'thinking'|'text', text:...}]` 多段数组）。
 class SessionMessage {
   const SessionMessage({
     required this.role,
     required this.content,
+    this.thinking,
     this.toolCalls = const [],
   });
 
-  factory SessionMessage.fromJson(Map<String, dynamic> json) => SessionMessage(
-        role: (json['role'] ?? 'assistant').toString(),
-        content: (json['content'] ?? '').toString(),
-        toolCalls: ((json['toolCalls'] ?? json['tool_calls'] ?? const [])
-                as List<dynamic>)
-            .whereType<Map<String, dynamic>>()
-            .map(ToolCall.fromJson)
-            .toList(),
-      );
+  factory SessionMessage.fromJson(Map<String, dynamic> json) {
+    final rawContent = json['content'];
+    var text = '';
+    String? thinking;
+    final extraToolCalls = <ToolCall>[];
+    if (rawContent is List) {
+      final textParts = <String>[];
+      final thinkParts = <String>[];
+      for (final part in rawContent) {
+        if (part is String) {
+          if (part.isNotEmpty) textParts.add(part);
+        } else if (part is Map) {
+          final m = Map<String, dynamic>.from(part);
+          final pType = (m['type'] ?? '').toString();
+          if (pType == 'thinking' || pType == 'reasoning') {
+            final t = (m['thinking'] ?? m['text'] ?? '').toString();
+            if (t.trim().isNotEmpty) thinkParts.add(t.trim());
+          } else if (pType == 'tool_use' || pType == 'tool_call') {
+            extraToolCalls.add(ToolCall.fromJson(m));
+          } else {
+            final t = (m['text'] ?? m['content'] ?? '').toString();
+            if (t.isNotEmpty) textParts.add(t);
+          }
+        }
+      }
+      text = textParts.join('\n\n');
+      if (thinkParts.isNotEmpty) thinking = thinkParts.join('\n\n');
+    } else if (rawContent != null) {
+      text = rawContent.toString();
+    }
+    final rawCalls = json['toolCalls'] ?? json['tool_calls'];
+    final parsedCalls = <ToolCall>[
+      if (rawCalls is List)
+        for (final item in rawCalls)
+          if (item is Map) ToolCall.fromJson(Map<String, dynamic>.from(item)),
+      ...extraToolCalls,
+    ];
+    return SessionMessage(
+      role: (json['role'] ?? 'assistant').toString(),
+      content: text,
+      thinking: thinking,
+      toolCalls: parsedCalls,
+    );
+  }
 
   final String role;
   final String content;
+  final String? thinking;
   final List<ToolCall> toolCalls;
 }
 
