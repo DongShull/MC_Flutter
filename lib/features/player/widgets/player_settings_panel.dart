@@ -1,14 +1,16 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
-import '../state/player_controller.dart';
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/theme.dart';
+import '../state/player_controller.dart';
 
-enum _SettingsPage { root, quality, speed, display }
+enum _SettingsPage { root, speed, display }
 
-/// 播放器的 ⋮ 设置面板（Android PlayerSettingsPanel）：横屏从右侧滑出、占满高度，
-/// 同 B 站 / 腾讯视频的横屏侧边栏。一级每项行尾写当前值，点进二级选，选了就收起；
-/// 二级「←」或返回键回到一级；点面板外面收起。
-/// 画质 / 播放诊断占位（会话协商接口接入后启用），倍速 / 画面缩放真实可用。
+/// 播放器的右侧液态毛玻璃抽屉面板：倍速 / 画面比例 / 画质与诊断。
 class PlayerSettingsPanel extends StatefulWidget {
   const PlayerSettingsPanel({
     super.key,
@@ -23,7 +25,6 @@ class PlayerSettingsPanel extends StatefulWidget {
 
   final bool visible;
   final double speed;
-  /// 画面缩放：fit（完整显示）/ fill（铺满裁切）/ stretch（拉伸铺满）。
   final String displayMode;
   final ValueChanged<double> onSelectSpeed;
   final ValueChanged<String> onSelectDisplayMode;
@@ -44,139 +45,170 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
     ('stretch', '拉伸铺满'),
   ];
 
-  String get _displayLabel =>
-      _displayModes.firstWhere((m) => m.$1 == widget.displayMode).$2;
+  String get _displayLabel => _displayModes
+      .firstWhere((e) => e.$1 == widget.displayMode, orElse: () => _displayModes.first)
+      .$2;
+
+  @override
+  void didUpdateWidget(covariant PlayerSettingsPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.visible && oldWidget.visible) {
+      _page = _SettingsPage.root;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-    Widget row({
-      required IconData icon,
-      required String label,
-      String? value,
-      VoidCallback? onTap,
-    }) {
-      return ListTile(
-        leading: Icon(icon, color: Colors.white70),
-        title: Text(label, style: const TextStyle(color: Colors.white)),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (value != null)
-              Text(value,
-                  style: const TextStyle(color: Colors.white54, fontSize: 13)),
-            const SizedBox(width: 4),
-            if (onTap != null)
-              const Icon(McIcons.chevronRight, color: Colors.white38),
-          ],
-        ),
-        onTap: onTap,
-      );
-    }
+    if (!widget.visible) return const SizedBox.shrink();
 
-    Widget body;
-    switch (_page) {
-      case _SettingsPage.root:
-        body = Column(children: [
-          row(
-            icon: McIcons.hq,
-            label: '画质',
-            value: '原画',
-            onTap: () => widget.onNotice('画质切换待会话协商接口接入（占位）'),
-          ),
-          row(
-            icon: Icons.speed,
-            label: '倍速',
-            value: widget.speed == 1.0 ? '常速' : '${widget.speed}x',
+    final String title = switch (_page) {
+      _SettingsPage.root => '播放设置',
+      _SettingsPage.speed => '播放倍速',
+      _SettingsPage.display => '画面比例',
+    };
+
+    final Widget body = switch (_page) {
+      _SettingsPage.root => McInsetGroup(
+        margin: EdgeInsets.zero,
+        children: [
+          McInsetRow(
+            icon: McIcons.stopwatch,
+            title: '播放倍速',
+            valueText: widget.speed == 1.0 ? '正常' : '${widget.speed}x',
+            showChevron: true,
             onTap: () => setState(() => _page = _SettingsPage.speed),
           ),
-          row(
+          McInsetRow(
             icon: McIcons.aspectRatio,
-            label: '画面缩放',
-            value: _displayLabel,
+            title: '画面比例',
+            valueText: _displayLabel,
+            showChevron: true,
             onTap: () => setState(() => _page = _SettingsPage.display),
           ),
-          row(
-            icon: Icons.monitor_heart,
-            label: '播放诊断',
-            onTap: () => widget.onNotice('播放诊断面板待 QOE 接口接入（占位）'),
+          McInsetRow(
+            icon: McIcons.hd,
+            title: '串流画质',
+            valueText: '自动协商',
+            onTap: () {
+              widget.onNotice('画质由播放会话自动按带宽与解码能力协商');
+              widget.onDismiss();
+            },
           ),
-        ]);
-      case _SettingsPage.speed:
-        body = Column(children: [
+        ],
+      ),
+      _SettingsPage.speed => McInsetGroup(
+        margin: EdgeInsets.zero,
+        children: [
           for (final s in _speeds)
-            ListTile(
-              leading: Icon(
-                s == widget.speed ? McIcons.check : Icons.speed,
-                color: s == widget.speed ? accent : Colors.white38,
-              ),
-              title: Text(
-                s == 1.0 ? '常速' : '${s}x',
-                style: TextStyle(
-                    color: s == widget.speed ? accent : Colors.white),
-              ),
+            McInsetRow(
+              title: s == 1.0 ? '1.0x（常速）' : '${s}x',
+              trailing: s == widget.speed
+                  ? const Icon(
+                      McIcons.check,
+                      size: 18,
+                      color: McTokens.accentStrong,
+                    )
+                  : null,
               onTap: () {
                 widget.onSelectSpeed(s);
                 widget.onDismiss();
               },
             ),
-        ]);
-      case _SettingsPage.display:
-        body = Column(children: [
+        ],
+      ),
+      _SettingsPage.display => McInsetGroup(
+        margin: EdgeInsets.zero,
+        children: [
           for (final (mode, label) in _displayModes)
-            ListTile(
-              leading: Icon(
-                mode == widget.displayMode ? McIcons.check : McIcons.aspectRatio,
-                color: mode == widget.displayMode ? accent : Colors.white38,
-              ),
-              title: Text(label,
-                  style: TextStyle(
-                      color:
-                          mode == widget.displayMode ? accent : Colors.white)),
+            McInsetRow(
+              title: label,
+              trailing: mode == widget.displayMode
+                  ? const Icon(
+                      McIcons.check,
+                      size: 18,
+                      color: McTokens.accentStrong,
+                    )
+                  : null,
               onTap: () {
                 widget.onSelectDisplayMode(mode);
                 widget.onDismiss();
               },
             ),
-        ]);
-      case _SettingsPage.quality:
-        body = const SizedBox.shrink();
-    }
+        ],
+      ),
+    };
 
-    return AnimatedSlide(
-      offset: widget.visible ? Offset.zero : const Offset(1, 0),
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-      child: Visibility(
-        visible: widget.visible,
-        child: Align(
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onDismiss,
+          child: const ColoredBox(color: Color(0x66000000)),
+        ),
+        Align(
           alignment: Alignment.centerRight,
-          child: Container(
-            width: 300,
-            decoration: const BoxDecoration(
-              color: Color(0xE610121A),
-              borderRadius: BorderRadius.horizontal(left: Radius.circular(12)),
+          child: ClipRRect(
+            borderRadius: const BorderRadius.horizontal(
+              left: Radius.circular(22),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (_page != _SettingsPage.root)
-                  BackButton(
-                    color: Colors.white70,
-                    onPressed: () => setState(() => _page = _SettingsPage.root),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
+              child: Container(
+                width: 316,
+                height: double.infinity,
+                decoration: const BoxDecoration(
+                  color: Color(0xE8131620),
+                  borderRadius: BorderRadius.horizontal(
+                    left: Radius.circular(22),
                   ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 12),
-                    child: body,
+                  border: Border(
+                    left: BorderSide(color: McTokens.lineStrong, width: 1),
                   ),
                 ),
-              ],
+                child: SafeArea(
+                  left: false,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 12, 12, 8),
+                        child: Row(
+                          children: [
+                            if (_page != _SettingsPage.root) ...[
+                              McGlassIconButton(
+                                icon: McIcons.arrowLeftS,
+                                size: 32,
+                                iconSize: 18,
+                                onTap: () =>
+                                    setState(() => _page = _SettingsPage.root),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            Expanded(child: Text(title, style: McText.titleSm)),
+                            McGlassIconButton(
+                              icon: McIcons.close2,
+                              size: 32,
+                              iconSize: 16,
+                              onTap: widget.onDismiss,
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(16, 6, 16, 20),
+                          child: body,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 }

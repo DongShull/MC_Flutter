@@ -4,13 +4,17 @@ import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/designsystem/adaptive.dart';
+import '../../../core/designsystem/mc_ambient.dart';
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
+import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/subscribe_sheet.dart';
+import '../../../core/designsystem/theme.dart';
+import '../../../core/player/player_page_args.dart';
 // offline 域下载能力（任务明确授权的跨 feature import：只调公开 API，不改 offline 内部）。
 import '../../offline/pages/profile_sheet.dart';
 import '../../offline/state/models.dart';
-import '../../../core/player/player_page_args.dart';
-import '../../../core/designsystem/state_views.dart';
-import '../../../core/designsystem/theme.dart';
 import '../state/detail_controller.dart';
 import '../widgets/air_schedule.dart';
 import '../widgets/cast_row.dart';
@@ -20,11 +24,12 @@ import '../widgets/episode_ranges.dart';
 import '../widgets/item_actions_menu.dart';
 import '../widgets/meta_links.dart';
 import '../widgets/similar_row.dart';
-import '../../../core/designsystem/mc_icons.dart';
 
-/// 媒体详情页（对齐 ItemDetailScreen.kt / 设计文档 04 第 4 节）：
-/// 头部 / 动作区 / 元信息行 / 简介 / 演职员 / 剧集（季选择 + 分集 + 缺集 + 档期）/
-/// 系列与相似推荐 / 订阅入口。播放只做导航意图，不自己播视频。
+/// 媒体详情页（1:1 对齐 iOS `LibraryItemDetailView` & 参考图 `scene-1.jpg`）：
+/// - 全出血剧照 + `McAmbientColor.bottomEdge` 底边动态取色铺满上半页并向纯黑底平滑过渡；
+/// - 顶部无实色栏，浮左 `<` 与右 `⋯` 两颗液态玻璃圆钮，滚过标题后片名与黑雾淡入；
+/// - 黄金操作区：通栏亮银白胶囊主按钮 + 续播细进度线 + 等宽「已收藏 / 标为已看」双液态玻璃胶囊；
+/// - 轨道胶囊行 → 简介 → 季选 `McChip` 与 16:9 分集卡 → 圆形演职员 → 同系列与相似推荐。
 class DetailPage extends ConsumerStatefulWidget {
   const DetailPage({super.key, this.libraryId = -1, this.itemId = -1});
 
@@ -37,6 +42,9 @@ class DetailPage extends ConsumerStatefulWidget {
 
 class _DetailPageState extends ConsumerState<DetailPage> {
   late final String _key = '${widget.libraryId}:${widget.itemId}';
+  double _scrollOffset = 0;
+  Color? _edgeColor;
+  String? _sampledUrl;
 
   @override
   void initState() {
@@ -46,11 +54,20 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     });
   }
 
-  /// 播放导航（选集数据接口化）：只传 mediaItemId + fileId（选集接口数据来），
-  /// 不再手传 season/episode。TV 入口先按接口分集数据解析出起播集。
+  void _ensureEdgeColor(DetailEntry entry) {
+    final raw = entry.backdropUrl ?? entry.posterUrl;
+    if (raw == null || raw.isEmpty || raw == _sampledUrl) return;
+    _sampledUrl = raw;
+    McAmbientColor.bottomEdge(raw).then((c) {
+      if (mounted && c != null && c != _edgeColor) {
+        setState(() => _edgeColor = c);
+      }
+    });
+  }
+
   void _playEpisode(EpisodeEntry e) {
     if (!e.owned || e.fileIds.isEmpty) {
-      _toast('第 ${e.episodeNumber} 集缺文件，无法播放');
+      McToast.error('第 ${e.episodeNumber} 集缺失文件，无法播放');
       return;
     }
     _pushPlayer(
@@ -68,7 +85,6 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     final entry = state.entry;
     if (entry == null) return;
     if (entry.isTv) {
-      // TV：优先服务端续播锚点，其次当前季第一个可播集（全部由接口分集数据解析）。
       final resume = state.resume;
       final season = resume?.season ?? state.selectedSeason;
       final episode = resume?.episode ?? entry.resumeEpisode;
@@ -82,23 +98,22 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       }
       target ??= list.isEmpty ? null : list.first;
       if (target == null || !target.owned || target.fileIds.isEmpty) {
-        _toast('该集暂无在位文件，无法播放');
+        McToast.error('该集暂无在位文件，无法播放');
         return;
       }
       _pushPlayer(
         fileId: target.fileIds.first,
         title: '第 ${target.seasonNumber} 季第 ${target.episodeNumber} 集',
         subtitle: target.name,
-        startPosition:
-            (resume?.positionMs ?? target.resumeMs) > 0
-                ? Duration(milliseconds: resume?.positionMs ?? target.resumeMs)
-                : null,
+        startPosition: (resume?.positionMs ?? target.resumeMs) > 0
+            ? Duration(milliseconds: resume?.positionMs ?? target.resumeMs)
+            : null,
         resumeSeason: target.seasonNumber,
         resumeEpisode: target.episodeNumber,
       );
       return;
     }
-    _pushPlayer(); // 电影：整条一个 mediaItemId，fileId 交由会话协商解析。
+    _pushPlayer();
   }
 
   void _pushPlayer({
@@ -109,7 +124,6 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     int? resumeSeason,
     int? resumeEpisode,
   }) {
-    // 播放决策（流选择 / 预检 / 起播）在 player 域完成，这里只传导航意图。
     final state = ref.read(detailControllerProvider(_key));
     final entry = state.entry;
     context.push(
@@ -117,11 +131,15 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       extra: PlayerPageArgs(
         mediaItemId: widget.itemId,
         fileId: fileId,
+        seasonNumber: resumeSeason,
+        episodeNumber: resumeEpisode,
         title: entry?.title,
         subtitle: subtitle ?? title,
         startPosition: startPosition,
         isEpisode: entry?.isTv ?? false,
-        seasons: [for (final s in entry?.seasons ?? const <SeasonInfo>[]) s.number],
+        seasons: [
+          for (final s in entry?.seasons ?? const <SeasonInfo>[]) s.number,
+        ],
         episodes: [
           for (final seasonEntry in state.episodes.entries)
             for (final e in seasonEntry.value)
@@ -129,16 +147,12 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                 season: e.seasonNumber,
                 episode: e.episodeNumber,
                 name: e.name,
+                fileId: e.playFileId,
+                owned: e.owned,
               ),
         ],
       ),
     );
-  }
-
-  void _toast(String msg) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
   void _showActionMenu(DetailController controller) async {
@@ -155,19 +169,22 @@ class _DetailPageState extends ConsumerState<DetailPage> {
         _subtitleGen(controller);
       case ItemAction.refreshMetadata:
         final err = await controller.refreshMetadata();
-        if (mounted) _toast(err ?? '已提交刷新任务');
+        if (!mounted) return;
+        if (err != null) {
+          McToast.error(err);
+        } else {
+          McToast.success('已提交刷新元数据任务');
+        }
       case ItemAction.delete:
         _delete(controller);
     }
   }
 
-  /// 订阅弹层（title-preview → 季勾选 → POST /subscriptions）；
-  /// 已订阅时弹层转「管理订阅」。ref 形如 tmdb:movie:123。
   Future<void> _subscribe() async {
     final entry = ref.read(detailControllerProvider(_key)).entry;
     final tmdbId = entry?.tmdbId;
     if (tmdbId == null) {
-      _toast('该条目没有 TMDB 标识，暂不能订阅');
+      McToast.info('该条目没有 TMDB 标识，暂不能订阅');
       return;
     }
     final refStr = 'tmdb:${entry!.isTv ? 'tv' : 'movie'}:$tmdbId';
@@ -175,30 +192,41 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     if (!mounted || outcome == null) return;
     switch (outcome) {
       case SubscribeSheetOutcome.created:
-        _toast('订阅成功');
+        McToast.success('已加入追更订阅');
       case SubscribeSheetOutcome.managed:
         context.push('/subscriptions');
     }
   }
 
-  /// 离线下载：拼好下载候选（文件 + 档位）交给 offline 域的选档面板，
-  /// 之后的会话协商与字节搬运都在 offline 域完成。
   void _download() {
     final state = ref.read(detailControllerProvider(_key));
     final entry = state.entry;
     if (entry == null) return;
-    final fileId =
-        ref.read(detailControllerProvider(_key).notifier).leadFileId;
+    final fileId = ref.read(detailControllerProvider(_key).notifier).leadFileId;
     if (fileId == null) {
-      _toast('没有在位文件，无法下载');
+      McToast.error('没有在位文件，无法缓存');
       return;
     }
-    // 档位 id 即播放会话 tier（original = 原文件直下，其余服务器转码导出）。
     const profiles = [
       DownloadProfile(id: 'original', label: '原画', isOriginal: true),
-      DownloadProfile(id: '1080p', label: '1080P', isOriginal: false, transcode: true),
-      DownloadProfile(id: '720p', label: '720P', isOriginal: false, transcode: true),
-      DownloadProfile(id: '480p', label: '480P', isOriginal: false, transcode: true),
+      DownloadProfile(
+        id: '1080p',
+        label: '1080P',
+        isOriginal: false,
+        transcode: true,
+      ),
+      DownloadProfile(
+        id: '720p',
+        label: '720P',
+        isOriginal: false,
+        transcode: true,
+      ),
+      DownloadProfile(
+        id: '480p',
+        label: '480P',
+        isOriginal: false,
+        transcode: true,
+      ),
     ];
     showDownloadProfileSheet(
       context,
@@ -211,390 +239,507 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     );
   }
 
-  /// 系统分享：先建一条服务端分享链接（POST …/share，7 天有效），再交给 share_plus。
   Future<void> _share(DetailController controller) async {
     final entry = ref.read(detailControllerProvider(_key)).entry;
     final err = StringBuffer();
     final url = await controller.createShareLink(err: err);
     if (!mounted) return;
     if (url == null || url.isEmpty) {
-      _toast('分享失败：${err.isEmpty ? '未知错误' : err}');
+      McToast.error('生成分享链接失败：${err.isEmpty ? '未知错误' : err}');
       return;
     }
     await Share.share(url, subject: entry?.title);
   }
 
-  /// AI 字幕生成：预检 + 提交任务（见 DetailController.startSubtitleGen）。
   Future<void> _subtitleGen(DetailController controller) async {
-    _toast('正在预检…');
+    McToast.info('正在预检音视频文件…');
     final message = await controller.startSubtitleGen();
-    if (mounted) _toast(message);
+    if (mounted) McToast.info(message);
   }
 
-  /// 删除：确认框 → DELETE → 成功返回上级。
   Future<void> _delete(DetailController controller) async {
     final entry = ref.read(detailControllerProvider(_key)).entry;
-    final ok = await showDialog<bool>(
+    final ok = await showMcSheet<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除确认'),
-        content: Text('确定要删除「${entry?.title}」吗？该操作不可撤销。'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('取消')),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('确认删除此条目？', style: McText.title),
+            const SizedBox(height: 8),
+            Text(
+              '即将从媒体库移除「${entry?.title ?? ''}」，该操作不可撤销。',
+              style: McText.caption.muted,
             ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: '取消',
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: '确认删除',
+                    icon: McIcons.trash2,
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
     if (ok != true || !mounted) return;
     final err = await controller.deleteItem();
     if (!mounted) return;
     if (err != null) {
-      _toast(err);
+      McToast.error(err);
       return;
     }
-    _toast('已删除');
+    McToast.success('条目已删除');
     if (context.canPop()) context.pop();
   }
 
-  /// 人物页（discover 域 /discover/person，TMDB id 路由参数；跨 feature 只走路由）。
   void _openPerson(CastMember member) {
     final id = member.personId;
     if (id == null || id <= 0) {
-      _toast('暂无「${member.name}」的人物信息');
+      McToast.info('暂无「${member.name}」的人物档案');
       return;
     }
     context.push('/discover/person?id=$id');
+  }
+
+  void _back() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/home');
+    }
+  }
+
+  Widget _buildActionZone(DetailState state, DetailController controller) {
+    final resume = state.resume;
+    final hasProgress =
+        resume != null && resume.positionMs > 0 && resume.durationMs > 0;
+    final progressRatio = hasProgress
+        ? (resume.positionMs / resume.durationMs).clamp(0.02, 1.0)
+        : 0.0;
+    final remainMins = hasProgress
+        ? ((resume.durationMs - resume.positionMs) / 60000).ceil().clamp(1, 9999)
+        : 0;
+    final isFav = state.marks.isFavorite;
+    final isPlayed = state.marks.played;
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          McFocusRing(
+            borderRadius: McTokens.pillRadius,
+            child: McActionPill(
+              label: playButtonLabel(state),
+              icon: McIcons.play2Fill,
+              primary: true,
+              expanded: true,
+              height: 44,
+              onTap: _play,
+            ),
+          ),
+          if (hasProgress) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: LinearProgressIndicator(
+                      value: progressRatio,
+                      minHeight: 3,
+                      backgroundColor: const Color(0x2EFFFFFF),
+                      valueColor: const AlwaysStoppedAnimation(
+                        McTokens.accentStrong,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  '剩余 $remainMins 分钟',
+                  style: McText.micro
+                      .copyWith(
+                        fontWeight: FontWeight.w500,
+                        color: McTokens.textMuted,
+                      )
+                      .tabular,
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: McFocusRing(
+                  borderRadius: McTokens.pillRadius,
+                  child: McActionPill(
+                    label: isFav ? '已收藏' : '收藏',
+                    icon: isFav ? McIcons.heart2Fill : McIcons.heart2,
+                    primary: false,
+                    tone: isFav ? McGlassTone.danger : McGlassTone.secondary,
+                    expanded: true,
+                    height: 40,
+                    onTap: state.busy ? null : controller.toggleFavorite,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: McFocusRing(
+                  borderRadius: McTokens.pillRadius,
+                  child: McActionPill(
+                    label: isPlayed ? '已看完' : '标为已看',
+                    icon: isPlayed
+                        ? McIcons.checkCircleFill
+                        : McIcons.checkCircle,
+                    primary: false,
+                    tone: isPlayed ? McGlassTone.strong : McGlassTone.secondary,
+                    expanded: true,
+                    height: 40,
+                    onTap: state.busy ? null : controller.togglePlayed,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTvSeasons(
+    DetailEntry entry,
+    DetailState state,
+    DetailController controller,
+    List<EpisodeEntry> episodes,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 20),
+        if (state.airSchedule != null) AirSchedule(schedule: state.airSchedule!),
+        const McSectionHeader(title: '剧集'),
+        if (entry.seasons.length > 1) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 36,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(
+                horizontal: McTokens.pagePadding,
+              ),
+              itemCount: entry.seasons.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (_, i) {
+                final s = entry.seasons[i];
+                final label = s.name ??
+                    (s.number == 0 ? '特别篇' : '第 ${s.number} 季');
+                return McChip(
+                  label: label,
+                  selected: state.selectedSeason == s.number,
+                  onTap: () => controller.loadSeason(s.number),
+                );
+              },
+            ),
+          ),
+        ],
+        const SizedBox(height: 6),
+        EpisodeRanges(episodes: episodes),
+        EpisodeList(
+          episodes: episodes,
+          onEpisodeTap: _playEpisode,
+        ),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(detailControllerProvider(_key));
     if (state.loading && state.entry == null) {
-      return const Scaffold(body: McLoadingView());
+      return Scaffold(
+        backgroundColor: McTokens.bg,
+        body: Stack(
+          children: [
+            const McFeedSkeleton(showHero: true),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: McFloatingDetailBar(onBack: _back),
+            ),
+          ],
+        ),
+      );
     }
     if (state.error != null && state.entry == null) {
       return Scaffold(
-        body: McErrorView(
-          text: state.error!,
-          onRetry: () => ref.read(detailControllerProvider(_key).notifier).load(),
+        backgroundColor: McTokens.bg,
+        body: Stack(
+          children: [
+            McErrorView(
+              text: state.error!,
+              onRetry: () =>
+                  ref.read(detailControllerProvider(_key).notifier).load(),
+            ),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: McFloatingDetailBar(onBack: _back),
+            ),
+          ],
         ),
       );
     }
     final entry = state.entry;
-    if (entry == null) return const Scaffold(body: SizedBox.shrink());
-    final controller = ref.read(detailControllerProvider(_key).notifier);
-    final episodes = state.episodes[state.selectedSeason] ?? const <EpisodeEntry>[];
-    final form = McFormWatch.of(context);
+    if (entry == null) {
+      return const Scaffold(
+        backgroundColor: McTokens.bg,
+        body: SizedBox.shrink(),
+      );
+    }
 
-    return Scaffold(
-      backgroundColor: McColors.bgDark,
-      body: RefreshIndicator(
-        onRefresh: () => controller.load(),
-        // 手机保持现单列布局；平板/TV 双栏（左操作/元信息，右简介/季集/相似）。
-        child: form == McDeviceForm.phone
-            ? ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            DetailHeader(entry: entry, onBack: () => context.pop()),
-            // —— 动作区：播放/续播、收藏、已看、更多 ——
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: McFocusRing(
-                      borderRadius: 20,
-                      child: FilledButton.icon(
-                      onPressed: _play,
-                        icon: const Icon(McIcons.play2Fill),
-                        label: Text(playButtonLabel(state)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  McFocusRing(
-                    borderRadius: 20,
-                    child: IconButton(
-                      tooltip: '收藏',
-                      onPressed: state.busy ? null : controller.toggleFavorite,
-                      icon: Icon(
-                        state.marks.isFavorite ? McIcons.heart2Fill : McIcons.heart2,
-                        color: state.marks.isFavorite ? Colors.redAccent : null,
-                      ),
-                    ),
-                  ),
-                  McFocusRing(
-                    borderRadius: 20,
-                    child: IconButton(
-                      tooltip: '已看',
-                      onPressed: state.busy ? null : controller.togglePlayed,
-                      icon: Icon(
-                        state.marks.played ? McIcons.checkCircleFill : McIcons.checkCircle,
-                        color: state.marks.played ? Colors.green : null,
-                      ),
-                    ),
-                  ),
-                  McFocusRing(
-                    borderRadius: 20,
-                    child: IconButton(
-                      tooltip: '更多',
-                      onPressed: () => _showActionMenu(controller),
-                      icon: const Icon(McIcons.moreFill),
-                    ),
-                  ),
-                ],
+    _ensureEdgeColor(entry);
+    final ambient = _edgeColor ?? McTokens.bg;
+    final controller = ref.read(detailControllerProvider(_key).notifier);
+    final episodes =
+        state.episodes[state.selectedSeason] ?? const <EpisodeEntry>[];
+    final form = McFormWatch.of(context);
+    final wide = form != McDeviceForm.phone;
+
+    final Widget scrollBody = wide
+        ? ListView(
+            padding: const EdgeInsets.only(bottom: 48),
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              DetailHeader(
+                entry: entry,
+                ambientColor: ambient,
+                scrollOffset: _scrollOffset,
               ),
-            ),
-            // —— 元信息行组：音轨 / 字幕 / 系列 / 合集 ——
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: MetaLinks(entry: entry),
-            ),
-            // —— 简介区（可展开）——
-            if (entry.overview != null && entry.overview!.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                child: _Overview(
-                  text: entry.overview!,
-                  expanded: state.overviewExpanded,
-                  onToggle: controller.toggleOverview,
+                padding: const EdgeInsets.fromLTRB(
+                  McTokens.pagePaddingWide,
+                  18,
+                  McTokens.pagePaddingWide,
+                  0,
                 ),
-              ),
-            // —— 演职员横滚（cast 前 40，人物卡点进人物页）——
-            CastRow(
-              cast: entry.cast,
-              onPersonTap: _openPerson,
-            ),
-            // —— 剧集区 ——
-            if (entry.isTv) ...[
-              if (state.airSchedule != null) AirSchedule(schedule: state.airSchedule!),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-                child: Text('剧集',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold)),
-              ),
-              // 季选择器
-              SizedBox(
-                height: 40,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (final s in entry.seasons)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(s.name ?? '第 ${s.number} 季'),
-                          selected: state.selectedSeason == s.number,
-                          onSelected: (_) => controller.loadSeason(s.number),
-                        ),
+                    SizedBox(
+                      width: 320,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildActionZone(state, controller),
+                          const SizedBox(height: 16),
+                          MetaLinks(
+                            entry: entry,
+                            onSeriesTap: (id) =>
+                                context.push('/library/collection/$id'),
+                          ),
+                        ],
                       ),
+                    ),
+                    const SizedBox(width: 28),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (entry.overview != null &&
+                              entry.overview!.isNotEmpty)
+                            _Overview(
+                              text: entry.overview!,
+                              expanded: state.overviewExpanded,
+                              onToggle: controller.toggleOverview,
+                            ),
+                          CastRow(
+                            cast: entry.cast,
+                            onPersonTap: _openPerson,
+                          ),
+                          if (entry.isTv)
+                            _buildTvSeasons(entry, state, controller, episodes),
+                          if (state.related.seriesParts.length > 1)
+                            SimilarRow(
+                              title: '系列 · ${state.related.seriesName ?? ''}',
+                              entries: state.related.seriesParts,
+                              onTap: (e) => context.push(
+                                '/detail/${entry.libraryId}/${e.id}',
+                              ),
+                            ),
+                          SimilarRow(
+                            title: '相似推荐',
+                            entries: state.related.similar,
+                            onTap: (e) => context.push(
+                              '/detail/${entry.libraryId}/${e.id}',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
-              EpisodeRanges(episodes: episodes),
-              EpisodeList(
-                episodes: episodes,
-                onEpisodeTap: _playEpisode,
+            ],
+          )
+        : ListView(
+            padding: const EdgeInsets.only(bottom: 48),
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              DetailHeader(
+                entry: entry,
+                ambientColor: ambient,
+                scrollOffset: _scrollOffset,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  McTokens.pagePadding,
+                  14,
+                  McTokens.pagePadding,
+                  0,
+                ),
+                child: Center(child: _buildActionZone(state, controller)),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  McTokens.pagePadding,
+                  14,
+                  McTokens.pagePadding,
+                  0,
+                ),
+                child: MetaLinks(
+                  entry: entry,
+                  onSeriesTap: (id) => context.push('/library/collection/$id'),
+                ),
+              ),
+              if (entry.overview != null && entry.overview!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    McTokens.pagePadding,
+                    14,
+                    McTokens.pagePadding,
+                    0,
+                  ),
+                  child: _Overview(
+                    text: entry.overview!,
+                    expanded: state.overviewExpanded,
+                    onToggle: controller.toggleOverview,
+                  ),
+                ),
+              if (entry.isTv)
+                _buildTvSeasons(entry, state, controller, episodes),
+              CastRow(
+                cast: entry.cast,
+                onPersonTap: _openPerson,
+              ),
+              if (state.related.seriesParts.length > 1)
+                SimilarRow(
+                  title: '系列 · ${state.related.seriesName ?? ''}',
+                  entries: state.related.seriesParts,
+                  onTap: (e) =>
+                      context.push('/detail/${entry.libraryId}/${e.id}'),
+                ),
+              SimilarRow(
+                title: '相似推荐',
+                entries: state.related.similar,
+                onTap: (e) =>
+                    context.push('/detail/${entry.libraryId}/${e.id}'),
               ),
             ],
-            // —— 系列一行（按上映顺序列全，有这一行时相似推荐已排除同系列）——
-            if (state.related.seriesParts.length > 1)
-              SimilarRow(
-                title: '系列 · ${state.related.seriesName ?? ''}',
-                entries: state.related.seriesParts,
-                onTap: (e) => context.push('/detail/${entry.libraryId}/${e.id}'),
+          );
+
+    return Scaffold(
+      backgroundColor: McTokens.bg,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Apple Music 式底边取色整页渐变背景，随深滚自然回归纯黑
+          IgnorePointer(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 520),
+              curve: Curves.easeOutCubic,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: const [0.0, 0.55, 1.0],
+                  colors: [
+                    ambient,
+                    ambient.withValues(alpha: 0.42),
+                    McTokens.bg,
+                  ],
+                ),
               ),
-            // —— 相似推荐 ——
-            SimilarRow(
-              title: '相似推荐',
-              entries: state.related.similar,
-              onTap: (e) => context.push('/detail/${entry.libraryId}/${e.id}'),
             ),
-            const SizedBox(height: 32),
-          ],
-        )
-            : ListView(
-                padding: EdgeInsets.zero,
-                children: [
-                  DetailHeader(entry: entry, onBack: () => context.pop()),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // 左列：操作区 + 元信息
-                        SizedBox(
-                          width: 300,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              McFocusRing(
-                                borderRadius: 20,
-                                child: SizedBox(
-                                  width: double.infinity,
-                                  child: FilledButton.icon(
-                                    onPressed: _play,
-                                    icon: const Icon(McIcons.play2Fill),
-                                    label: Text(playButtonLabel(state)),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  McFocusRing(
-                                    borderRadius: 20,
-                                    child: IconButton(
-                                      tooltip: '收藏',
-                                      onPressed: state.busy
-                                          ? null
-                                          : controller.toggleFavorite,
-                                      icon: Icon(
-                                        state.marks.isFavorite
-                                            ? McIcons.heart2Fill
-                                            : McIcons.heart2,
-                                        color: state.marks.isFavorite
-                                            ? Colors.redAccent
-                                            : null,
-                                      ),
-                                    ),
-                                  ),
-                                  McFocusRing(
-                                    borderRadius: 20,
-                                    child: IconButton(
-                                      tooltip: '已看',
-                                      onPressed: state.busy
-                                          ? null
-                                          : controller.togglePlayed,
-                                      icon: Icon(
-                                        state.marks.played
-                                            ? McIcons.checkCircleFill
-                                            : McIcons.checkCircle,
-                                        color: state.marks.played
-                                            ? Colors.green
-                                            : null,
-                                      ),
-                                    ),
-                                  ),
-                                  McFocusRing(
-                                    borderRadius: 20,
-                                    child: IconButton(
-                                      tooltip: '更多',
-                                      onPressed: () =>
-                                          _showActionMenu(controller),
-                                      icon: const Icon(McIcons.moreFill),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              MetaLinks(entry: entry),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 24),
-                        // 右列：简介 / 演职员 / 剧集（季+集） / 系列 / 相似
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (entry.overview != null &&
-                                  entry.overview!.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: _Overview(
-                                    text: entry.overview!,
-                                    expanded: state.overviewExpanded,
-                                    onToggle: controller.toggleOverview,
-                                  ),
-                                ),
-                              CastRow(
-                                cast: entry.cast,
-                                onPersonTap: _openPerson,
-                              ),
-                              if (entry.isTv) ...[
-                                if (state.airSchedule != null)
-                                  AirSchedule(schedule: state.airSchedule!),
-                                Padding(
-                                  padding:
-                                      const EdgeInsets.fromLTRB(16, 16, 16, 4),
-                                  child: Text('剧集',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium
-                                          ?.copyWith(
-                                              fontWeight: FontWeight.bold)),
-                                ),
-                                SizedBox(
-                                  height: 40,
-                                  child: ListView(
-                                    scrollDirection: Axis.horizontal,
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 16),
-                                    children: [
-                                      for (final s in entry.seasons)
-                                        Padding(
-                                          padding:
-                                              const EdgeInsets.only(right: 8),
-                                          child: ChoiceChip(
-                                            label: Text(
-                                                s.name ?? '第 ${s.number} 季'),
-                                            selected: state.selectedSeason ==
-                                                s.number,
-                                            onSelected: (_) =>
-                                                controller.loadSeason(s.number),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                                EpisodeRanges(episodes: episodes),
-                                EpisodeList(
-                                  episodes: episodes,
-                                  onEpisodeTap: _playEpisode,
-                                ),
-                              ],
-                              if (state.related.seriesParts.length > 1)
-                                SimilarRow(
-                                  title:
-                                      '系列 · ${state.related.seriesName ?? ''}',
-                                  entries: state.related.seriesParts,
-                                  onTap: (e) => context
-                                      .push('/detail/${entry.libraryId}/${e.id}'),
-                                ),
-                              SimilarRow(
-                                title: '相似推荐',
-                                entries: state.related.similar,
-                                onTap: (e) => context
-                                    .push('/detail/${entry.libraryId}/${e.id}'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                ],
-              ),
+          ),
+          NotificationListener<ScrollNotification>(
+            onNotification: (n) {
+              if (n.metrics.axis == Axis.vertical && n.depth == 0) {
+                setState(() => _scrollOffset = n.metrics.pixels);
+              }
+              return false;
+            },
+            child: RefreshIndicator(
+              edgeOffset: MediaQuery.paddingOf(context).top + 54,
+              color: McTokens.accentStrong,
+              backgroundColor: McTokens.surfaceSolid,
+              onRefresh: controller.load,
+              child: scrollBody,
+            ),
+          ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: McFloatingDetailBar(
+              onBack: _back,
+              title: entry.title,
+              titleVisible: _scrollOffset > 220,
+              trailing: [
+                McGlassIconButton(
+                  icon: McIcons.more,
+                  tooltip: '更多操作',
+                  onTap: () => _showActionMenu(controller),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
 class _Overview extends StatelessWidget {
-  const _Overview({required this.text, required this.expanded, required this.onToggle});
+  const _Overview({
+    required this.text,
+    required this.expanded,
+    required this.onToggle,
+  });
 
   final String text;
   final bool expanded;
@@ -602,17 +747,33 @@ class _Overview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    return McPressable(
       onTap: onToggle,
-      borderRadius: BorderRadius.circular(8),
-      child: Text(
-        text,
-        maxLines: expanded ? null : 3,
-        overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
-        style: Theme.of(context)
-            .textTheme
-            .bodyMedium
-            ?.copyWith(color: Colors.white70, height: 1.4),
+      scaleDown: 0.992,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            text,
+            maxLines: expanded ? null : 4,
+            overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+            style: McText.bodyLg.copyWith(
+              fontSize: 15,
+              height: 1.55,
+              color: const Color(0xD6F3F5F9),
+            ),
+          ),
+          if (text.length > 96) ...[
+            const SizedBox(height: 4),
+            Text(
+              expanded ? '收起简介' : '展开全部',
+              style: McText.caption.copyWith(
+                color: McTokens.accent,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

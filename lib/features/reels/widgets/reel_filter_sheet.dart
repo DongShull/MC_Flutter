@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
+import '../../../core/designsystem/theme.dart';
 import '../state/controllers.dart';
 import '../state/models.dart';
 
-/// 筛选面板（对应 Android ReelFilterSheet）：候选值与计数都来自
-/// /reels/facets（每维计数排除本维自身条件——为 0 的档置灰不可点）。
-/// 返回 null = 未应用（直接关闭）。
-Future<ReelFilter?> showReelFilterSheet(BuildContext context, ReelsState state) {
-  return showModalBottomSheet<ReelFilter>(
+/// 片段流毛玻璃筛选面板（使用 `showMcSheet` + `McChip` 胶囊与亮银白应用按钮）。
+Future<ReelFilter?> showReelFilterSheet(
+  BuildContext context,
+  ReelsState state,
+) {
+  return showMcSheet<ReelFilter>(
     context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (context) => _ReelFilterSheet(
+    builder: (_) => _ReelFilterSheet(
       initial: state.filter,
       facets: state.facets,
     ),
@@ -50,48 +52,54 @@ class _ReelFilterSheetState extends State<_ReelFilterSheet> {
   @override
   Widget build(BuildContext context) {
     final facets = widget.facets;
-    final draggable = facets?.filterable ?? true;
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.7,
-      maxChildSize: 0.9,
-      builder: (context, scrollController) => Column(
+    final filterable = facets?.filterable ?? true;
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.78,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              const SizedBox(width: 16),
-              const Expanded(
-                child: Text(
-                  '筛选',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 16, 8),
+            child: Row(
+              children: [
+                const Expanded(child: Text('筛选片段', style: McText.titleSm)),
+                McPressable(
+                  onTap: () => setState(() {
+                    _kind = null;
+                    _genres = null;
+                    _countries = null;
+                    _decades = null;
+                    _ratingGte = null;
+                    _runtimes = null;
+                    _watch = null;
+                  }),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    child: Text(
+                      '重置',
+                      style: McText.sub.copyWith(color: McTokens.accent),
+                    ),
+                  ),
                 ),
-              ),
-              TextButton(
-                onPressed: () => setState(() {
-                  _kind = null;
-                  _genres = null;
-                  _countries = null;
-                  _decades = null;
-                  _ratingGte = null;
-                  _runtimes = null;
-                  _watch = null;
-                }),
-                child: const Text('重置'),
-              ),
-              const SizedBox(width: 8),
-            ],
+              ],
+            ),
           ),
-          Expanded(
+          Flexible(
             child: ListView(
-              controller: scrollController,
-              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 24),
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
               children: [
                 if (facets != null) ...[
                   _FacetRow(
                     title: '类型',
                     values: facets.kinds,
                     selected: _kind,
-                    enabled: draggable,
+                    enabled: filterable,
                     onSelect: (v) => setState(() => _kind = v),
                   ),
                   _FacetRow(
@@ -101,7 +109,7 @@ class _ReelFilterSheetState extends State<_ReelFilterSheet> {
                     enabled: true,
                     onSelect: (v) => setState(() => _watch = v),
                   ),
-                  if (draggable) ...[
+                  if (filterable) ...[
                     _FacetRow(
                       title: '题材',
                       values: facets.genres,
@@ -144,11 +152,14 @@ class _ReelFilterSheetState extends State<_ReelFilterSheet> {
               ],
             ),
           ),
-          SafeArea(
-            minimum: const EdgeInsets.all(16),
-            child: FilledButton(
-              onPressed: () => Navigator.of(context).pop(_filter),
-              child: const Text('应用'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+            child: McActionPill(
+              label: '应用筛选',
+              primary: true,
+              expanded: true,
+              height: 44,
+              onTap: () => Navigator.of(context).pop(_filter),
             ),
           ),
         ],
@@ -157,7 +168,6 @@ class _ReelFilterSheetState extends State<_ReelFilterSheet> {
   }
 }
 
-/// 一维候选值：横向流式选择；count 为 0 的档置灰（每维计数排除本维自身条件）
 class _FacetRow extends StatelessWidget {
   const _FacetRow({
     required this.title,
@@ -177,18 +187,17 @@ class _FacetRow extends StatelessWidget {
   Widget build(BuildContext context) {
     if (values.isEmpty) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(bottom: 8, left: 2),
+            padding: const EdgeInsets.only(bottom: 8),
             child: Text(
               title,
-              style: const TextStyle(
-                fontSize: 13,
+              style: McText.caption.copyWith(
+                color: McTokens.textMuted,
                 fontWeight: FontWeight.w600,
-                color: Colors.black54,
               ),
             ),
           ),
@@ -197,14 +206,16 @@ class _FacetRow extends StatelessWidget {
             runSpacing: 8,
             children: [
               for (final v in values)
-                FilterChip(
-                  label: Text(
-                    v.count > 0 ? '${v.label} ${v.count}' : v.label,
+                Opacity(
+                  opacity: (enabled && v.count > 0) ? 1.0 : 0.35,
+                  child: McChip(
+                    label: v.count > 0 ? '${v.label} · ${v.count}' : v.label,
+                    compact: true,
+                    selected: selected == v.value,
+                    onTap: (enabled && v.count > 0)
+                        ? () => onSelect(selected == v.value ? null : v.value)
+                        : null,
                   ),
-                  selected: selected == v.value,
-                  onSelected: (enabled && v.count > 0)
-                      ? (on) => onSelect(on ? v.value : null)
-                      : null,
                 ),
             ],
           ),

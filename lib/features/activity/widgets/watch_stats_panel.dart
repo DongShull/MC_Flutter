@@ -1,14 +1,14 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/theme.dart';
 import '../../../core/models/format.dart';
 import '../state/models.dart';
 import 'activity_cards.dart';
-import '../../../core/designsystem/mc_icons.dart';
 
-/// 观看统计面板（对齐 WatchStatsPanel.kt）：
-/// 周期切换 7/30/90 天、指标卡、逐日柱状、TOP 作品、四维分解、成员钻取。
-/// 7×24 观看热力图由 _WeekHeatmap 自绘（CustomPaint，无第三方热力图库）。
+/// 观看统计面板（银玻璃冷银/极光蓝图表配色 + 等宽指标卡 + 7×24 热力图）。
 class WatchStatsPanel extends StatelessWidget {
   const WatchStatsPanel({
     super.key,
@@ -25,198 +25,14 @@ class WatchStatsPanel extends StatelessWidget {
   final Future<void> Function(int) onDaysChanged;
   final Future<void> Function(int?) onMemberSelected;
 
-  String _deltaLabel(PlaybackStatsTotals current, PlaybackStatsTotals previous) {
+  String _deltaLabel(
+    PlaybackStatsTotals current,
+    PlaybackStatsTotals previous,
+  ) {
     if (previous.watchedMs <= 0) return '';
     final diff = current.watchedMs - previous.watchedMs;
     final pct = (diff / previous.watchedMs * 100).toStringAsFixed(0);
     return diff >= 0 ? '↑ $pct%' : '↓ $pct%';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 周期切换
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Wrap(
-            spacing: 8,
-            children: [
-              for (final d in const [7, 30, 90])
-                ChoiceChip(
-                  label: Text('$d 天'),
-                  selected: days == d,
-                  onSelected: (_) => onDaysChanged(d),
-                ),
-            ],
-          ),
-        ),
-        if (memberId != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: ActionChip(
-              avatar: const Icon(McIcons.close2, size: 16),
-              label: const Text('取消成员筛选'),
-              onPressed: () => onMemberSelected(null),
-            ),
-          ),
-        // 指标卡
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              _MetricCard(
-                label: '播放次数',
-                value: stats.current.plays.toString(),
-                delta: _deltaLabel(stats.current, stats.previous),
-              ),
-              const SizedBox(width: 8),
-              _MetricCard(
-                label: '观看时长',
-                value: mcFormatWatched(stats.current.watchedMs),
-                delta: _deltaLabel(stats.current, stats.previous),
-              ),
-              const SizedBox(width: 8),
-              _MetricCard(
-                label: '播完',
-                value: stats.current.completed.toString(),
-              ),
-              const SizedBox(width: 8),
-              _MetricCard(
-                label: '活跃成员',
-                value: stats.current.activeMembers.toString(),
-              ),
-            ],
-          ),
-        ),
-        // TOP 作品
-        if (stats.topTitles.isNotEmpty) ...[
-          const SectionLabel(text: '最常观看'),
-          for (final row in stats.topTitles.take(3))
-            ListTile(
-              dense: true,
-              leading: const Icon(McIcons.movie, size: 20),
-              title: Text(row.media.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: Text(
-                '${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}'
-                '${row.members > 0 ? ' · ${row.members} 位成员' : ''}',
-              ),
-            ),
-        ],
-        // 成员排行
-        if (stats.byMember.isNotEmpty) ...[
-          const SectionLabel(text: '成员'),
-          for (final row in stats.byMember)
-            ListTile(
-              dense: true,
-              leading: const Icon(McIcons.user, size: 20),
-              title: Text(row.memberName),
-              subtitle: Text('${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}'),
-              onTap: () => onMemberSelected(row.memberId),
-            ),
-        ],
-        // 客户端
-        if (stats.byClient.isNotEmpty) ...[
-          const SectionLabel(text: '客户端'),
-          for (final row in stats.byClient)
-            ListTile(
-              dense: true,
-              leading: const Icon(McIcons.device2, size: 20),
-              title: Text(row.client.isEmpty ? '未知客户端' : row.client),
-              subtitle: Text('${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}'),
-            ),
-        ],
-        // 逐日柱状（fl_chart，对齐飞牛图表库选型）
-        if (stats.byDay.isNotEmpty) ...[
-          const SectionLabel(text: '逐日时长'),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: SizedBox(
-              height: 180,
-              child: BarChart(
-                BarChartData(
-                  alignment: BarChartAlignment.spaceAround,
-                  maxY: _maxDay(stats.byDay).toDouble(),
-                  barTouchData: BarTouchData(
-                    touchTooltipData: BarTouchTooltipData(
-                      getTooltipItem: (group, gi, rod, ri) => BarTooltipItem(
-                        mcFormatWatched(rod.toY.toInt()),
-                        theme.textTheme.bodySmall!,
-                      ),
-                    ),
-                  ),
-                  titlesData: FlTitlesData(
-                    leftTitles: const AxisTitles(),
-                    topTitles: const AxisTitles(),
-                    rightTitles: const AxisTitles(),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 26,
-                        interval: (stats.byDay.length / 6).ceilToDouble().clamp(1, 30),
-                        getTitlesWidget: (value, meta) {
-                          final i = value.toInt();
-                          if (i < 0 || i >= stats.byDay.length) {
-                            return const SizedBox.shrink();
-                          }
-                          final d = stats.byDay[i].date;
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              d.length >= 10 ? d.substring(5) : d,
-                              style: theme.textTheme.labelSmall,
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                  gridData: const FlGridData(show: false),
-                  borderData: FlBorderData(show: false),
-                  barGroups: [
-                    for (var i = 0; i < stats.byDay.length; i++)
-                      BarChartGroupData(
-                        x: i,
-                        barRods: [
-                          BarChartRodData(
-                            toY: stats.byDay[i].watchedMs.toDouble(),
-                            width: 10,
-                            borderRadius: BorderRadius.circular(3),
-                            color: theme.colorScheme.primary.withValues(
-                              alpha: stats.byDay[i].watchedMs > 0 ? 0.85 : 0.2,
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-        // 7×24 观看热力图（行=周一..周日，列=0..23 时）
-        if (stats.byHour.isNotEmpty) ...[
-          const SectionLabel(text: '时段热力'),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: _WeekHeatmap(matrix: stats.byHour, theme: theme),
-          ),
-        ],
-        // 最近播放流水
-        if (stats.previousAvailable && stats.favorites.isNotEmpty) ...[
-          const SectionLabel(text: '收藏常看'),
-          for (final row in stats.favorites.take(3))
-            ListTile(
-              dense: true,
-              leading: const Icon(McIcons.heart2, size: 20),
-              title: Text(row.media.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: Text('${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}'),
-            ),
-        ],
-      ],
-    );
   }
 
   int _maxDay(List<PlaybackStatsDayRow> rows) {
@@ -226,10 +42,212 @@ class WatchStatsPanel extends StatelessWidget {
     }
     return max;
   }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final d in const [7, 30, 90])
+                  McChip(
+                    label: '$d 天',
+                    compact: true,
+                    selected: days == d,
+                    onTap: () => onDaysChanged(d),
+                  ),
+                if (memberId != null)
+                  McChip(
+                    label: '取消成员筛选',
+                    icon: McIcons.close2,
+                    compact: true,
+                    selected: true,
+                    onTap: () => onMemberSelected(null),
+                  ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+            child: Row(
+              children: [
+                _MetricCard(
+                  label: '播放次数',
+                  value: stats.current.plays.toString(),
+                  delta: _deltaLabel(stats.current, stats.previous),
+                ),
+                const SizedBox(width: 8),
+                _MetricCard(
+                  label: '观看时长',
+                  value: mcFormatWatched(stats.current.watchedMs),
+                  delta: _deltaLabel(stats.current, stats.previous),
+                ),
+                const SizedBox(width: 8),
+                _MetricCard(
+                  label: '播完',
+                  value: stats.current.completed.toString(),
+                ),
+                const SizedBox(width: 8),
+                _MetricCard(
+                  label: '活跃成员',
+                  value: stats.current.activeMembers.toString(),
+                ),
+              ],
+            ),
+          ),
+          if (stats.byDay.isNotEmpty) ...[
+            const SectionLabel(text: '逐日时长'),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: SizedBox(
+                height: 168,
+                child: BarChart(
+                  BarChartData(
+                    alignment: BarChartAlignment.spaceAround,
+                    maxY: (_maxDay(stats.byDay) <= 0 ? 1 : _maxDay(stats.byDay))
+                        .toDouble(),
+                    barTouchData: BarTouchData(
+                      touchTooltipData: BarTouchTooltipData(
+                        getTooltipColor: (_) => McTokens.surfaceSolid,
+                        getTooltipItem: (group, gi, rod, ri) => BarTooltipItem(
+                          mcFormatWatched(rod.toY.toInt()),
+                          McText.caption.copyWith(color: McTokens.text).tabular,
+                        ),
+                      ),
+                    ),
+                    titlesData: FlTitlesData(
+                      leftTitles: const AxisTitles(),
+                      topTitles: const AxisTitles(),
+                      rightTitles: const AxisTitles(),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 24,
+                          interval: (stats.byDay.length / 6)
+                              .ceilToDouble()
+                              .clamp(1, 30),
+                          getTitlesWidget: (value, meta) {
+                            final i = value.toInt();
+                            if (i < 0 || i >= stats.byDay.length) {
+                              return const SizedBox.shrink();
+                            }
+                            final d = stats.byDay[i].date;
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 5),
+                              child: Text(
+                                d.length >= 10 ? d.substring(5) : d,
+                                style: McText.micro
+                                    .copyWith(
+                                      fontWeight: FontWeight.w400,
+                                      color: McTokens.textFaint,
+                                    )
+                                    .tabular,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    gridData: const FlGridData(show: false),
+                    borderData: FlBorderData(show: false),
+                    barGroups: [
+                      for (var i = 0; i < stats.byDay.length; i++)
+                        BarChartGroupData(
+                          x: i,
+                          barRods: [
+                            BarChartRodData(
+                              toY: stats.byDay[i].watchedMs.toDouble(),
+                              width: stats.byDay.length > 20 ? 5 : 9,
+                              borderRadius: BorderRadius.circular(3),
+                              gradient: stats.byDay[i].watchedMs > 0
+                                  ? const LinearGradient(
+                                      begin: Alignment.bottomCenter,
+                                      end: Alignment.topCenter,
+                                      colors: [
+                                        Color(0xB37FB0FF),
+                                        McTokens.accentStrong,
+                                      ],
+                                    )
+                                  : null,
+                              color: stats.byDay[i].watchedMs > 0
+                                  ? null
+                                  : McTokens.surfaceInset,
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+          if (stats.byHour.isNotEmpty) ...[
+            const SectionLabel(text: '时段热力'),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: _WeekHeatmap(matrix: stats.byHour),
+            ),
+          ],
+          if (stats.topTitles.isNotEmpty) ...[
+            const SectionLabel(text: '最常观看'),
+            for (final row in stats.topTitles.take(3))
+              McInsetRow(
+                icon: McIcons.movie,
+                title: row.media.title,
+                subtitle:
+                    '${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}'
+                    '${row.members > 0 ? ' · ${row.members} 位成员' : ''}',
+              ),
+          ],
+          if (stats.byMember.isNotEmpty) ...[
+            const SectionLabel(text: '成员排行'),
+            for (final row in stats.byMember)
+              McInsetRow(
+                icon: McIcons.user,
+                title: row.memberName,
+                subtitle: '${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}',
+                showChevron: true,
+                onTap: () => onMemberSelected(row.memberId),
+              ),
+          ],
+          if (stats.byClient.isNotEmpty) ...[
+            const SectionLabel(text: '播放终端'),
+            for (final row in stats.byClient)
+              McInsetRow(
+                icon: McIcons.device2,
+                title: row.client.isEmpty ? '未知客户端' : row.client,
+                subtitle: '${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}',
+              ),
+          ],
+          if (stats.previousAvailable && stats.favorites.isNotEmpty) ...[
+            const SectionLabel(text: '收藏常看'),
+            for (final row in stats.favorites.take(3))
+              McInsetRow(
+                icon: McIcons.heart2Fill,
+                iconColor: McTokens.danger,
+                title: row.media.title,
+                subtitle: '${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}',
+              ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 class _MetricCard extends StatelessWidget {
-  const _MetricCard({required this.label, required this.value, this.delta = ''});
+  const _MetricCard({
+    required this.label,
+    required this.value,
+    this.delta = '',
+  });
 
   final String label;
   final String value;
@@ -237,31 +255,37 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(10),
+          color: McTokens.surfaceInset,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: McTokens.line, width: 1),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: theme.textTheme.bodySmall),
-            const SizedBox(height: 4),
+            Text(label, style: McText.micro.copyWith(color: McTokens.textMuted)),
+            const SizedBox(height: 5),
             FittedBox(
-              child: Text(value, style: theme.textTheme.titleMedium),
+              alignment: Alignment.centerLeft,
+              fit: BoxFit.scaleDown,
+              child: Text(value, style: McText.titleSm.tabular),
             ),
-            if (delta.isNotEmpty)
+            if (delta.isNotEmpty) ...[
+              const SizedBox(height: 2),
               Text(
                 delta,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: delta.startsWith('↑')
-                      ? const Color(0xFF4CAF50)
-                      : const Color(0xFFE5615B),
-                ),
+                style: McText.micro
+                    .copyWith(
+                      color: delta.startsWith('↑')
+                          ? McTokens.ok
+                          : McTokens.textFaint,
+                    )
+                    .tabular,
               ),
+            ],
           ],
         ),
       ),
@@ -269,95 +293,92 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
-
-/// 7×24 观看热力图：CustomPaint 自绘格子矩阵，色深按时长占比。
 class _WeekHeatmap extends StatelessWidget {
-  const _WeekHeatmap({required this.matrix, required this.theme});
+  const _WeekHeatmap({required this.matrix});
 
   final List<List<int>> matrix;
-  final ThemeData theme;
 
   static const _dayLabels = ['一', '二', '三', '四', '五', '六', '日'];
 
-  Color _cell(int ms, int max, ColorScheme scheme) {
-    if (ms <= 0 || max <= 0) return scheme.surfaceContainerHighest.withValues(alpha: 0.5);
+  Color _cell(int ms, int max) {
+    if (ms <= 0 || max <= 0) return McTokens.surfaceInset;
     final t = (ms / max).clamp(0.0, 1.0);
-    return Color.lerp(scheme.primary.withValues(alpha: 0.25), scheme.primary, t)!;
+    return Color.lerp(const Color(0x2E7FB0FF), McTokens.accentStrong, t)!;
   }
 
   @override
   Widget build(BuildContext context) {
-    final scheme = theme.colorScheme;
     var max = 0;
     for (final row in matrix) {
       for (final v in row) {
         if (v > max) max = v;
       }
     }
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const labelW = 18.0;
-        const labelH = 14.0;
-        final cellH = ((constraints.maxHeight - labelH) / 7).floorToDouble().clamp(10.0, 22.0);
-        return SizedBox(
-          height: 7 * cellH + labelH,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var d = 0; d < 7; d++)
-                Expanded(
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: labelW,
-                        child: Text(
-                          _dayLabels[d],
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
-                        ),
+    return SizedBox(
+      height: 122,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var d = 0; d < 7; d++)
+            Expanded(
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 18,
+                    child: Text(
+                      _dayLabels[d],
+                      style: McText.micro.copyWith(
+                        fontWeight: FontWeight.w400,
+                        color: McTokens.textFaint,
                       ),
-                      for (var h = 0; h < 24; h++)
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.all(1),
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: _cell(
-                                  d < matrix.length && h < matrix[d].length
-                                      ? matrix[d][h]
-                                      : 0,
-                                  max,
-                                  scheme,
-                                ),
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                              child: const SizedBox.expand(),
-                            ),
-                          ),
-                        ),
-                    ],
+                    ),
                   ),
-                ),
-              // 小时刻度：0/6/12/18
-              SizedBox(
-                height: labelH,
-                child: Row(
-                  children: [
-                    const SizedBox(width: labelW),
-                    for (var h = 0; h < 24; h++)
-                      Expanded(
-                        child: h % 6 == 0
-                            ? Text('$h', style: theme.textTheme.labelSmall)
-                            : const SizedBox.shrink(),
+                  for (var h = 0; h < 24; h++)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(1),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: _cell(
+                              d < matrix.length && h < matrix[d].length
+                                  ? matrix[d][h]
+                                  : 0,
+                              max,
+                            ),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                          child: const SizedBox.expand(),
+                        ),
                       ),
-                  ],
-                ),
+                    ),
+                ],
               ),
-            ],
+            ),
+          const SizedBox(height: 3),
+          SizedBox(
+            height: 14,
+            child: Row(
+              children: [
+                const SizedBox(width: 18),
+                for (var h = 0; h < 24; h++)
+                  Expanded(
+                    child: h % 6 == 0
+                        ? Text(
+                            '$h',
+                            style: McText.micro
+                                .copyWith(
+                                  fontWeight: FontWeight.w400,
+                                  color: McTokens.textFaint,
+                                )
+                                .tabular,
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+              ],
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 }

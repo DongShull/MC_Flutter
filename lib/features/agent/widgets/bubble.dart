@@ -1,13 +1,16 @@
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-import '../state/agent_state.dart';
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/theme.dart';
+import '../state/agent_state.dart';
 
-/// 对话气泡（1:1 对齐 Kotlin Bubble 渲染）：
-/// user = 半透明白玻璃（white 10%，圆角 18），点按浮现 复制/改写；
-/// assistant = 普通文本；process = 折叠块（进行中「思考中…」，完成「已思考，调用 N 次工具」）；
-/// system = 居中小字。
+/// AI 会话消息气泡（1:1 对齐参考图 `scene-4.zh.jpg`）：
+/// - `user`：右对齐冷银灰圆角气泡（`#C5CEDB` 实底 + `#0B0C0F` 深黑字），长按弹出复制/改写；
+/// - `process`：紧凑圆角折叠过程卡（思考链 + 工具调用徽标）；
+/// - `assistant`：左对齐舒展阅读正文（`15.5sp` 行高 `1.55`）。
 class BubbleView extends StatelessWidget {
   const BubbleView({
     super.key,
@@ -22,50 +25,51 @@ class BubbleView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     switch (bubble.role) {
       case 'user':
         return Align(
           alignment: Alignment.centerRight,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(18),
+          child: McPressable(
+            onTap: null,
             onLongPress: () => _showActions(context),
+            scaleDown: 0.98,
             child: Container(
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              margin: const EdgeInsets.symmetric(vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
               constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.78),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.14)),
+                maxWidth: MediaQuery.sizeOf(context).width * 0.78,
               ),
-              child: Text(bubble.text),
+              decoration: BoxDecoration(
+                color: const Color(0xFFC5CEDB),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Text(
+                bubble.text,
+                style: McText.body.copyWith(
+                  color: McTokens.onAccent,
+                  fontWeight: FontWeight.w500,
+                  height: 1.45,
+                ),
+              ),
             ),
           ),
         );
       case 'process':
         return Align(
           alignment: Alignment.centerLeft,
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 4),
-            child: ProcessBlockView(
-              bubble: bubble,
-              inProgress: running,
-            ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: ProcessBlockView(bubble: bubble, inProgress: running),
           ),
         );
       case 'system':
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: const EdgeInsets.symmetric(vertical: 8),
           child: Center(
             child: Text(
               bubble.text,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 12, color: scheme.onSurfaceVariant),
+              style: McText.caption.faint,
             ),
           ),
         );
@@ -74,55 +78,63 @@ class BubbleView extends StatelessWidget {
       default:
         if (bubble.streaming && bubble.text.isEmpty) {
           return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.symmetric(vertical: 8),
             child: Row(
               children: [
                 const SizedBox(
                   width: 14,
                   height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: McTokens.accentStrong,
+                  ),
                 ),
                 const SizedBox(width: 8),
-                Text('思考中…',
-                    style: TextStyle(
-                        fontSize: 12, color: scheme.onSurfaceVariant)),
+                Text('思考中…', style: McText.caption.muted),
               ],
             ),
           );
         }
         return Align(
           alignment: Alignment.centerLeft,
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 4),
-            child: SelectableText(bubble.text),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: SelectableText(
+              bubble.text,
+              style: McText.bodyLg.copyWith(
+                fontSize: 15.5,
+                height: 1.55,
+                color: McTokens.text,
+              ),
+            ),
           ),
         );
     }
   }
 
   void _showActions(BuildContext context) {
-    showModalBottomSheet<void>(
+    showMcSheet<void>(
       context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+        child: McInsetGroup(
+          margin: EdgeInsets.zero,
           children: [
-            ListTile(
-              leading: const Icon(McIcons.copy),
-              title: const Text('复制'),
+            McInsetRow(
+              icon: McIcons.copy,
+              title: '复制消息内容',
               onTap: () {
-                Navigator.of(sheetContext).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已复制到剪贴板')),
-                );
+                Clipboard.setData(ClipboardData(text: bubble.text));
+                Navigator.of(ctx).pop();
+                McToast.success('已复制到剪贴板');
               },
             ),
             if (onEdit != null)
-              ListTile(
-                leading: const Icon(McIcons.edit),
-                title: const Text('改写'),
+              McInsetRow(
+                icon: McIcons.edit2,
+                title: '编辑并重新发送',
                 onTap: () {
-                  Navigator.of(sheetContext).pop();
+                  Navigator.of(ctx).pop();
                   onEdit!(bubble.id);
                 },
               ),
@@ -133,8 +145,6 @@ class BubbleView extends StatelessWidget {
   }
 }
 
-/// 过程折叠块（对齐 Kotlin ProcessBlock）：进行中「思考中…/正在执行 X…」，
-/// 完成「已思考，调用 N 次工具」；点开看思考原文与工具调用列表。
 class ProcessBlockView extends StatelessWidget {
   const ProcessBlockView({
     super.key,
@@ -147,52 +157,91 @@ class ProcessBlockView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final label = inProgress
-        ? (bubble.toolCalls.isEmpty ? '思考中…' : '正在执行中…')
-        : (bubble.processSummary ?? '过程');
-    return Theme(
-      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 8),
-        childrenPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        iconColor: scheme.onSurfaceVariant,
-        collapsedIconColor: scheme.onSurfaceVariant,
-        title: Row(
-          children: [
-            Icon(McIcons.aiSearchFill,
-                size: 16, color: scheme.onSurfaceVariant),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
-            ),
-          ],
-        ),
-        children: [
-          if (bubble.thinking != null)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: SelectableText(
-                bubble.thinking!,
-                style: TextStyle(
-                    fontSize: 12, color: scheme.onSurfaceVariant),
+        ? (bubble.toolCalls.isEmpty ? '正在思考…' : '正在调用工具…')
+        : (bubble.processSummary ?? '已完成推理过程');
+    return Container(
+      decoration: BoxDecoration(
+        color: McTokens.surfaceInset,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: McTokens.line, width: 1),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          dense: true,
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+          iconColor: McTokens.textFaint,
+          collapsedIconColor: McTokens.textFaint,
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                McIcons.aiStarFill,
+                size: 14,
+                color: inProgress ? McTokens.info : McTokens.textMuted,
               ),
-            ),
-          for (final call in bubble.toolCalls)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 4),
+              const SizedBox(width: 7),
+              Flexible(
                 child: Text(
-                  '🛠 ${call.name}',
-                  style: TextStyle(
-                      fontSize: 12, color: scheme.onSurfaceVariant),
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: McText.caption.muted,
                 ),
               ),
-            ),
-        ],
+            ],
+          ),
+          children: [
+            if (bubble.thinking != null && bubble.thinking!.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: SelectableText(
+                  bubble.thinking!,
+                  style: McText.caption.faint,
+                ),
+              ),
+            if (bubble.toolCalls.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final call in bubble.toolCalls)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: McTokens.surfaceRaised,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: McTokens.line, width: 1),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            McIcons.terminal,
+                            size: 12,
+                            color: McTokens.accent,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            call.name,
+                            style: McText.micro.copyWith(
+                              color: McTokens.textMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

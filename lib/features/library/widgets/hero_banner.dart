@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/designsystem/mc_glass.dart';
+import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/image/image_urls.dart';
 import '../state/models.dart';
@@ -255,7 +256,7 @@ class _BannerPage extends StatelessWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.play_arrow_rounded, size: 16),
+                            const Icon(McIcons.play2Fill, size: 16),
                             const SizedBox(width: 5),
                             Text(_playLabel,
                                 style: const TextStyle(
@@ -272,7 +273,7 @@ class _BannerPage extends StatelessWidget {
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.movie_outlined, size: 15),
+                            Icon(McIcons.movie, size: 15),
                             SizedBox(width: 5),
                             Text('详情',
                                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),

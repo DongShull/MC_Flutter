@@ -36,11 +36,17 @@ flutter:
 
   assets:
     - assets/shaders/mc_stretch.frag
+    - assets/logo.png
+    - assets/brand/
+    - assets/data/welcome_quotes.json
 
   fonts:
     - family: McIcons
       fonts:
         - asset: assets/fonts/McIcons.ttf
-    - family: SourceHanSansCN
+    - family: Inter
       fonts:
-        - asset: assets/fonts/SourceHanSansCN-Medium.otf
+        - asset: assets/fonts/InterVariable.ttf
+    - family: WelcomeSerif
+      fonts:
+        - asset: assets/fonts/WelcomeSerif.otf

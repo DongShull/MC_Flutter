@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/designsystem/theme.dart';
 import '../state/models.dart';
 
-/// 追踪明细（对齐 SubscriptionDetailContent：按季分组，每工单 = 状态徽标 + 中文调度解释）。
+/// 追踪明细（按季分组，每工单 = 状态圆点 + 中文调度解释）。
 class TrackingList extends StatelessWidget {
   const TrackingList({super.key, required this.sub});
 
@@ -16,8 +17,7 @@ class TrackingList extends StatelessWidget {
         child: Center(
           child: Text(
             sub.media.kind == 'movie' ? '影片暂无追踪明细' : '暂无追踪工单',
-            style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.45), fontSize: 12),
+            style: McText.caption.faint,
           ),
         ),
       );
@@ -33,13 +33,22 @@ class TrackingList extends StatelessWidget {
       children: [
         for (final season in seasons) ...[
           Padding(
-            padding: const EdgeInsets.only(top: 8, bottom: 4),
-            child: Text(
-              '第 $season 季',
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            padding: const EdgeInsets.only(top: 10, bottom: 6),
+            child: Text('第 $season 季', style: McText.sub.semibold),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: McTokens.surfaceRaised,
+              borderRadius: BorderRadius.circular(McTokens.cardRadius),
+              border: Border.all(color: McTokens.line, width: 1),
+            ),
+            child: Column(
+              children: [
+                for (final w in bySeason[season]!) _unitTile(w),
+              ],
             ),
           ),
-          ...bySeason[season]!.map(_unitTile),
         ],
       ],
     );
@@ -49,15 +58,15 @@ class TrackingList extends StatelessWidget {
     final done = w.status == 'imported';
     final busy = w.status == 'grabbed' || w.status == 'downloaded';
     final dot = done
-        ? const Color(0xFF34C77B)
+        ? McTokens.ok
         : busy
-            ? const Color(0xFF6AA7FF)
+            ? McTokens.info
             : w.status == 'failed'
-                ? const Color(0xFFE5615B)
-                : Colors.white24;
+                ? McTokens.danger
+                : McTokens.textFaint;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         children: [
           Container(
@@ -69,7 +78,7 @@ class TrackingList extends StatelessWidget {
           Expanded(
             child: Text(
               '第 ${w.episodeNumber} 集 · ${wantedStatusNote(w)}',
-              style: const TextStyle(fontSize: 12),
+              style: McText.caption.copyWith(color: McTokens.text),
             ),
           ),
           if (w.grabTitle != null && w.grabTitle!.isNotEmpty)
@@ -78,10 +87,7 @@ class TrackingList extends StatelessWidget {
                 w.grabTitle!,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: Colors.white.withValues(alpha: 0.4),
-                ),
+                style: McText.micro.faint,
               ),
             ),
         ],

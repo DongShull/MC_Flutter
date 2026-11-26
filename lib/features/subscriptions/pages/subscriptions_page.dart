@@ -3,16 +3,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/adaptive.dart';
+import '../../../core/designsystem/mc_ambient.dart';
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
 import '../../../core/designsystem/state_views.dart';
+import '../../../core/designsystem/theme.dart';
+import '../../root/state/main_tab_bus.dart';
 import '../state/controllers.dart';
 import '../state/subscription_events.dart';
 import '../widgets/subs_home_sections.dart';
 
-/// 订阅首页（逐块对齐鸿蒙 SubscriptionsPage.ets）：
-/// 失败（重试）/ 空态（去发现）/ 内容（Hero 轮播 → 刚刚入库 → 日程 →
-/// 剧集订阅 → 电影订阅）。手机单列；平板/TV 居中加宽。
+/// 订阅首页（Tab 2，1:1 对齐 iOS `SubscriptionsView.swift` & 参考图 `scene-2.jpg`）：
+/// - 全出血沉浸轮播 Hero + 剧照主色 `McAmbientTopGlow` 氛围底色晕染；
+/// - 顶栏：悬浮「订阅」大标题 + 右侧搜索液态玻璃圆钮（配吸顶护字黑雾）；
+/// - 分区流：Hero → 刚刚入库（16:9 横卡）→ 追更日程 → 剧集订阅 → 电影订阅。
 class SubscriptionsPage extends ConsumerStatefulWidget {
   const SubscriptionsPage({super.key});
 
@@ -22,6 +28,8 @@ class SubscriptionsPage extends ConsumerStatefulWidget {
 
 class _SubscriptionsPageState extends ConsumerState<SubscriptionsPage> {
   int _lastRevision = -1;
+  double _scrollOffset = 0;
+  Color? _ambientTint;
 
   @override
   void initState() {
@@ -33,7 +41,6 @@ class _SubscriptionsPageState extends ConsumerState<SubscriptionsPage> {
 
   @override
   Widget build(BuildContext context) {
-    // SubscriptionEvents.revision 变化（新建 / 取消订阅）→ 重拉首页数据
     final rev = SubscriptionEvents.revision;
     if (rev != _lastRevision) {
       _lastRevision = rev;
@@ -44,23 +51,77 @@ class _SubscriptionsPageState extends ConsumerState<SubscriptionsPage> {
 
     final state = ref.watch(subscriptionsHomeProvider);
     final form = McFormWatch.of(context);
+    final topPad = MediaQuery.paddingOf(context).top;
 
     return Scaffold(
-      body: RefreshIndicator(
-        onRefresh: () => ref.read(subscriptionsHomeProvider.notifier).reload(),
-        child: state.isLoading
-            ? const McLoadingView()
-            : state.hasError
-                ? _errorState()
-                : _content(context, state, form),
+      backgroundColor: McTokens.bg,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          McAmbientTopGlow(
+            tint: _ambientTint,
+            scrollOffset: _scrollOffset,
+          ),
+          NotificationListener<ScrollNotification>(
+            onNotification: (n) {
+              if (n.metrics.axis == Axis.vertical && n.depth == 0) {
+                setState(() => _scrollOffset = n.metrics.pixels);
+              }
+              return false;
+            },
+            child: RefreshIndicator(
+              edgeOffset: topPad + 56,
+              color: McTokens.accentStrong,
+              backgroundColor: McTokens.surfaceSolid,
+              onRefresh: () =>
+                  ref.read(subscriptionsHomeProvider.notifier).reload(),
+              child: state.isLoading && !state.hasValue
+                  ? const McFeedSkeleton(showHero: true)
+                  : state.hasError && !state.hasValue
+                      ? _errorState(topPad)
+                      : _content(context, state, form, topPad),
+            ),
+          ),
+          // 顶部浮动沉浸标题栏
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Stack(
+              children: [
+                McPageFog(height: topPad + 72),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    McTokens.pagePadding,
+                    topPad + 6,
+                    12,
+                    8,
+                  ),
+                  child: Row(
+                    children: [
+                      const Text('订阅', style: McText.display),
+                      const Spacer(),
+                      McGlassIconButton(
+                        icon: McIcons.search,
+                        tooltip: '搜索',
+                        onTap: () => context.push('/search'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _errorState() {
+  Widget _errorState(double topPad) {
     return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       children: [
-        const SizedBox(height: 96),
+        SizedBox(height: topPad + 96),
         McErrorView(
           text: McStrings.subsLoadFailed,
           onRetry: () => ref.read(subscriptionsHomeProvider.notifier).reload(),
@@ -69,81 +130,84 @@ class _SubscriptionsPageState extends ConsumerState<SubscriptionsPage> {
     );
   }
 
-  Widget _content(BuildContext context, AsyncValue<SubsHomeBundle> state,
-      McDeviceForm form) {
+  Widget _content(
+    BuildContext context,
+    AsyncValue<SubsHomeBundle> state,
+    McDeviceForm form,
+    double topPad,
+  ) {
     final bundle = state.valueOrNull;
-    if (bundle == null || bundle.subs.isEmpty) return _emptyState(context);
+    if (bundle == null || bundle.subs.isEmpty) {
+      return _emptyState(context, topPad);
+    }
     final home = bundle.home();
     final wide = form != McDeviceForm.phone;
-    final sections = Column(
+
+    final bodySections = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 8),
-        SubsHeroCarousel(home: home, now: home.now),
-        const SizedBox(height: 36),
-        SubsRecentRow(home: home, now: home.now),
-        const SizedBox(height: 36),
+        if (home.recent.isNotEmpty) ...[
+          const SizedBox(height: 22),
+          SubsRecentRow(home: home, now: home.now),
+        ],
+        const SizedBox(height: 28),
         SubsScheduleRow(home: home, now: home.now),
-        const SizedBox(height: 36),
+        const SizedBox(height: 30),
         SubsShelfRow(
           home: home,
           title: McStrings.subsTvShelfTitle,
           kind: 'tv',
           onViewAll: () => context.push('/subscriptions/wall?kind=tv'),
         ),
-        const SizedBox(height: 36),
+        const SizedBox(height: 30),
         SubsShelfRow(
           home: home,
           title: McStrings.subsMovieShelfTitle,
           kind: 'movie',
           onViewAll: () => context.push('/subscriptions/wall?kind=movie'),
         ),
-        const SizedBox(height: 36),
+        const SizedBox(height: McTokens.bottomBarClearance),
       ],
     );
+
     return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
+      padding: EdgeInsets.zero,
       children: [
-        // 平板/TV 居中加宽
+        SubsHeroCarousel(
+          home: home,
+          now: home.now,
+          scrollOffset: _scrollOffset,
+          topClearance: topPad + 58,
+          onAmbientColorChanged: (c) {
+            if (mounted && c != _ambientTint) {
+              setState(() => _ambientTint = c);
+            }
+          },
+        ),
         Center(
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: wide ? 720 : double.infinity),
-            child: sections,
+            constraints: BoxConstraints(maxWidth: wide ? 880 : double.infinity),
+            child: bodySections,
           ),
         ),
       ],
     );
   }
 
-  Widget _emptyState(BuildContext context) {
-    final theme = Theme.of(context).colorScheme;
+  Widget _emptyState(BuildContext context, double topPad) {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
-        const SizedBox(height: 120),
-        Icon(McIcons.bookmark,
-            size: 34, color: theme.onSurface.withValues(alpha: 0.4)),
-        const SizedBox(height: 12),
-        const Center(
-          child: Text(McStrings.subsEmptyTitle,
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
-        ),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 48),
-          child: Text(McStrings.subsEmptyBody,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 13,
-                  height: 1.5,
-                  color: theme.onSurface.withValues(alpha: 0.55))),
-        ),
-        const SizedBox(height: 20),
-        Center(
-          child: FilledButton(
-            onPressed: () => context.push('/discover'),
-            child: const Text(McStrings.subsGoDiscover),
-          ),
+        SizedBox(height: topPad + 96),
+        McEmptyView(
+          icon: McIcons.bookmark,
+          title: McStrings.subsEmptyTitle,
+          text: McStrings.subsEmptyBody,
+          actionLabel: McStrings.subsGoDiscover,
+          onRetry: () => MainTabBus.instance.open(MainTab.discover),
         ),
       ],
     );

@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/adaptive.dart';
+import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_strings.dart';
 import '../../../core/designsystem/state_views.dart';
+import '../../../core/designsystem/theme.dart';
 import '../../../core/image/image_urls.dart';
 import '../state/home_model.dart';
 import '../state/mc_api.dart';
@@ -13,9 +15,7 @@ import '../state/models.dart';
 import '../widgets/subs_home_sections.dart';
 
 /// 订阅墙（对齐鸿蒙 SubscriptionWallPage.ets）：
-/// 传 [subscriptionId] = GET /subscriptions/{id}/items（单订阅资源墙）；
-/// 否则 GET /subscriptions 全量按 kind 过滤，分「进行中 / 已暂停 / 已收齐·已入库」
-/// 三段 Flex 海报墙，顶部 summary、下拉刷新。
+/// 传 [subscriptionId] = 单订阅资源墙；否则按 kind 分三段海报墙。
 class SubscriptionWallPage extends ConsumerStatefulWidget {
   const SubscriptionWallPage({super.key, this.subscriptionId, this.kind});
 
@@ -53,7 +53,6 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
         });
         return;
       }
-      // 全量订阅 + 规则组/媒体库名（第三行「规则组→媒体库」，失败降级为空）。
       final subs = await api.subscriptions(kind: widget.kind);
       try {
         final rules = await api.ruleSets();
@@ -63,9 +62,7 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
           _ruleSetNames = {for (final r in rules) r.id: r.name};
           _libraryNames = {for (final l in libs) l.id: l.name};
         });
-      } catch (_) {
-        // 非管理员拿不到规则组/媒体库：第三行降级隐藏。
-      }
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _subs = subs;
@@ -101,19 +98,31 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
                 : '订阅墙';
 
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: _loading
-          ? const McLoadingView()
-          : _error != null
-              ? McErrorView(text: _error!, onRetry: _load)
-              : RefreshIndicator(onRefresh: _load, child: _buildBody()),
+      backgroundColor: McTokens.bg,
+      body: Column(
+        children: [
+          McFloatingDetailBar(
+            onBack: () => context.canPop()
+                ? context.pop()
+                : context.go('/subscriptions'),
+            title: title,
+            titleVisible: true,
+          ),
+          Expanded(
+            child: _loading
+                ? const McLoadingView()
+                : _error != null
+                    ? McErrorView(text: _error!, onRetry: _load)
+                    : RefreshIndicator(onRefresh: _load, child: _buildBody()),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildBody() {
     final form = McFormWatch.of(context);
     SliverGridDelegate wallDelegate(McDeviceForm form) {
-      // 平板/TV 自适应列数；手机保持现有密度不变。
       if (form == McDeviceForm.phone) {
         return const SliverGridDelegateWithMaxCrossAxisExtent(
           maxCrossAxisExtent: 150,
@@ -123,31 +132,39 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
         );
       }
       return SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: mcGridCrossAxisCount(form,
-            BoxConstraints.tightFor(width: MediaQuery.widthOf(context) - 24),
-            cellExtent: 150),
+        crossAxisCount: mcGridCrossAxisCount(
+          form,
+          BoxConstraints.tightFor(width: MediaQuery.widthOf(context) - 32),
+          cellExtent: 150,
+        ),
         mainAxisSpacing: 14,
         crossAxisSpacing: 12,
         childAspectRatio: 126 / 220,
       );
     }
 
-    // 单订阅资源墙
     final items = _items;
     if (items != null) {
       if (items.isEmpty) {
-        return ListView(children: const [
-          SizedBox(height: 96),
-          Center(child: Text('暂无资源')),
-        ]);
+        return ListView(
+          children: [
+            const SizedBox(height: 96),
+            Center(child: Text('暂无资源', style: McText.sub.muted)),
+          ],
+        );
       }
       return GridView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(
+          McTokens.pagePadding,
+          12,
+          McTokens.pagePadding,
+          32,
+        ),
         gridDelegate: wallDelegate(form),
         itemCount: items.length,
         itemBuilder: (context, i) => McFocusRing(
-          borderRadius: 10,
+          borderRadius: McTokens.posterRadius,
           child: _PosterTile(
             title: items[i].title,
             posterUrl: items[i].posterUrl,
@@ -157,22 +174,20 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
       );
     }
 
-    // 全量订阅墙：三段分区（对齐鸿蒙 Section：进行中/已暂停/已收齐·已入库）。
     final subs = _subs ?? const <SubscriptionView>[];
     if (subs.isEmpty) {
-      return ListView(children: [
-        const SizedBox(height: 96),
-        Center(
-          child: Text(McStrings.subsEmptyNoPermission,
+      return ListView(
+        children: [
+          const SizedBox(height: 96),
+          Center(
+            child: Text(
+              McStrings.subsEmptyNoPermission,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 13,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.55))),
-        ),
-      ]);
+              style: McText.sub.muted,
+            ),
+          ),
+        ],
+      );
     }
     final home = SubsHome(subs, const [], const [], const {});
     final kind = widget.kind ?? 'tv';
@@ -180,20 +195,31 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
     final activeCount = split.active.length;
     final summary = McStrings.subsWallSummary(split.all.length, activeCount);
 
-    Widget section(String label, List<SubscriptionView> list,
-        {bool dim = false}) {
+    Widget section(
+      String label,
+      List<SubscriptionView> list, {
+      bool dim = false,
+    }) {
       if (list.isEmpty) return const SizedBox.shrink();
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
-            child: Text(McStrings.subsWallSection(label, list.length),
-                style:
-                    const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            padding: const EdgeInsets.fromLTRB(
+              McTokens.pagePadding,
+              18,
+              McTokens.pagePadding,
+              10,
+            ),
+            child: Text(
+              McStrings.subsWallSection(label, list.length),
+              style: McText.titleSm,
+            ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(
+              horizontal: McTokens.pagePadding,
+            ),
             child: Wrap(
               spacing: 12,
               runSpacing: 14,
@@ -202,7 +228,7 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
                   Opacity(
                     opacity: dim ? 0.55 : 1,
                     child: McFocusRing(
-                      borderRadius: 10,
+                      borderRadius: McTokens.posterRadius,
                       child: SubsPosterCard(
                         sub: s,
                         home: home,
@@ -224,19 +250,18 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: Text(summary,
-              style: TextStyle(
-                  fontSize: 13,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.55))),
+          padding: const EdgeInsets.fromLTRB(
+            McTokens.pagePadding,
+            8,
+            McTokens.pagePadding,
+            0,
+          ),
+          child: Text(summary, style: McText.caption.muted),
         ),
         section(McStrings.subsWallSectionActive, split.active),
         section(McStrings.subsWallSectionPaused, split.paused, dim: true),
         section(home.restingLabel(kind), split.done, dim: true),
-        const SizedBox(height: 24),
+        const SizedBox(height: 32),
       ],
     );
   }
@@ -252,47 +277,44 @@ class _PosterTile extends StatelessWidget {
   final String title;
   final String? posterUrl;
   final String? subtitle;
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context).colorScheme;
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: SizedBox.expand(
-                child: posterUrl != null
-                    ? CachedNetworkImage(
-                        httpHeaders: mcImageHeaders(),
-                        imageUrl: McImageUrls.resolve(posterUrl),
-                        fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) =>
-                            ColoredBox(color: theme.surfaceContainerHighest),
-                      )
-                    : ColoredBox(color: theme.surfaceContainerHighest),
-              ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(McTokens.posterRadius),
+            child: SizedBox.expand(
+              child: posterUrl != null
+                  ? CachedNetworkImage(
+                      httpHeaders: mcImageHeaders(),
+                      imageUrl: McImageUrls.resolve(posterUrl),
+                      fit: BoxFit.cover,
+                      errorWidget: (_, __, ___) => const ColoredBox(
+                        color: McTokens.posterPlaceholder,
+                      ),
+                    )
+                  : const ColoredBox(color: McTokens.posterPlaceholder),
             ),
           ),
-          const SizedBox(height: 6),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: McText.posterTitle,
+        ),
+        if (subtitle != null)
           Text(
-            title,
+            subtitle!,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            style: McText.micro.muted,
           ),
-          if (subtitle != null)
-            Text(
-              subtitle!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 10, color: theme.onSurface.withValues(alpha: 0.55)),
-            ),
-        ],
-      ),
+      ],
     );
   }
 }

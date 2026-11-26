@@ -1,19 +1,19 @@
-import '../../../core/image/image_urls.dart';
-// IMPLEMENTED — 1:1 重写自 MovieClaw feature/search/SearchScreen.kt（库内搜索分支）。
-// 范围说明：search 模块只做库内搜索；站点/资源搜索属下载域，不在此实现。
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/adaptive.dart';
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
+import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
+import '../../../core/image/image_urls.dart';
 import '../state/search_controller.dart';
-import '../../../core/designsystem/mc_icons.dart';
 
-/// 库内搜索页：搜索框（350ms 防抖）+ 历史记录 + 输入联想 +
-/// 结果列表（相关度平铺）+ 人物行（下钻）+ 游标分页。
+/// 全局库内搜索页（银玻璃深色胶囊搜索栏 + 历史记录胶囊 + 相关影人圆头像 + 结果卡片）。
 class SearchPage extends ConsumerStatefulWidget {
   const SearchPage({super.key});
 
@@ -22,13 +22,7 @@ class SearchPage extends ConsumerStatefulWidget {
 }
 
 class _SearchPageState extends ConsumerState<SearchPage> {
-  late final TextEditingController _input;
-
-  @override
-  void initState() {
-    super.initState();
-    _input = TextEditingController();
-  }
+  late final TextEditingController _input = TextEditingController();
 
   @override
   void dispose() {
@@ -45,51 +39,110 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     ref.read(searchProvider.notifier).search(q);
   }
 
+  void _back() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/home');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(searchProvider);
+    final topPad = MediaQuery.paddingOf(context).top;
+
     return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: Padding(
-          padding: const EdgeInsets.only(right: 16),
-          child: TextField(
-            controller: _input,
-            autofocus: true,
-            textInputAction: TextInputAction.search,
-            onSubmitted: _submit,
-            onChanged: (v) => ref.read(searchProvider.notifier).onQuery(v),
-            decoration: InputDecoration(
-              isDense: true,
-              hintText: '搜索库内影片、剧集与影人',
-              prefixIcon: const Icon(McIcons.search, size: 20),
-              suffixIcon: s.query.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(McIcons.close2, size: 18),
-                      onPressed: () {
-                        _input.clear();
-                        ref.read(searchProvider.notifier).onQuery('');
-                      },
+      backgroundColor: McTokens.bg,
+      body: Column(
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(12, topPad + 8, 16, 10),
+            child: Row(
+              children: [
+                McGlassIconButton(
+                  icon: McIcons.arrowLeftS,
+                  iconSize: 22,
+                  tooltip: '返回',
+                  onTap: _back,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: McTokens.surfaceInset,
+                      borderRadius: BorderRadius.circular(McTokens.pillRadius),
+                      border: Border.all(color: McTokens.lineStrong, width: 1),
                     ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(24),
-                borderSide: BorderSide.none,
-              ),
-              filled: true,
-              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          McIcons.search,
+                          size: 17,
+                          color: McTokens.textMuted,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: _input,
+                            autofocus: true,
+                            style: McText.body,
+                            textInputAction: TextInputAction.search,
+                            onSubmitted: _submit,
+                            onChanged: (v) =>
+                                ref.read(searchProvider.notifier).onQuery(v),
+                            decoration: const InputDecoration(
+                              isCollapsed: true,
+                              filled: false,
+                              hintText: '搜索影片、剧集与影人…',
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                        ),
+                        if (s.query.isNotEmpty)
+                          GestureDetector(
+                            onTap: () {
+                              _input.clear();
+                              ref.read(searchProvider.notifier).onQuery('');
+                            },
+                            child: Container(
+                              width: 20,
+                              height: 20,
+                              decoration: const BoxDecoration(
+                                color: Color(0x29FFFFFF),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                McIcons.close2,
+                                size: 12,
+                                color: McTokens.text,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
+          const Divider(height: 1, color: McTokens.line),
+          Expanded(
+            child: s.query.trim().isEmpty
+                ? _HistorySection(onPick: _submit)
+                : _ResultBody(onPick: _submit),
+          ),
+        ],
       ),
-      body: s.query.trim().isEmpty
-          ? _HistorySection(onPick: _submit)
-          : _ResultBody(onPick: _submit),
     );
   }
 }
 
-/// 空态：历史记录（本机 SharedPreferences，最近 20 条，可单删/清空）。
 class _HistorySection extends ConsumerWidget {
   const _HistorySection({required this.onPick});
 
@@ -99,36 +152,64 @@ class _HistorySection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final history = ref.watch(searchProvider.select((s) => s.history));
     if (history.isEmpty) {
-      return const Center(
-        child: Text('还没有搜索记录', style: TextStyle(color: Colors.white54)),
+      return const McEmptyView(
+        icon: McIcons.search,
+        title: '搜索你的媒体库',
+        text: '输入片名、原名、导演或演员姓名立即查找',
       );
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       children: [
-        Row(
-          children: [
-            const Icon(McIcons.history1, size: 16, color: Colors.white54),
-            const SizedBox(width: 6),
-            const Text('搜索历史', style: TextStyle(fontWeight: FontWeight.w600)),
-            const Spacer(),
-            TextButton(
-              onPressed: () => ref.read(searchProvider.notifier).clearHistory(),
-              child: const Text('清空'),
-            ),
-          ],
+        McSectionHeader(
+          title: '最近搜索',
+          padding: EdgeInsets.zero,
+          trailing: TextButton(
+            onPressed: () => ref.read(searchProvider.notifier).clearHistory(),
+            child: const Text('清空'),
+          ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 10),
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
             for (final q in history)
-              InputChip(
-                label: Text(q),
-                onPressed: () => onPick(q),
-                onDeleted: () =>
-                    ref.read(searchProvider.notifier).removeHistory(q),
+              Container(
+                decoration: BoxDecoration(
+                  color: McTokens.surfaceInset,
+                  borderRadius: BorderRadius.circular(McTokens.pillRadius),
+                  border: Border.all(color: McTokens.line, width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    GestureDetector(
+                      onTap: () => onPick(q),
+                      behavior: HitTestBehavior.opaque,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(13, 7, 6, 7),
+                        child: Text(
+                          q,
+                          style: McText.sub.copyWith(color: McTokens.text),
+                        ),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () =>
+                          ref.read(searchProvider.notifier).removeHistory(q),
+                      behavior: HitTestBehavior.opaque,
+                      child: const Padding(
+                        padding: EdgeInsets.fromLTRB(4, 7, 10, 7),
+                        child: Icon(
+                          McIcons.close2,
+                          size: 13,
+                          color: McTokens.textFaint,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
           ],
         ),
@@ -137,7 +218,6 @@ class _HistorySection extends ConsumerWidget {
   }
 }
 
-/// 结果区：联想 → 无结果（含建议词）→ 命中（人物行 + 条目平铺）。
 class _ResultBody extends ConsumerWidget {
   const _ResultBody({required this.onPick});
 
@@ -148,7 +228,7 @@ class _ResultBody extends ConsumerWidget {
     final s = ref.watch(searchProvider);
 
     if (s.searching && s.hits.isEmpty && s.people.isEmpty) {
-      return const McLoadingView();
+      return const McLoadingView(label: '正在搜索…');
     }
     if (s.error != null) {
       return McErrorView(
@@ -164,11 +244,9 @@ class _ResultBody extends ConsumerWidget {
       return _NoResults(s: s, onPick: onPick);
     }
 
-    // 人物行最多展示 8 个（对齐 Kotlin）。
     final people = s.people.take(8).toList();
     return NotificationListener<ScrollNotification>(
       onNotification: (n) {
-        // 游标分页：快到底且还有 next_cursor 时追加一页。
         if (n.metrics.extentAfter < 600 &&
             s.nextCursor != null &&
             !s.searching) {
@@ -180,74 +258,68 @@ class _ResultBody extends ConsumerWidget {
         return false;
       },
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 36),
         children: [
           if (s.selectedPerson != null)
             Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: ActionChip(
-                avatar: const Icon(McIcons.close2, size: 16),
-                label: Text('只看「${s.selectedPerson!.name}」的作品'),
-                onPressed: () =>
-                    ref.read(searchProvider.notifier).clearPerson(),
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: McChip(
+                  icon: McIcons.close2,
+                  label: '只看「${s.selectedPerson!.name}」的作品',
+                  selected: true,
+                  onTap: () => ref.read(searchProvider.notifier).clearPerson(),
+                ),
               ),
             ),
           if (!s.indexPending && s.suggestions.isNotEmpty) ...[
             _SuggestionRow(suggestions: s.suggestions, onPick: onPick),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
           ],
           if (people.isNotEmpty && s.selectedPerson == null) ...[
-            const Text('相关影人', style: TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
+            const Text('相关影人', style: McText.titleSm),
+            const SizedBox(height: 10),
             SizedBox(
-              height: 108,
+              height: 100,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: people.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                separatorBuilder: (_, __) => const SizedBox(width: 14),
                 itemBuilder: (_, i) => _PersonCell(person: people[i]),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
           ],
           if (s.selectedPerson != null)
             Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(
-                s.selectedPerson!.name,
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-              ),
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(s.selectedPerson!.name, style: McText.title),
             ),
-          const SizedBox(height: 4),
-          // 相关度平铺：服务端顺序即展示顺序，不做本地重排/分组。
           for (final hit in s.hits) ...[
             _HitTile(hit: hit),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
           ],
           if (s.searching)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Center(
-                child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-            )
+            const McLoadingView()
           else if (s.nextCursor == null && s.hits.isNotEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 14),
               child: Center(
-                child: Text('已加载全部结果', style: TextStyle(color: Colors.white54)),
+                child: Text(
+                  '已显示全部结果',
+                  style: McText.caption.copyWith(color: McTokens.textFaint),
+                ),
               ),
             ),
           if (s.indexPending)
-            const Padding(
-              padding: EdgeInsets.only(top: 4),
-              child: Text('部分内容仍在建立索引，结果可能不全',
-                  style: TextStyle(color: Colors.white54)),
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                '部分内容仍在建立索引，结果可能尚不完整',
+                textAlign: TextAlign.center,
+                style: McText.caption.copyWith(color: McTokens.textFaint),
+              ),
             ),
         ],
       ),
@@ -255,43 +327,50 @@ class _ResultBody extends ConsumerWidget {
   }
 }
 
-class _NoResults extends ConsumerWidget {
+class _NoResults extends StatelessWidget {
   const _NoResults({required this.s, required this.onPick});
 
   final SearchState s;
   final ValueChanged<String> onPick;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.search_off, size: 40, color: Colors.white38),
-          const SizedBox(height: 12),
-          Text('没有找到「${s.submittedQuery}」相关的内容'),
-          if (s.suggestions.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              children: [
-                for (final sug in s.suggestions)
-                  ActionChip(
-                    label: Text(sug.label ?? sug.text),
-                    onPressed: () => onPick(sug.text),
-                  ),
-              ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(McIcons.search, size: 36, color: McTokens.textFaint),
+            const SizedBox(height: 14),
+            Text(
+              '没有找到「${s.submittedQuery}」相关的内容',
+              textAlign: TextAlign.center,
+              style: McText.ui,
             ),
+            if (s.suggestions.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  for (final sug in s.suggestions)
+                    McChip(
+                      label: sug.label ?? sug.text,
+                      compact: true,
+                      onTap: () => onPick(sug.text),
+                    ),
+                ],
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
 }
 
-/// 输入联想行（候选词，点按直接搜索）。
 class _SuggestionRow extends StatelessWidget {
   const _SuggestionRow({required this.suggestions, required this.onPick});
 
@@ -301,18 +380,17 @@ class _SuggestionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 34,
+      height: 32,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: suggestions.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (_, i) {
           final sug = suggestions[i];
-          return ActionChip(
-            label: Text(sug.label ?? sug.text,
-                style: const TextStyle(fontSize: 12)),
-            visualDensity: VisualDensity.compact,
-            onPressed: () => onPick(sug.text),
+          return McChip(
+            label: sug.label ?? sug.text,
+            compact: true,
+            onTap: () => onPick(sug.text),
           );
         },
       ),
@@ -320,7 +398,6 @@ class _SuggestionRow extends StatelessWidget {
   }
 }
 
-/// 人物格：头像 + 名字（点击下钻该人物的库内作品）。
 class _PersonCell extends ConsumerWidget {
   const _PersonCell({required this.person});
 
@@ -328,35 +405,39 @@ class _PersonCell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // TV 形态包焦点环；非 TV 原样返回 child，零开销。
     return McFocusRing(
       borderRadius: 12,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+      child: McPressable(
         onTap: () => ref.read(searchProvider.notifier).selectPerson(person),
         child: SizedBox(
-          width: 72,
+          width: 68,
           child: Column(
             children: [
-              ClipOval(
-                child: person.avatarUrl != null && person.avatarUrl!.isNotEmpty
-                    ? CachedNetworkImage(
-                        imageUrl:
-                            McImageUrls.resolve(person.avatarUrl, widthPx: 160),
-                        httpHeaders: mcImageHeaders(),
-                        width: 64,
-                        height: 64,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => _avatarFallback(),
-                      )
-                    : _avatarFallback(),
+              Container(
+                width: 62,
+                height: 62,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: McTokens.line, width: 1),
+                ),
+                child: ClipOval(
+                  child: person.avatarUrl != null && person.avatarUrl!.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl:
+                              McImageUrls.resolve(person.avatarUrl, widthPx: 160),
+                          httpHeaders: mcImageHeaders(),
+                          fit: BoxFit.cover,
+                          errorWidget: (_, __, ___) => _avatarFallback(),
+                        )
+                      : _avatarFallback(),
+                ),
               ),
               const SizedBox(height: 6),
               Text(
                 person.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12),
+                style: McText.caption.copyWith(color: McTokens.text),
               ),
             ],
           ),
@@ -366,14 +447,12 @@ class _PersonCell extends ConsumerWidget {
   }
 
   Widget _avatarFallback() => Container(
-        width: 64,
-        height: 64,
-        color: McColors.surfaceDark,
-        child: const Icon(McIcons.user, color: Colors.white38),
+        color: McTokens.posterPlaceholder,
+        alignment: Alignment.center,
+        child: const Icon(McIcons.user, color: McTokens.textFaint, size: 22),
       );
 }
 
-/// 命中条目行：海报 + 标题/年份 + 命中原因（match.label）+ 所在库数。
 class _HitTile extends StatelessWidget {
   const _HitTile({required this.hit});
 
@@ -381,83 +460,94 @@ class _HitTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // TV 形态包焦点环；非 TV 原样返回 child，零开销。
     return McFocusRing(
-      borderRadius: 14,
-      child: Card(
-        margin: EdgeInsets.zero,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: () {
-            // 库内条目 → 全局详情路由（播放一律交播放器域）。
-            if (hit.libraryIds.isEmpty) return;
-            context.push('/detail/${hit.libraryIds.first}/${hit.itemId}');
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Row(
-              children: [
-                ClipRRect(
+      borderRadius: McTokens.cardRadius,
+      child: McPressable(
+        scaleDown: 0.985,
+        onTap: () {
+          if (hit.libraryIds.isEmpty) return;
+          context.push('/detail/${hit.libraryIds.first}/${hit.itemId}');
+        },
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: McTokens.surfaceRaised,
+            borderRadius: BorderRadius.circular(McTokens.cardRadius),
+            border: Border.all(color: McTokens.line, width: 1),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 54,
+                height: 81,
+                decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
-                  child: hit.posterUrl != null && hit.posterUrl!.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl:
-                              McImageUrls.resolve(hit.posterUrl, widthPx: 360),
-                          httpHeaders: mcImageHeaders(),
-                          width: 52,
-                          height: 78,
-                          fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => _posterFallback(),
-                        )
-                      : _posterFallback(),
+                  border: Border.all(color: McTokens.line, width: 0.8),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        hit.itemName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        [
-                          if (hit.year != null) hit.year.toString(),
-                          if (hit.matchLabel.isNotEmpty) hit.matchLabel,
-                        ].join(' · '),
-                        style: const TextStyle(
-                            fontSize: 12, color: Colors.white54),
-                      ),
-                      if (hit.libraryIds.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
+                clipBehavior: Clip.antiAlias,
+                child: McArtwork(
+                  url: hit.posterUrl,
+                  widthPx: 240,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      hit.itemName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: McText.ui.semibold,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      [
+                        if (hit.year != null) '${hit.year}',
+                        if (hit.matchLabel.isNotEmpty) hit.matchLabel,
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: McText.caption,
+                    ),
+                    if (hit.libraryIds.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: const BoxDecoration(
+                              color: McTokens.ok,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
                             hit.libraryIds.length > 1
                                 ? '在 ${hit.libraryIds.length} 个媒体库中'
                                 : '在库',
-                            style: const TextStyle(
-                                fontSize: 12, color: McColors.accent),
+                            style: McText.micro.copyWith(
+                              color: McTokens.ok,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
-                        ),
+                        ],
+                      ),
                     ],
-                  ),
+                  ],
                 ),
-                const Icon(McIcons.arrowRight, color: Colors.white24),
-              ],
-            ),
+              ),
+              const Icon(
+                McIcons.chevronRight,
+                size: 16,
+                color: McTokens.textFaint,
+              ),
+            ],
           ),
         ),
       ),
     );
   }
-
-  Widget _posterFallback() => Container(
-        width: 52,
-        height: 78,
-        color: McColors.surfaceDark,
-        child: const Icon(McIcons.movie, color: Colors.white24, size: 20),
-      );
 }

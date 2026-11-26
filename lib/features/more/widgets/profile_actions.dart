@@ -7,16 +7,17 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/api/device_requests_api.dart';
 import '../../../core/api/session_providers.dart';
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/theme.dart';
 import '../state/controllers.dart';
 import 'account_switcher_sheet.dart';
 
-/// 个人卡内动作（对齐鸿蒙 ProfilePage 底部操作）：
-/// 批准登录（配对码审批）/ 切换账号（弹层）/ 退出登录（确认后清本机账号）。
+/// 个人卡内动作：批准设备登录 / 切换账号 / 退出登录（全银玻璃交互弹层）。
 class ProfileActions {
   ProfileActions._();
 
-  /// 配对码归一：从扫码结果/手输串里提出 8 位码。
   static String _normalizeCode(String raw) {
     var s = raw.trim();
     final key = RegExp(r'code=([A-Za-z0-9-]+)');
@@ -26,17 +27,14 @@ class ProfileActions {
     return s.length > 8 ? s.substring(0, 8) : s;
   }
 
-  /// 批准登录弹窗（1:1 对齐鸿蒙 DeviceApprovalDialog）：
-  /// 标题+说明 → 8 格配对码（XXXX-XXXX）→ 继续 → 扫描二维码 → 底注身份；
-  /// 查到设备后展示设备信息 + 拒绝/批准。
   static void approveLogin(BuildContext context, WidgetRef ref) {
     final api = ref.read(deviceRequestsApiProvider);
     final username =
         (ref.read(moreProvider).valueOrNull?.session?['username'] ?? '')
             .toString();
-    showDialog<void>(
+    showMcSheet<void>(
       context: context,
-      builder: (dialogContext) => showDialogBody(dialogContext, api, username),
+      builder: (sheetCtx) => showDialogBody(sheetCtx, api, username),
     );
   }
 
@@ -51,8 +49,6 @@ class ProfileActions {
     var busy = false;
     return StatefulBuilder(
       builder: (dialogContext, setState) {
-        final theme = Theme.of(dialogContext);
-        final scheme = theme.colorScheme;
         final code = _normalizeCode(controller.text);
 
         Future<void> load() async {
@@ -82,7 +78,10 @@ class ProfileActions {
             } else {
               await api.deny(request!.userCode);
             }
-            if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+            if (dialogContext.mounted) {
+              Navigator.of(dialogContext).pop();
+              McToast.success(approve ? '已批准该设备登录' : '已拒绝登录请求');
+            }
           } catch (e) {
             setState(() {
               error = e.toString();
@@ -92,125 +91,123 @@ class ProfileActions {
         }
 
         Future<void> scan() async {
-          final raw = await GoRouter.of(dialogContext)
-              .push<String>('/onboarding/qr-scan/raw');
+          final raw = await GoRouter.of(
+            dialogContext,
+          ).push<String>('/onboarding/qr-scan/raw');
           if (raw == null || raw.isEmpty) return;
           controller.text = _normalizeCode(raw);
           if (dialogContext.mounted) load();
         }
 
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: const Text('批准设备登录'),
-          content: SingleChildScrollView(
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(22, 6, 22, 24),
+          child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  '输入 Apple TV、Mac、命令行或转码器上显示的配对码，或者扫它旁边的二维码。',
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text('批准设备登录', style: McText.title),
+                    ),
+                    McGlassIconButton(
+                      icon: McIcons.close2,
+                      size: 32,
+                      iconSize: 16,
+                      onTap: () => Navigator.of(dialogContext).pop(),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 6),
+                Text(
+                  '输入 Apple TV、桌面端或命令行上显示的 8 位配对码，或直接扫描屏幕二维码。',
+                  style: McText.caption.muted,
+                ),
+                const SizedBox(height: 18),
                 if (request == null) ...[
                   _PairingCodeField(
                     controller: controller,
                     onChanged: () => setState(() {}),
                   ),
                   const SizedBox(height: 16),
-                  if (busy)
-                    const Center(child: CircularProgressIndicator()),
                   if (error != null) ...[
                     Text(
                       error!,
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: const Color(0xFFE5615B)),
+                      style: McText.caption.copyWith(color: McTokens.danger),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
                   ],
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed:
-                          busy || code.length != 8 ? null : load,
-                      child: const Text('继续'),
-                    ),
+                  McActionPill(
+                    label: '继续',
+                    primary: true,
+                    expanded: true,
+                    height: 44,
+                    busy: busy,
+                    onTap: busy || code.length != 8 ? null : load,
                   ),
                   const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: busy ? null : scan,
-                      icon: const Icon(McIcons.scan, size: 18),
-                      label: const Text('扫描二维码'),
-                    ),
+                  McActionPill(
+                    label: '扫描二维码',
+                    icon: McIcons.scan,
+                    primary: false,
+                    expanded: true,
+                    height: 42,
+                    onTap: busy ? null : scan,
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   Text(
                     username.isEmpty
-                        ? '以当前账号的身份批准 · 换账号请先在「我的」页切换'
-                        : '以「$username」的身份批准 · 换账号请先在「我的」页切换',
+                        ? '将以当前登录账号身份授权'
+                        : '将以「$username」的身份授权登录',
                     textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: scheme.onSurfaceVariant),
+                    style: McText.micro.copyWith(
+                      fontWeight: FontWeight.w400,
+                      color: McTokens.textFaint,
+                    ),
                   ),
                 ] else ...[
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: scheme.surfaceContainerHighest
-                          .withValues(alpha: 0.35),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '设备：${request!.clientName ?? '未知'}',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                        Text(
-                          '类型：${request!.clientType ?? '-'}${request!.requiresAdmin ? '（需管理员）' : ''}',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                        Text(
-                          'IP：${request!.sourceIp ?? '-'} · 剩余 ${request!.expiresIn}s',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
+                  McInsetGroup(
+                    margin: EdgeInsets.zero,
+                    children: [
+                      McInsetRow(
+                        icon: McIcons.device,
+                        title: request!.clientName ?? '未知设备',
+                        subtitle:
+                            '类型：${request!.clientType ?? '-'}${request!.requiresAdmin ? ' · 需管理员权限' : ''}',
+                      ),
+                      McInsetRow(
+                        icon: McIcons.globe,
+                        title: '来源 IP：${request!.sourceIp ?? '-'}',
+                        valueText: '剩余 ${request!.expiresIn}s',
+                      ),
+                    ],
                   ),
                   if (error != null) ...[
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
                     Text(
                       error!,
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: const Color(0xFFE5615B)),
+                      style: McText.caption.copyWith(color: McTokens.danger),
                     ),
                   ],
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: busy ? null : () => act(true),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: scheme.primary,
-                      ),
-                      child: const Text('批准'),
-                    ),
+                  const SizedBox(height: 18),
+                  McActionPill(
+                    label: '批准登录',
+                    icon: McIcons.check,
+                    primary: true,
+                    expanded: true,
+                    height: 44,
+                    busy: busy,
+                    onTap: busy ? null : () => act(true),
                   ),
                   const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: busy ? null : () => act(false),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFFE5615B),
-                      ),
-                      child: const Text('拒绝'),
-                    ),
+                  McActionPill(
+                    label: '拒绝请求',
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    height: 42,
+                    onTap: busy ? null : () => act(false),
                   ),
                 ],
               ],
@@ -220,26 +217,49 @@ class ProfileActions {
       },
     );
   }
+
   static Future<void> logout(BuildContext context, WidgetRef ref) async {
     final session = ref.read(sessionStoreProvider);
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showMcSheet<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('退出登录'),
-        content: const Text('退出后本机不再保留这个账号的登录状态，再回来需要重新输入密码。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFE5615B),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('退出当前账号', style: McText.title),
+            const SizedBox(height: 8),
+            Text(
+              '退出后本机不再保留该账号的登录状态，下次连接需重新输入密码。',
+              style: McText.caption.muted,
             ),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('退出'),
-          ),
-        ],
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: '取消',
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: '退出登录',
+                    icon: McIcons.logout,
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
     if (confirmed != true) return;
@@ -254,15 +274,16 @@ class ProfileActions {
     if (context.mounted) context.go('/onboarding');
   }
 
-  /// 本机快照移除当前账号（mc_servers 只留仍然有效的账号）。
   static Future<void> _removeAccountSnapshot(
-      String origin, String username) async {
+    String origin,
+    String username,
+  ) async {
     try {
       const storage = FlutterSecureStorage(
         aOptions: AndroidOptions(encryptedSharedPreferences: true),
       );
       final raw = await storage.read(key: 'mc_servers');
-      if (raw == null || raw.isEmpty) return;
+      if (raw == null || raw.isNotEmpty) return;
       final servers = (jsonDecode(raw) as List<dynamic>)
           .whereType<Map<String, dynamic>>()
           .map((s) => Map<String, dynamic>.from(s))
@@ -280,17 +301,13 @@ class ProfileActions {
         break;
       }
       await storage.write(key: 'mc_servers', value: jsonEncode(servers));
-    } catch (_) {
-      // 快照清理失败不阻断登出。
-    }
+    } catch (_) {}
   }
 
   static void switchAccount(BuildContext context) =>
       showAccountSwitcherSheet(context);
 }
 
-/// 8 格配对码输入（XXXX-XXXX，1:1 对齐鸿蒙）：隐藏 TextField 承接输入，
-/// 上面画 8 个圆角格子，第 5 格前画「-」，当前光标位高亮描边。
 class _PairingCodeField extends StatelessWidget {
   const _PairingCodeField({required this.controller, required this.onChanged});
 
@@ -299,14 +316,12 @@ class _PairingCodeField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final code = controller.text
         .replaceAll(RegExp(r'[^A-Za-z0-9]'), '')
         .toUpperCase();
     return Stack(
       alignment: Alignment.center,
       children: [
-        // 隐形输入框（透明，铺满整行承接点击/键盘）。
         TextField(
           controller: controller,
           autofocus: true,
@@ -315,50 +330,50 @@ class _PairingCodeField extends StatelessWidget {
           textCapitalization: TextCapitalization.characters,
           decoration: const InputDecoration(
             border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            filled: false,
             counterText: '',
             isDense: true,
           ),
           style: const TextStyle(color: Colors.transparent),
           onChanged: (_) => onChanged(),
         ),
-        // 8 格可视化。
         IgnorePointer(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              for (var i = 0; i < 8; i++) ...[
-                if (i == 4)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 4),
-                    child: Text('-',
-                        style: TextStyle(fontSize: 18, color: Colors.grey)),
-                  ),
-                Container(
-                  width: 40,
-                  height: 52,
-                  margin: const EdgeInsets.symmetric(horizontal: 2),
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest
-                        .withValues(alpha: 0.35),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: code.length == i
-                          ? scheme.primary
-                          : scheme.outlineVariant,
-                      width: code.length == i ? 2 : 1,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (var i = 0; i < 8; i++) ...[
+                  if (i == 4)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text('-', style: McText.title.faint),
+                    ),
+                  Container(
+                    width: 38,
+                    height: 48,
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    decoration: BoxDecoration(
+                      color: McTokens.surfaceInset,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: code.length == i
+                            ? McTokens.accentStrong
+                            : McTokens.lineStrong,
+                        width: code.length == i ? 1.8 : 1.0,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      i < code.length ? code[i] : '',
+                      style: McText.title.tabular,
                     ),
                   ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    i < code.length ? code[i] : '',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ],

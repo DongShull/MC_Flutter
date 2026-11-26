@@ -4,24 +4,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/mc_client.dart';
 import '../api/session_providers.dart';
 import '../api/subscriptions_api.dart';
+import 'mc_chrome.dart';
+import 'mc_icons.dart';
+import 'state_views.dart';
+import 'theme.dart';
 
-/// 订阅创建弹层（对齐 Kotlin SubscribeSheetHost / SubscribeScreen 的三步流程）：
-/// title-preview（标题 + 简介）→ 季多选（无季 = 电影直接确认）→ POST /subscriptions。
+/// 订阅创建毛玻璃弹层（对齐 iOS `SubscribeSheet` 与 Kotlin `SubscribeSheetHost`）：
+/// title-preview（标题 + 简介）→ 季多选（电影直接确认）→ POST /subscriptions。
 /// 详情页与发现侧条目详情共用（跨 feature 只经 core，不互相 import）。
-
-/// 弹层结果：created = 新建成功；managed = 已有订阅，用户选择去管理。
 enum SubscribeSheetOutcome { created, managed }
 
-/// 打开订阅弹层。调用方拿到结果后自己 toast / 跳转管理页。
 Future<SubscribeSheetOutcome?> showSubscribeSheet(
   BuildContext context,
   WidgetRef ref, {
   required String titleRef,
 }) {
-  return showModalBottomSheet<SubscribeSheetOutcome>(
+  return showMcSheet<SubscribeSheetOutcome>(
     context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
     builder: (_) => _SubscribeSheet(titleRef: titleRef),
   );
 }
@@ -36,7 +35,9 @@ class _SubscribeSheet extends ConsumerStatefulWidget {
 }
 
 class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
-  late final SubscriptionsApi _api = SubscriptionsApi(McClient(session: ref.read(sessionStoreProvider)));
+  late final SubscriptionsApi _api = SubscriptionsApi(
+    McClient(session: ref.read(sessionStoreProvider)),
+  );
   late final Future<SubscribePreview?> _preview;
   final Set<int> _selected = {};
   bool _followFuture = false;
@@ -55,7 +56,6 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
       if (!mounted) return p;
       setState(() {
         _selected.addAll(p.suggestedSeasons);
-        // 没给建议就默认全勾（对齐「不选 = 不订阅任何季」的歧义规避）。
         if (_selected.isEmpty && p.seasons.isNotEmpty) {
           _selected.addAll(p.seasons.map((s) => s.number));
         }
@@ -92,113 +92,152 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return SafeArea(
-      child: FutureBuilder<SubscribePreview?>(
-        future: _preview,
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const Padding(
-              padding: EdgeInsets.all(32),
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
-          final p = snap.data;
-          if (p == null || p.notFound) {
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(p == null ? (_error ?? '预检失败') : '未找到该作品',
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('关闭'),
-                  ),
-                ],
-              ),
-            );
-          }
-          // 已订阅：入口转管理订阅。
-          final existingId = p.existingSubscriptionId;
-          if (existingId != null) {
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text('已订阅《${p.title}》',
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: () =>
-                        Navigator.of(context).pop(SubscribeSheetOutcome.managed),
-                    icon: const Icon(Icons.settings_outlined),
-                    label: const Text('管理订阅'),
-                  ),
-                ],
-              ),
-            );
-          }
-          final isMovie = p.seasons.isEmpty;
+    return FutureBuilder<SubscribePreview?>(
+      future: _preview,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const SizedBox(height: 190, child: McLoadingView());
+        }
+        final p = snap.data;
+        if (p == null || p.notFound) {
           return Padding(
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+            padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // —— title-preview：标题 + 简介 ——
                 Text(
-                  '${p.title ?? ''}${p.year != null ? '（${p.year}）' : ''}',
-                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                  p == null ? (_error ?? '预检失败') : '未找到该作品',
+                  style: McText.titleSm,
                 ),
-                if (p.movieOwned)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text('该影片已在库中',
-                        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
-                  ),
-                if (p.overview != null && p.overview!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
+                const SizedBox(height: 16),
+                McActionPill(
+                  label: '关闭',
+                  primary: false,
+                  expanded: true,
+                  onTap: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+          );
+        }
+
+        if (p.existingSubscriptionId != null) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      McIcons.checkCircleFill,
+                      size: 20,
+                      color: McTokens.ok,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '已订阅《${p.title ?? ''}》',
+                        style: McText.titleSm,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '该作品已在追更队列中，可前往订阅管理调整选季或洗版策略。',
+                  style: McText.caption.muted,
+                ),
+                const SizedBox(height: 18),
+                McActionPill(
+                  label: '管理订阅',
+                  icon: McIcons.setting1,
+                  primary: true,
+                  expanded: true,
+                  height: 44,
+                  onTap: () =>
+                      Navigator.of(context).pop(SubscribeSheetOutcome.managed),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final isMovie = p.seasons.isEmpty;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(22, 6, 22, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
                     child: Text(
-                      p.overview!,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 13, height: 1.4, color: scheme.onSurfaceVariant),
+                      '${p.title ?? ''}${p.year != null ? '（${p.year}）' : ''}',
+                      style: McText.title,
                     ),
                   ),
-                // —— 季多选（电影没有季，只给说明）——
-                if (!isMovie) ...[
-                  const SizedBox(height: 8),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 240),
-                    child: ListView(
-                      shrinkWrap: true,
+                  if (p.movieOwned)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0x1F4ADE80),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: const Color(0x4D4ADE80)),
+                      ),
+                      child: Text(
+                        '已在库',
+                        style: McText.micro.copyWith(color: McTokens.ok),
+                      ),
+                    ),
+                ],
+              ),
+              if (p.overview != null && p.overview!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  p.overview!,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: McText.caption.muted,
+                ),
+              ],
+              if (!isMovie) ...[
+                const SizedBox(height: 14),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 240),
+                  child: SingleChildScrollView(
+                    child: McInsetGroup(
+                      margin: EdgeInsets.zero,
+                      dividerIndent: 44,
                       children: [
                         for (final s in p.seasons)
-                          CheckboxListTile(
-                            contentPadding: EdgeInsets.zero,
-                            dense: true,
-                            value: _selected.contains(s.number),
-                            controlAffinity: ListTileControlAffinity.leading,
-                            title: Text(s.name ?? '第 ${s.number} 季'),
+                          McInsetRow(
+                            leading: Icon(
+                              _selected.contains(s.number)
+                                  ? McIcons.checkCircleFill
+                                  : McIcons.circler,
+                              size: 20,
+                              color: _selected.contains(s.number)
+                                  ? McTokens.accentStrong
+                                  : McTokens.textFaint,
+                            ),
+                            title: s.name ?? '第 ${s.number} 季',
                             subtitle: s.episodeCount != null
-                                ? Text('共 ${s.episodeCount} 集${s.ownedCount != null ? ' · 已入库 ${s.ownedCount} 集' : ''}',
-                                    style: TextStyle(
-                                        fontSize: 12, color: scheme.onSurfaceVariant))
+                                ? '共 ${s.episodeCount} 集${s.ownedCount != null ? ' · 已入库 ${s.ownedCount} 集' : ''}'
                                 : null,
-                            onChanged: (on) {
+                            onTap: () {
                               setState(() {
-                                if (on == true) {
-                                  _selected.add(s.number);
-                                } else {
+                                if (_selected.contains(s.number)) {
                                   _selected.remove(s.number);
+                                } else {
+                                  _selected.add(s.number);
                                 }
                               });
                             },
@@ -206,33 +245,48 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
                       ],
                     ),
                   ),
-                  if (p.seasons.length > 1)
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      value: _followFuture,
-                      title: const Text('自动追后续新季'),
-                      onChanged: (v) => setState(() => _followFuture = v),
-                    ),
-                ],
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(_error!,
-                        style: TextStyle(fontSize: 12, color: scheme.error)),
+                ),
+                if (p.seasons.length > 1) ...[
+                  const SizedBox(height: 10),
+                  McInsetGroup(
+                    margin: EdgeInsets.zero,
+                    children: [
+                      McInsetRow(
+                        title: '自动追后续新季',
+                        trailing: Switch(
+                          value: _followFuture,
+                          onChanged: (v) => setState(() => _followFuture = v),
+                        ),
+                        onTap: () =>
+                            setState(() => _followFuture = !_followFuture),
+                      ),
+                    ],
                   ),
-                const SizedBox(height: 12),
-                FilledButton(
-                  onPressed: _submitting || (!isMovie && _selected.isEmpty)
-                      ? null
-                      : () => _submit(p),
-                  child: Text(_submitting ? '提交中…' : '确认订阅'),
+                ],
+              ],
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  _error!,
+                  style: McText.caption.copyWith(color: McTokens.danger),
                 ),
               ],
-            ),
-          );
-        },
-      ),
+              const SizedBox(height: 18),
+              McActionPill(
+                label: _submitting ? '正在创建订阅…' : '确认订阅',
+                icon: McIcons.bookmarkFill,
+                primary: true,
+                expanded: true,
+                height: 44,
+                busy: _submitting,
+                onTap: _submitting || (!isMovie && _selected.isEmpty)
+                    ? null
+                    : () => _submit(p),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

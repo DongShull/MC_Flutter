@@ -1,44 +1,50 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/designsystem/adaptive.dart';
-import '../state/shell_badges.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-
-import '../../../core/shell/tab_collapse.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/theme.dart';
 import '../../../core/image/image_urls.dart';
 import '../../../core/session/session_store.dart';
+import '../../../core/shell/tab_collapse.dart';
+import '../state/shell_badges.dart';
 
-/// 主壳 chrome（只管壳，不管页面）：手机悬浮胶囊底栏 / 平板TV 左侧 Rail。
-/// 页面与页签状态由 core/shell/app_shell.dart（组合根）持有，本壳纯展示。
+/// 主壳 Chrome（1:1 对齐 iOS 26 `MainTabView` + Web `glass-tab-bar.tsx`）：
+/// - 手机：5 格纯图标悬浮液态玻璃胶囊（媒体库 / 订阅 / 发现 / 活动 / 头像）
+///   + 阻尼弹簧滑动选中药丸 + 左右按住拖动擦选 + 下滑左收圆钮 + 底栏上方「接着看」浮条槽位
+/// - 平板 / 桌面 / TV：左侧半透银玻璃侧边栏（`McAdaptiveScaffold`）
 class RootShell extends ConsumerWidget {
   const RootShell({
     super.key,
     required this.index,
     required this.pages,
     required this.onSelect,
+    this.bottomAccessory,
+    this.onAvatarLongPress,
   });
 
   final int index;
   final List<Widget> pages;
   final ValueChanged<int> onSelect;
+  final Widget? bottomAccessory;
+  final VoidCallback? onAvatarLongPress;
 
-  static const _labels = ['发现', '媒体库', '订阅', '活动', '我的'];
+  static const _labels = ['媒体库', '订阅', '发现', '活动', '我的'];
   static const _icons = [
-    McIcons.compass,
     McIcons.mediaLibraryFill,
-    Icons.subscriptions_outlined,
-    McIcons.bellOn,
+    McIcons.bookmark,
+    McIcons.aiSearch,
+    McIcons.waveform,
     McIcons.accountCircle,
   ];
   static const _filledIcons = [
-    McIcons.compassFill,
     McIcons.mediaLibraryFill,
-    Icons.subscriptions,
-    McIcons.bellOnFill,
+    McIcons.bookmarkFill,
+    McIcons.aiSearchFill,
+    McIcons.waveform,
     McIcons.accountCircleFill,
   ];
 
@@ -48,32 +54,65 @@ class RootShell extends ConsumerWidget {
     final form = ref.watch(mcFormProvider);
 
     final body = AnnotatedRegion<SystemUiOverlayStyle>(
-      // 沉浸式（对齐鸿蒙窗口沉浸）：状态栏与导航条全透明，内容延伸到条后。
-      value: SystemUiOverlayStyle(
+      value: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
         systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarIconBrightness:
-            Theme.of(context).brightness == Brightness.dark
-                ? Brightness.light
-                : Brightness.dark,
+        systemNavigationBarIconBrightness: Brightness.light,
       ),
       child: IndexedStack(index: index, children: pages),
     );
 
-    // 手机：悬浮胶囊底栏。
     if (form == McDeviceForm.phone) {
-      // extendBody：页面内容延伸到胶囊底栏背后（悬浮胶囊透出海报，对齐飞牛悬浮底栏）。
       final collapsed = ref.watch(tabCollapseProvider).collapsed;
       return Scaffold(
+        backgroundColor: McTokens.bg,
         extendBody: true,
-        body: body,
-        bottomNavigationBar: collapsed
-            ? _collapseKnob(context)
-            : _phoneBottomBar(context, badges),
+        body: Stack(
+          children: [
+            Positioned.fill(child: body),
+            // 底部柔和滚动压暗雾带（对齐 Web `.glass-tabbar-edge`），避免亮白海报把底栏冲花
+            const Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 108,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Color(0x00000000),
+                        Color(0x52000000),
+                        Color(0xAD000000),
+                      ],
+                      stops: [0.0, 0.52, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _PhoneBottomDock(
+                index: index,
+                collapsed: collapsed,
+                badges: badges,
+                onSelect: onSelect,
+                bottomAccessory: bottomAccessory,
+                onAvatarLongPress: onAvatarLongPress,
+              ),
+            ),
+          ],
+        ),
       );
     }
 
-    // 平板/TV：左侧 Rail。
     return McFormWatch(
       form: form,
       child: McAdaptiveScaffold(
@@ -83,199 +122,398 @@ class RootShell extends ConsumerWidget {
               icon: _icons[i],
               selectedIcon: _filledIcons[i],
               label: _labels[i],
+              dotColor: _dotColor(i, badges),
             ),
         ],
         currentIndex: index,
         onSelect: onSelect,
         body: body,
-        railTrailing: _railBadgeDot(badges),
+        footerAccount: _SidebarAccountFooter(
+          selected: index == 4,
+          onTap: () => onSelect(4),
+          onLongPress: onAvatarLongPress,
+        ),
       ),
     );
   }
 
-  /// Rail 侧活动角标点（红 > 绿 > 蓝 优先级）；无活动则不占位。
-  Widget? _railBadgeDot(ShellBadges badges) {
-    final Color? color;
-    if (badges.attentionTotal > 0) {
-      color = const Color(0xFFE5615B);
-    } else if (badges.livePlayback > 0) {
-      color = const Color(0xFF34C77B);
-    } else if (badges.activeTotal > 0) {
-      color = const Color(0xFF6AA7FF);
-    } else {
-      return null;
+  static Color? _dotColor(int i, ShellBadges badges) {
+    if (i == 3) {
+      if (badges.attentionTotal > 0) return McTokens.danger;
+      if (badges.livePlayback > 0) return McTokens.ok;
+      if (badges.activeTotal > 0) return McTokens.info;
+    } else if (i == 4 && badges.pendingUpdate) {
+      return McTokens.info;
     }
+    return null;
+  }
+}
+
+class _PhoneBottomDock extends StatelessWidget {
+  const _PhoneBottomDock({
+    required this.index,
+    required this.collapsed,
+    required this.badges,
+    required this.onSelect,
+    this.bottomAccessory,
+    this.onAvatarLongPress,
+  });
+
+  final int index;
+  final bool collapsed;
+  final ShellBadges badges;
+  final ValueChanged<int> onSelect;
+  final Widget? bottomAccessory;
+  final VoidCallback? onAvatarLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+    // 对齐 Web `--tabbar-bottom: max(16px, calc(var(--safe-bottom) - 12px))`
+    final bottomMargin =
+        safeBottom > 12 ? (safeBottom - 10).clamp(12.0, 28.0) : 16.0;
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Container(
-        width: 8,
-        height: 8,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      ),
-    );
-  }
-
-  /// 悬浮胶囊底栏：348×54、圆角 999、图标-only（仅手机形态使用）。
-  Widget _phoneBottomBar(BuildContext context, ShellBadges badges) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    // 注意：不能包 Center——它会把 bottomNavigationBar 撑成整屏高，把 body 挤成 0（真机白屏元凶）。
-    return SafeArea(
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        heightFactor: 1,
-        child: Container(
-          width: 348,
-          height: 54,
-          margin: const EdgeInsets.only(bottom: 8),
-          decoration: BoxDecoration(
-            color: dark ? const Color(0xFF141A21) : Colors.white,
-            borderRadius: BorderRadius.circular(999),
-            boxShadow: const [
-              BoxShadow(
-                  color: Colors.black26, blurRadius: 16, offset: Offset(0, 4)),
-            ],
-          ),
-          child: Row(
+      padding: EdgeInsets.fromLTRB(21, 0, 21, bottomMargin),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 380),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              for (var i = 0; i < _labels.length; i++)
-                Expanded(child: _tabSlot(i, badges, dark)),
+              if (!collapsed && bottomAccessory != null) ...[
+                bottomAccessory!,
+                const SizedBox(height: 8),
+              ],
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 260),
+                switchInCurve: Curves.easeOutBack,
+                switchOutCurve: Curves.easeIn,
+                child: collapsed
+                    ? Align(
+                        key: const ValueKey('collapsed'),
+                        alignment: Alignment.centerLeft,
+                        child: McPressable(
+                          onTap: TabCollapseBus.instance.expand,
+                          haptic: true,
+                          child: SizedBox(
+                            width: 56,
+                            height: 56,
+                            child: McLiquidGlass(
+                              radius: 28,
+                              blurSigma: 24,
+                              child: Center(
+                                child: index == 4
+                                    ? const _TabAvatarBadge(size: 26)
+                                    : Icon(
+                                        RootShell._filledIcons[index],
+                                        size: 22,
+                                        color: McTokens.text,
+                                      ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    : _LiquidCapsuleBar(
+                        key: const ValueKey('expanded'),
+                        index: index,
+                        badges: badges,
+                        onSelect: onSelect,
+                        onAvatarLongPress: onAvatarLongPress,
+                      ),
+              ),
             ],
           ),
         ),
       ),
     );
   }
+}
 
-  /// 收起态：底栏缩成一枚 54 圆形玻璃钮（点它放回整条胶囊，对齐鸿蒙 TabBarCollapse）。
-  Widget _collapseKnob(BuildContext context) {
-    return SafeArea(
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        heightFactor: 1,
-        child: Container(
-          width: 54,
-          height: 54,
-          margin: const EdgeInsets.only(bottom: 8),
-          decoration: McGlass.decoration(McGlassTone.secondary, radius: 27),
-          child: IconButton(
-            onPressed: () => TabCollapseBus.instance.expand(),
-            icon: Icon(
-              McIcons.arrowUpS,
-              size: 22,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-          ),
-        ),
-      ),
-    );
+class _LiquidCapsuleBar extends StatelessWidget {
+  const _LiquidCapsuleBar({
+    super.key,
+    required this.index,
+    required this.badges,
+    required this.onSelect,
+    this.onAvatarLongPress,
+  });
+
+  final int index;
+  final ShellBadges badges;
+  final ValueChanged<int> onSelect;
+  final VoidCallback? onAvatarLongPress;
+
+  void _scrubAt(BuildContext context, Offset localPos) {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null || box.size.width <= 0) return;
+    final slot = ((localPos.dx / box.size.width) * RootShell._labels.length)
+        .floor()
+        .clamp(0, RootShell._labels.length - 1);
+    if (slot != index) {
+      HapticFeedback.selectionClick();
+      onSelect(slot);
+    }
   }
 
-  Widget _tabSlot(int i, ShellBadges badges, bool dark) {
-    final selected = i == index;
-    final badgeDot = _dotColor(i, badges);
+  @override
+  Widget build(BuildContext context) {
+    final count = RootShell._labels.length;
+    // Alignment.x 从 -1.0 到 +1.0 线性映射 5 个槽位
+    final alignX = count <= 1 ? 0.0 : -1.0 + (2.0 * index / (count - 1));
 
-    Widget iconWidget;
-    if (i == _labels.length - 1) {
-      // 末格 = 账号头像
-      final nickname = appSession.username;
-      final initial =
-          nickname.isEmpty ? '?' : String.fromCharCode(nickname.runes.first);
-      final avatar = appSession.avatarUrl;
-      iconWidget = Container(
-        width: 26,
-        height: 26,
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF5B8DEF), Color(0xFF9B6BDF)],
-          ),
-        ),
-        alignment: Alignment.center,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Text(
-              initial,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: dark ? Colors.white : const Color(0xFF141A21),
-              ),
-            ),
-            if (avatar.isNotEmpty)
-              Positioned.fill(
-                child: ClipOval(
-                  child: CachedNetworkImage(
-                    imageUrl: McImageUrls.resolve(avatar, widthPx: 96),
-                    httpHeaders: mcImageHeaders(),
-                    fit: BoxFit.cover,
-                    errorWidget: (_, __, ___) => const SizedBox.shrink(),
+    return GestureDetector(
+      onHorizontalDragUpdate: (d) => _scrubAt(context, d.localPosition),
+      child: SizedBox(
+        height: 60,
+        child: McLiquidGlass(
+          radius: 30,
+          blurSigma: 24,
+          padding: const EdgeInsets.all(5),
+          child: Stack(
+            children: [
+              // 弹簧滑动选中药丸（避免玻璃叠玻璃：内部只用半透冷白填充 + 极细亮沿）
+              AnimatedAlign(
+                alignment: Alignment(alignX, 0),
+                duration: const Duration(milliseconds: 340),
+                curve: Curves.easeOutBack,
+                child: FractionallySizedBox(
+                  widthFactor: 1 / count,
+                  heightFactor: 1.0,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0x26FFFFFF),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: const Color(0x2EFFFFFF),
+                        width: 0.8,
+                      ),
+                    ),
                   ),
                 ),
               ),
-          ],
-        ),
-      );
-    } else {
-      iconWidget = Icon(_icons[i],
-          size: 22,
-          color: selected
-              ? (dark ? Colors.white : const Color(0xFF141A21))
-              : (dark
-                  ? Colors.white.withValues(alpha: 0.62)
-                  : const Color(0xFF5A6673)));
-    }
-
-    return Tooltip(
-      message: _labels[i],
-      child: InkResponse(
-        onTap: () => onSelect(i),
-        radius: 24,
-        child: Center(
-          child: Container(
-            width: 46,
-            height: 34,
-            decoration: BoxDecoration(
-              // 当前格药丸：暗色白 15%、浅色墨 8%。
-              color: selected
-                  ? (dark
-                      ? Colors.white.withValues(alpha: 0.15)
-                      : Colors.black.withValues(alpha: 0.08))
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Stack(
-              clipBehavior: Clip.none,
-              alignment: Alignment.center,
-              children: [
-                iconWidget,
-                if (badgeDot != null)
-                  Positioned(
-                    right: 7,
-                    top: 6,
-                    child: Container(
-                      width: 7,
-                      height: 7,
-                      decoration: BoxDecoration(
-                          color: badgeDot, shape: BoxShape.circle),
+              Row(
+                children: [
+                  for (var i = 0; i < count; i++)
+                    Expanded(
+                      child: _TabSlotItem(
+                        slot: i,
+                        selected: i == index,
+                        dotColor: RootShell._dotColor(i, badges),
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          onSelect(i);
+                        },
+                        onLongPress: i == count - 1 ? onAvatarLongPress : null,
+                      ),
                     ),
-                  ),
-              ],
-            ),
+                ],
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+}
 
-  Color? _dotColor(int i, ShellBadges badges) {
-    if (i == 3) {
-      if (badges.attentionTotal > 0) return const Color(0xFFE5615B);
-      if (badges.livePlayback > 0) return const Color(0xFF34C77B);
-      if (badges.activeTotal > 0) return const Color(0xFF6AA7FF);
-    }
-    return null;
+class _TabSlotItem extends StatelessWidget {
+  const _TabSlotItem({
+    required this.slot,
+    required this.selected,
+    required this.dotColor,
+    required this.onTap,
+    this.onLongPress,
+  });
+
+  final int slot;
+  final bool selected;
+  final Color? dotColor;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final isAvatar = slot == RootShell._labels.length - 1;
+    final iconWidget = isAvatar
+        ? _TabAvatarBadge(size: 26, selected: selected)
+        : Icon(
+            selected ? RootShell._filledIcons[slot] : RootShell._icons[slot],
+            size: 22,
+            color: selected ? McTokens.text : McTokens.textMuted,
+          );
+
+    return Tooltip(
+      message: RootShell._labels[slot],
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        onLongPress: onLongPress == null
+            ? null
+            : () {
+                HapticFeedback.mediumImpact();
+                onLongPress!();
+              },
+        child: Center(
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              AnimatedScale(
+                scale: selected ? 1.06 : 1.0,
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutBack,
+                child: iconWidget,
+              ),
+              if (dotColor != null)
+                Positioned(
+                  right: -5,
+                  top: -4,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: dotColor,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: const Color(0xCC0E1016),
+                        width: 1.2,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TabAvatarBadge extends StatelessWidget {
+  const _TabAvatarBadge({required this.size, this.selected = false});
+
+  final double size;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final nickname = appSession.username;
+    final initial = nickname.isEmpty
+        ? 'M'
+        : String.fromCharCode(nickname.runes.first).toUpperCase();
+    final avatar = appSession.avatarUrl;
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          begin: Alignment.bottomLeft,
+          end: Alignment.topRight,
+          colors: [Color(0xFF4C9DFF), Color(0xFF9A6BFF)],
+        ),
+        border: Border.all(
+          color: selected ? McTokens.accentStrong : McTokens.lineStrong,
+          width: selected ? 1.6 : 1.0,
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Text(
+            initial,
+            style: McText.micro.copyWith(
+              fontSize: size * 0.46,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          if (avatar.isNotEmpty)
+            Positioned.fill(
+              child: ClipOval(
+                child: CachedNetworkImage(
+                  imageUrl: McImageUrls.resolve(avatar, widthPx: 96),
+                  httpHeaders: mcImageHeaders(),
+                  fit: BoxFit.cover,
+                  errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SidebarAccountFooter extends StatelessWidget {
+  const _SidebarAccountFooter({
+    required this.selected,
+    required this.onTap,
+    this.onLongPress,
+  });
+
+  final bool selected;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final username = appSession.username.isEmpty ? '当前账号' : appSession.username;
+    final wide = MediaQuery.widthOf(context) >= 900;
+    return McPressable(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: wide ? 12 : 0,
+          vertical: 10,
+        ),
+        decoration: BoxDecoration(
+          color: selected ? McTokens.glassFillActive : McTokens.glassFill,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: McTokens.line, width: 1),
+        ),
+        child: Row(
+          mainAxisAlignment:
+              wide ? MainAxisAlignment.start : MainAxisAlignment.center,
+          children: [
+            _TabAvatarBadge(size: 30, selected: selected),
+            if (wide) ...[
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      username,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: McText.sub.copyWith(
+                        color: McTokens.text,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      '长按切换账号',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: McText.micro.copyWith(
+                        color: McTokens.textFaint,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }

@@ -1,11 +1,13 @@
-import '../../../core/image/image_urls.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/designsystem/adaptive.dart';
+import '../../../core/designsystem/mc_glass.dart';
+import '../../../core/designsystem/theme.dart';
+import '../../../core/image/image_urls.dart';
 import '../state/models.dart';
 
-/// 订阅卡片（对齐 SubCard 126×189：海报 + 状态小签 + 底部进度线 + 标题 + meta）。
+/// 订阅卡片（对齐 SubCard 126×189：海报 + 状态胶囊 + 底部进度线 + 标题 + meta）。
 class SubCard extends StatelessWidget {
   const SubCard({super.key, required this.sub, this.onTap});
 
@@ -34,12 +36,10 @@ class SubCard extends StatelessWidget {
     final doneRatio =
         p.total > 0 ? (p.imported / p.total).clamp(0.0, 1.0) : 0.0;
 
-    // TV 形态包焦点环；非 TV 原样返回 child，零开销。
     return McFocusRing(
-      borderRadius: 10,
-      child: InkWell(
+      borderRadius: McTokens.posterRadius,
+      child: McPressable(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
         child: SizedBox(
           width: 126,
           child: Column(
@@ -50,29 +50,36 @@ class SubCard extends StatelessWidget {
                   children: [
                     Positioned.fill(
                       child: ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius:
+                            BorderRadius.circular(McTokens.posterRadius),
                         child: sub.media.posterUrl != null
                             ? CachedNetworkImage(
                                 httpHeaders: mcImageHeaders(),
                                 imageUrl:
                                     McImageUrls.resolve(sub.media.posterUrl),
                                 fit: BoxFit.cover,
-                                errorWidget: (_, __, ___) =>
-                                    Container(color: Colors.white10),
+                                errorWidget: (_, __, ___) => const ColoredBox(
+                                  color: McTokens.posterPlaceholder,
+                                ),
                               )
-                            : Container(color: Colors.white10),
+                            : const ColoredBox(
+                                color: McTokens.posterPlaceholder,
+                              ),
                       ),
                     ),
-                    // 状态小签：黑 38% 胶囊 + 色点 + 文字
                     Positioned(
                       left: 6,
                       top: 6,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 7, vertical: 3),
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.38),
-                          borderRadius: BorderRadius.circular(999),
+                          color: const Color(0x99000000),
+                          borderRadius:
+                              BorderRadius.circular(McTokens.pillRadius),
+                          border: Border.all(color: McTokens.line),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -81,28 +88,28 @@ class SubCard extends StatelessWidget {
                               width: 6,
                               height: 6,
                               decoration: BoxDecoration(
-                                  color: color, shape: BoxShape.circle),
+                                color: color,
+                                shape: BoxShape.circle,
+                              ),
                             ),
                             const SizedBox(width: 4),
-                            Text(label,
-                                style: const TextStyle(
-                                    fontSize: 10, color: Colors.white)),
+                            Text(label, style: McText.micro),
                           ],
                         ),
                       ),
                     ),
-                    // 底部进度线
                     Positioned(
                       left: 0,
                       right: 0,
                       bottom: 0,
                       child: ClipRRect(
                         borderRadius: const BorderRadius.vertical(
-                            bottom: Radius.circular(10)),
+                          bottom: Radius.circular(McTokens.posterRadius),
+                        ),
                         child: LinearProgressIndicator(
                           value: doneRatio > 0 ? doneRatio : null,
                           minHeight: 3,
-                          backgroundColor: Colors.black45,
+                          backgroundColor: const Color(0x73000000),
                           valueColor: AlwaysStoppedAnimation(color),
                         ),
                       ),
@@ -115,16 +122,14 @@ class SubCard extends StatelessWidget {
                 sub.media.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style:
-                    const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                style: McText.posterTitle,
               ),
               const SizedBox(height: 2),
               Text(
                 '$_meta · ${subscriptionProgressNote(sub)}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    fontSize: 10, color: Colors.white.withValues(alpha: 0.55)),
+                style: McText.micro.muted,
               ),
             ],
           ),

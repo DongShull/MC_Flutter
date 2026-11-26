@@ -1,21 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/state_views.dart';
+import '../../../core/designsystem/theme.dart';
 import '../state/home_rows.dart';
 import '../state/library_customize_controller.dart';
 import '../state/mc_api.dart';
 import '../state/models.dart';
-import '../../../core/designsystem/state_views.dart';
-import '../../../core/designsystem/mc_icons.dart';
 
 /// 自定义首页（对齐 Kotlin LibraryCustomizeScreen.kt）：
-/// 行清单编辑器：拖拽排序、隐藏/显示、删除（row:/kind: 行）、行内排序与观看过滤、
-/// 新增媒体库/合集行、恢复出厂；「保存」以服务器完整偏好为底只换 home.rows。
+/// 行清单编辑器：拖拽排序、隐藏/显示、删除、行内排序与观看过滤、新增媒体库/合集行、恢复出厂。
 class LibraryCustomizePage extends ConsumerStatefulWidget {
   const LibraryCustomizePage({super.key});
 
   @override
-  ConsumerState<LibraryCustomizePage> createState() => _LibraryCustomizePageState();
+  ConsumerState<LibraryCustomizePage> createState() =>
+      _LibraryCustomizePageState();
 }
 
 class _LibraryCustomizePageState extends ConsumerState<LibraryCustomizePage> {
@@ -31,61 +34,96 @@ class _LibraryCustomizePageState extends ConsumerState<LibraryCustomizePage> {
     return PopScope(
       canPop: !state.dirty,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('自定义首页'),
-          actions: [
-            if (state.dirty)
-              TextButton(
-                onPressed: state.saving ? null : () async {
-                  final ok = await ref.read(libraryCustomizeProvider.notifier).save();
-                  if (ok && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('已保存')));
-                  }
-                },
-                child: Text(state.saving ? '保存中…' : '保存'),
-              ),
-          ],
-        ),
-        body: state.loading
-            ? const McLoadingView()
-            : ReorderableListView.builder(
-                itemCount: state.rows.length,
-                onReorder: (oldIndex, newIndex) {
-                  final moved = newIndex > oldIndex ? newIndex - 1 : newIndex;
-                  ref.read(libraryCustomizeProvider.notifier).reorder(oldIndex, moved);
-                },
-                itemBuilder: (context, i) {
-                  final row = state.rows[i];
-                  return _RowTile(
-                    key: ValueKey(row.id),
-                    row: row,
-                    preview: _previewCount(state, row),
-                  );
-                },
-              ),
-        bottomNavigationBar: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => _showAddSheet(context),
-                    child: const Text('添加行'),
+        backgroundColor: McTokens.bg,
+        body: Column(
+          children: [
+            McFloatingDetailBar(
+              onBack: () =>
+                  context.canPop() ? context.pop() : context.go('/home'),
+              title: '自定义首页',
+              titleVisible: true,
+              trailing: [
+                if (state.dirty)
+                  McChip(
+                    label: state.saving ? '保存中…' : '保存',
+                    selected: true,
+                    compact: true,
+                    onTap: state.saving
+                        ? null
+                        : () async {
+                            final ok = await ref
+                                .read(libraryCustomizeProvider.notifier)
+                                .save();
+                            if (ok) McToast.success('已保存');
+                          },
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () =>
-                        ref.read(libraryCustomizeProvider.notifier).resetToDefault(),
-                    child: const Text('恢复出厂'),
-                  ),
-                ),
               ],
             ),
-          ),
+            Expanded(
+              child: state.loading
+                  ? const McLoadingView()
+                  : ReorderableListView.builder(
+                      padding: const EdgeInsets.fromLTRB(
+                        McTokens.pagePadding,
+                        8,
+                        McTokens.pagePadding,
+                        16,
+                      ),
+                      itemCount: state.rows.length,
+                      onReorder: (oldIndex, newIndex) {
+                        final moved =
+                            newIndex > oldIndex ? newIndex - 1 : newIndex;
+                        ref
+                            .read(libraryCustomizeProvider.notifier)
+                            .reorder(oldIndex, moved);
+                      },
+                      itemBuilder: (context, i) {
+                        final row = state.rows[i];
+                        return _RowTile(
+                          key: ValueKey(row.id),
+                          row: row,
+                          preview: _previewCount(state, row),
+                        );
+                      },
+                    ),
+            ),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  McTokens.pagePadding,
+                  8,
+                  McTokens.pagePadding,
+                  16,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: McActionPill(
+                        label: '添加行',
+                        icon: McIcons.addS,
+                        primary: false,
+                        expanded: true,
+                        onTap: () => _showAddSheet(context),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: McActionPill(
+                        label: '恢复出厂',
+                        icon: McIcons.refreshS,
+                        primary: false,
+                        expanded: true,
+                        onTap: () => ref
+                            .read(libraryCustomizeProvider.notifier)
+                            .resetToDefault(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -109,25 +147,22 @@ class _LibraryCustomizePageState extends ConsumerState<LibraryCustomizePage> {
   }
 
   void _showAddSheet(BuildContext context) {
-    showModalBottomSheet<void>(
+    showMcSheet<void>(
       context: context,
-      builder: (sheetContext) => SafeArea(
-        child: _AddSheet(
-          onPickLibrary: (lib) {
-            Navigator.of(sheetContext).pop();
-            ref.read(libraryCustomizeProvider.notifier).addLibraryRow(lib);
-          },
-          onPickCollection: (c) {
-            Navigator.of(sheetContext).pop();
-            ref.read(libraryCustomizeProvider.notifier).addCollectionRow(c);
-          },
-        ),
+      builder: (sheetContext) => _AddSheet(
+        onPickLibrary: (lib) {
+          Navigator.of(sheetContext).pop();
+          ref.read(libraryCustomizeProvider.notifier).addLibraryRow(lib);
+        },
+        onPickCollection: (c) {
+          Navigator.of(sheetContext).pop();
+          ref.read(libraryCustomizeProvider.notifier).addCollectionRow(c);
+        },
       ),
     );
   }
 }
 
-/// 单行编辑条目。
 class _RowTile extends ConsumerWidget {
   const _RowTile({super.key, required this.row, this.preview});
 
@@ -146,78 +181,95 @@ class _RowTile extends ConsumerWidget {
             : k is CollectionRowKind
                 ? HomeRows.allSorts
                 : const <String>[]);
-    return ListTile(
-      title: Text(
-        row.title(),
-        style: row.hidden
-            ? TextStyle(
-                decoration: TextDecoration.lineThrough,
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5))
-            : null,
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: McTokens.surfaceRaised,
+        borderRadius: BorderRadius.circular(McTokens.posterRadius),
+        border: Border.all(color: McTokens.line),
       ),
-      subtitle: Text(
-        [
-          row.meta(),
-          preview,
-        ].nonNulls.where((s) => s.isNotEmpty).join(' · '),
-        style: const TextStyle(fontSize: 12),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (sortOptions.isNotEmpty)
-            PopupMenuButton<String>(
-              tooltip: '行排序',
-              onSelected: (v) {
-                if (v == '__dir__') {
-                  final sort = k is LibraryRowKind
-                      ? k.sort
-                      : k is CollectionRowKind
-                          ? k.sort
-                          : k is FavoritesRowKind
-                              ? k.sort
-                              : 'added_at';
-                  notifier.setRowSort(row.id, sort, !_isReversed(k));
-                } else {
-                  notifier.setRowSort(row.id, v, HomeRows.isReversed(v, null));
-                }
-              },
-              itemBuilder: (_) => [
-                for (final s in sortOptions)
-                  PopupMenuItem(
-                    value: s,
-                    child: Text(HomeRows.shortLabel(s, false)),
-                  ),
-                const PopupMenuDivider(),
-                const PopupMenuItem(value: '__dir__', child: Text('切换方向')),
-              ],
-              child: const Icon(McIcons.sort, size: 20),
-            ),
-          if (k is LibraryRowKind && k.sort != 'last_played')
-            IconButton(
-              tooltip: k.unwatched ? '只看未看：开' : '只看未看：关',
-              icon: Icon(
-                k.unwatched ? McIcons.eyeClosedFill : McIcons.eyeOpen,
-                size: 20,
+      child: ListTile(
+        title: Text(
+          row.title(),
+          style: row.hidden
+              ? McText.ui.copyWith(
+                  decoration: TextDecoration.lineThrough,
+                  color: McTokens.textFaint,
+                )
+              : McText.ui,
+        ),
+        subtitle: Text(
+          [row.meta(), preview].nonNulls.where((s) => s.isNotEmpty).join(' · '),
+          style: McText.caption.muted,
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (sortOptions.isNotEmpty)
+              PopupMenuButton<String>(
+                tooltip: '行排序',
+                onSelected: (v) {
+                  if (v == '__dir__') {
+                    final sort = k is LibraryRowKind
+                        ? k.sort
+                        : k is CollectionRowKind
+                            ? k.sort
+                            : k is FavoritesRowKind
+                                ? k.sort
+                                : 'added_at';
+                    notifier.setRowSort(row.id, sort, !_isReversed(k));
+                  } else {
+                    notifier.setRowSort(row.id, v, HomeRows.isReversed(v, null));
+                  }
+                },
+                itemBuilder: (_) => [
+                  for (final s in sortOptions)
+                    PopupMenuItem(
+                      value: s,
+                      child: Text(HomeRows.shortLabel(s, false)),
+                    ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(value: '__dir__', child: Text('切换方向')),
+                ],
+                child: const Padding(
+                  padding: EdgeInsets.all(6),
+                  child: Icon(McIcons.sort, size: 19, color: McTokens.textMuted),
+                ),
               ),
-              onPressed: () => notifier.setUnwatched(row.id, !k.unwatched),
-            ),
-          IconButton(
-            tooltip: row.hidden ? '显示' : '隐藏',
-            icon: Icon(
-              row.hidden ? McIcons.eyeOpen : Icons.visibility_off_outlined,
-              size: 20,
-            ),
-            onPressed: () => notifier.setHidden(row.id, !row.hidden),
-          ),
-          if (removable)
+            if (k is LibraryRowKind && k.sort != 'last_played')
+              IconButton(
+                tooltip: k.unwatched ? '只看未看：开' : '只看未看：关',
+                icon: Icon(
+                  k.unwatched ? McIcons.eyeClosedFill : McIcons.eyeOpen,
+                  size: 19,
+                ),
+                onPressed: () => notifier.setUnwatched(row.id, !k.unwatched),
+              ),
             IconButton(
-              tooltip: '删除行',
-              icon: const Icon(McIcons.trash2, size: 20),
-              onPressed: () => notifier.removeRow(row.id),
+              tooltip: row.hidden ? '显示' : '隐藏',
+              icon: Icon(
+                row.hidden ? McIcons.eyeOpen : McIcons.eyeOff,
+                size: 19,
+              ),
+              onPressed: () => notifier.setHidden(row.id, !row.hidden),
             ),
-          const Icon(McIcons.draggableS, size: 18),
-        ],
+            if (removable)
+              IconButton(
+                tooltip: '删除行',
+                icon: const Icon(
+                  McIcons.trash2,
+                  size: 19,
+                  color: McTokens.danger,
+                ),
+                onPressed: () => notifier.removeRow(row.id),
+              ),
+            const Icon(
+              McIcons.draggableS,
+              size: 18,
+              color: McTokens.textFaint,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -231,9 +283,11 @@ class _RowTile extends ConsumerWidget {
   }
 }
 
-/// 添加行：媒体库 / 合集 两段选择。
 class _AddSheet extends ConsumerStatefulWidget {
-  const _AddSheet({required this.onPickLibrary, required this.onPickCollection});
+  const _AddSheet({
+    required this.onPickLibrary,
+    required this.onPickCollection,
+  });
 
   final void Function(LibraryView) onPickLibrary;
   final void Function(CollectionView) onPickCollection;
@@ -261,7 +315,12 @@ class _AddSheetState extends ConsumerState<_AddSheet> {
           });
         }
       } catch (_) {
-        if (mounted) setState(() { _libs = const []; _collections = const []; });
+        if (mounted) {
+          setState(() {
+            _libs = const [];
+            _collections = const [];
+          });
+        }
       }
     });
   }
@@ -271,39 +330,41 @@ class _AddSheetState extends ConsumerState<_AddSheet> {
     final libs = _libs;
     final collections = _collections;
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
       shrinkWrap: true,
       children: [
-        const Text('添加媒体库行', style: TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 6),
+        const Text('添加媒体库行', style: McText.titleSm),
+        const SizedBox(height: 10),
         if (libs == null)
           const Padding(padding: EdgeInsets.all(12), child: McLoadingView())
         else
           Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: [
               for (final lib in libs.where((l) => !l.excludeFromHome))
-                ActionChip(
-                  label: Text(lib.name),
-                  onPressed: () => widget.onPickLibrary(lib),
+                McChip(
+                  label: lib.name,
+                  onTap: () => widget.onPickLibrary(lib),
                 ),
             ],
           ),
-        const SizedBox(height: 16),
-        const Text('添加合集行', style: TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 6),
+        const SizedBox(height: 20),
+        const Text('添加合集行', style: McText.titleSm),
+        const SizedBox(height: 10),
         if (collections == null)
           const Padding(padding: EdgeInsets.all(12), child: McLoadingView())
         else if (collections.isEmpty)
-          const Text('还没有合集')
+          Text('还没有合集', style: McText.sub.muted)
         else
           Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: [
               for (final c in collections)
-                ActionChip(
-                  label: Text(c.name),
-                  onPressed: () => widget.onPickCollection(c),
+                McChip(
+                  label: c.name,
+                  onTap: () => widget.onPickCollection(c),
                 ),
             ],
           ),

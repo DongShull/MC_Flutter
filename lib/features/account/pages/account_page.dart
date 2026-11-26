@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/adaptive.dart';
-
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
+import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/theme.dart';
 import '../state/account_state.dart';
 import '../widgets/account_row.dart';
-import '../../../core/designsystem/mc_icons.dart';
 
 /// 账号切换页（1:1 对齐 Kotlin AccountSwitcherScreen）：
 /// 本机已登录账号分组展示，点一下即可切换不用再输密码；
@@ -27,56 +29,77 @@ class _AccountPageState extends ConsumerState<AccountPage> {
     });
   }
 
-  Future<void> _confirmLogoutAll(AccountUiState ui) async {
-    final scheme = Theme.of(context).colorScheme;
-    // 第一段：确认退出全部账号。
-    final first = await showDialog<bool>(
+  Future<bool?> _askSheet({
+    required String title,
+    required String message,
+    required String cancelLabel,
+    required String confirmLabel,
+  }) {
+    return showMcSheet<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('退出全部账号？'),
-        content: const Text('本机保存的登录信息会被清除，之后需要重新输入密码。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text('退出', style: TextStyle(color: scheme.error)),
-          ),
-        ],
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(title, style: McText.titleSm),
+            const SizedBox(height: 8),
+            Text(message, style: McText.sub.muted),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: cancelLabel,
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: confirmLabel,
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Future<void> _confirmLogoutAll(AccountUiState ui) async {
+    final first = await _askSheet(
+      title: '退出全部账号？',
+      message: '本机保存的登录信息会被清除，之后需要重新输入密码。',
+      cancelLabel: '取消',
+      confirmLabel: '退出',
     );
     if (first != true || !mounted) return;
-    // 第二段：问是否连本机下载的副本一起删（对齐 askOfflineCleanup）。
-    final wipe = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('同时删除本机下载？'),
-        content: const Text('只删本机上的副本，观看进度会保留。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('保留下载'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text('一起删除', style: TextStyle(color: scheme.error)),
-          ),
-        ],
-      ),
+    final wipe = await _askSheet(
+      title: '同时删除本机下载？',
+      message: '只删本机上的副本，观看进度会保留。',
+      cancelLabel: '保留下载',
+      confirmLabel: '一起删除',
     );
     if (!mounted) return;
-    await ref.read(accountProvider.notifier).logoutAll(wipeOffline: wipe == true);
+    await ref
+        .read(accountProvider.notifier)
+        .logoutAll(wipeOffline: wipe == true);
     if (!mounted) return;
-    // 登出完成 -> 跳 /onboarding 重新登录。
     context.go('/onboarding');
   }
 
   @override
   Widget build(BuildContext context) {
     final ui = ref.watch(accountProvider);
-    final scheme = Theme.of(context).colorScheme;
     final form = McFormWatch.of(context);
     final windowClass = mcWindowClassOf(form);
     final currentAccount = _currentAccount(ui);
@@ -87,153 +110,166 @@ class _AccountPageState extends ConsumerState<AccountPage> {
         '未登录';
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('账号'),
-        actions: [
-          // TV：设备管理入口 D-pad 聚焦环。
-          McFocusRing(
-            borderRadius: 24,
-            child: IconButton(
-              tooltip: '设备管理',
-              icon: const Icon(McIcons.device),
-              onPressed: () => context.push('$routeAccountLocal/devices'),
+      backgroundColor: McTokens.bg,
+      body: Column(
+        children: [
+          McFloatingDetailBar(
+            onBack: () =>
+                context.canPop() ? context.pop() : context.go('/home'),
+            title: '账号',
+            titleVisible: true,
+            trailing: [
+              McFocusRing(
+                borderRadius: 24,
+                child: McGlassIconButton(
+                  icon: McIcons.device,
+                  tooltip: '设备管理',
+                  onTap: () => context.push('$routeAccountLocal/devices'),
+                ),
+              ),
+            ],
+          ),
+          Expanded(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: windowClass == McWindowClass.compact
+                      ? double.infinity
+                      : 720,
+                ),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(
+                    McTokens.pagePadding,
+                    12,
+                    McTokens.pagePadding,
+                    36,
+                  ),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: McTokens.surfaceRaised,
+                        borderRadius:
+                            BorderRadius.circular(McTokens.cardRadius),
+                        border: Border.all(color: McTokens.line, width: 1),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 52,
+                            height: 52,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [Color(0xFF2B3140), Color(0xFF171A24)],
+                              ),
+                              border: Border.all(
+                                color: McTokens.lineStrong,
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              displayName.isEmpty
+                                  ? '?'
+                                  : displayName.characters.first.toUpperCase(),
+                              style: McText.title.copyWith(
+                                color: McTokens.accentStrong,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(displayName, style: McText.titleSm),
+                                const SizedBox(height: 2),
+                                Text(
+                                  "@${ui.me?.username ?? ui.currentUsername ?? '-'} · ${ui.me?.username == null ? '未连接' : (ui.currentOrigin == null ? '成员' : '已登录')}",
+                                  style: McText.caption.muted,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    for (final server in ui.servers) ...[
+                      if (ui.servers.length > 1)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                          child: Text(
+                            server.displayOrigin,
+                            style: McText.caption.copyWith(
+                              color: McTokens.textMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      for (final account in server.accounts)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: AccountRow(
+                            server: server,
+                            account: account,
+                            isCurrent: server.origin == ui.currentOrigin &&
+                                account.username == ui.currentUsername,
+                            busy: ui.busy,
+                            onSwitch: () =>
+                                ref.read(accountProvider.notifier).switchTo(
+                                      server.origin,
+                                      account.username,
+                                    ),
+                            onRemove: () =>
+                                ref.read(accountProvider.notifier).remove(
+                                      server.origin,
+                                      account.username,
+                                    ),
+                          ),
+                        ),
+                    ],
+                    const SizedBox(height: 8),
+                    Center(
+                      child: McFocusRing(
+                        borderRadius: McTokens.pillRadius,
+                        child: McActionPill(
+                          label: '添加账号',
+                          icon: McIcons.userAdd,
+                          primary: false,
+                          expanded: true,
+                          onTap: () => context.go('/onboarding'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Center(
+                      child: McFocusRing(
+                        borderRadius: McTokens.pillRadius,
+                        child: McActionPill(
+                          label: '退出全部账号',
+                          icon: McIcons.logout,
+                          primary: false,
+                          tone: McGlassTone.danger,
+                          expanded: true,
+                          onTap: () => _confirmLogoutAll(ui),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      '本机已登录的账号，点击即可切换，不用再输密码。撤销凭证请到设置 → 设备管理。',
+                      style: McText.caption.faint,
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: windowClass == McWindowClass.compact
-                ? double.infinity
-                : 720,
-          ),
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-          // 当前用户信息卡。
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: scheme.outlineVariant),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Color(0xFF26A5E4), Color(0xFF7C6FF0)],
-                    ),
-                  ),
-                  child: Text(
-                    displayName.isEmpty ? '?' : displayName.characters.first.toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                      color: scheme.onPrimary,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(displayName,
-                          style: const TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w600)),
-                      Text(
-                        "@${ui.me?.username ?? ui.currentUsername ?? '-'} · ${ui.me?.username == null ? '未连接' : (ui.currentOrigin == null ? '成员' : '已登录')}",
-                        style: TextStyle(
-                            fontSize: 12, color: scheme.onSurfaceVariant),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          // 本机账号分组（对齐 AccountSwitcherScreen 的 servers.forEach）。
-          for (final server in ui.servers) ...[
-            if (ui.servers.length > 1)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(
-                  server.displayOrigin,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            for (final account in server.accounts)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: AccountRow(
-                  server: server,
-                  account: account,
-                  isCurrent: server.origin == ui.currentOrigin &&
-                      account.username == ui.currentUsername,
-                  busy: ui.busy,
-                  onSwitch: () =>
-                      ref.read(accountProvider.notifier).switchTo(
-                            server.origin,
-                            account.username,
-                          ),
-                  onRemove: () =>
-                      ref.read(accountProvider.notifier).remove(
-                            server.origin,
-                            account.username,
-                          ),
-                ),
-              ),
-          ],
-          // 添加账号。
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: McFocusRing(
-              borderRadius: 20,
-              child: OutlinedButton.icon(
-                onPressed: () => context.go('/onboarding'),
-                icon: const Icon(McIcons.userAdd),
-                label: const Text('添加账号'),
-              ),
-            ),
-          ),
-          // 退出全部账号（Danger）。
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: McFocusRing(
-              borderRadius: 20,
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: scheme.error,
-                  side: BorderSide(color: scheme.error.withValues(alpha: 0.4)),
-                ),
-                onPressed: () => _confirmLogoutAll(ui),
-                icon: const Icon(McIcons.logout),
-                label: const Text('退出全部账号'),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '本机已登录的账号，点击即可切换，不用再输密码。撤销凭证请到设置 → 设备管理。',
-            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-          ),
-            ],
-          ),
-        ),
       ),
     );
   }

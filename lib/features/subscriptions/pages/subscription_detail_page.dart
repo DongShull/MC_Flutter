@@ -2,18 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
+import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/state_views.dart';
+import '../../../core/designsystem/theme.dart';
 import '../state/controllers.dart';
 import '../state/mc_api.dart';
 import '../state/models.dart';
 import '../state/rule_set_spec.dart';
 import '../widgets/activity_timeline.dart';
 import '../widgets/tracking_list.dart';
-import '../../../core/designsystem/mc_icons.dart';
 
-/// 订阅详情页（对齐 SubscriptionDetailScreen.kt / 设计文档 04 §5.3）：
-/// 摘要卡（四段进度条 + 状态 + 进度一句话）→ 操作行（立即搜索 / 更多）→
-/// 追踪明细（按季分组）→ 活动时间线。
+/// 订阅详情页（对齐 SubscriptionDetailScreen.kt）：
+/// 摘要卡（四段进度条 + 状态 + 进度一句话）→ 操作行 → 追踪明细 → 活动时间线。
 class SubscriptionDetailPage extends ConsumerStatefulWidget {
   const SubscriptionDetailPage({super.key, required this.id});
 
@@ -34,51 +36,44 @@ class _SubscriptionDetailPageState
     });
   }
 
-  void _toast(String msg) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(msg)));
-  }
+  void _toast(String msg) => McToast.info(msg);
 
   Future<void> _showMoreMenu(
-      SubscriptionDetailController controller, SubscriptionView sub) async {
-    final action = await showModalBottomSheet<_DetailAction>(
+    SubscriptionDetailController controller,
+    SubscriptionView sub,
+  ) async {
+    final action = await showMcSheet<_DetailAction>(
       context: context,
-      backgroundColor: const Color(0xFF141A21),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+        child: McInsetGroup(
+          header: sub.media.title,
+          margin: EdgeInsets.zero,
           children: [
-            ListTile(
-              leading: const Icon(McIcons.playListAdd),
-              title: const Text('调整订阅（换选季）', style: TextStyle(fontSize: 14)),
-              onTap: () => Navigator.of(context).pop(_DetailAction.seasons),
+            McInsetRow(
+              icon: McIcons.playListAdd,
+              title: '调整订阅（换选季）',
+              onTap: () => Navigator.of(ctx).pop(_DetailAction.seasons),
             ),
-            ListTile(
-              leading: const Icon(McIcons.aiStarFill),
-              title: const Text('洗一轮版', style: TextStyle(fontSize: 14)),
-              onTap: () => Navigator.of(context).pop(_DetailAction.upgrade),
+            McInsetRow(
+              icon: McIcons.aiStarFill,
+              title: '洗一轮版',
+              onTap: () => Navigator.of(ctx).pop(_DetailAction.upgrade),
             ),
-            ListTile(
-              leading: const Icon(McIcons.clockFill),
-              title: Text(
-                sub.followFuture ? '关闭自动续订' : '开启自动续订',
-                style: const TextStyle(fontSize: 14),
-              ),
-              onTap: () => Navigator.of(context).pop(_DetailAction.follow),
+            McInsetRow(
+              icon: McIcons.clockFill,
+              title: sub.followFuture ? '关闭自动续订' : '开启自动续订',
+              onTap: () => Navigator.of(ctx).pop(_DetailAction.follow),
             ),
-            ListTile(
-              leading: const Icon(McIcons.listSettings2),
-              title: const Text('规则组', style: TextStyle(fontSize: 14)),
-              onTap: () => Navigator.of(context).pop(_DetailAction.ruleSet),
+            McInsetRow(
+              icon: McIcons.listSettings2,
+              title: '规则组',
+              onTap: () => Navigator.of(ctx).pop(_DetailAction.ruleSet),
             ),
-            ListTile(
-              leading: const Icon(McIcons.pauseCircle),
-              title: Text(
-                sub.status == 'paused' ? '恢复追踪' : '暂停追踪',
-                style: const TextStyle(fontSize: 14),
-              ),
-              onTap: () => Navigator.of(context).pop(_DetailAction.pause),
+            McInsetRow(
+              icon: McIcons.pauseCircle,
+              title: sub.status == 'paused' ? '恢复追踪' : '暂停追踪',
+              onTap: () => Navigator.of(ctx).pop(_DetailAction.pause),
             ),
           ],
         ),
@@ -101,47 +96,83 @@ class _SubscriptionDetailPageState
   }
 
   Future<void> _pickSeasons(
-      SubscriptionDetailController controller, SubscriptionView sub) async {
+    SubscriptionDetailController controller,
+    SubscriptionView sub,
+  ) async {
     final selected = {...sub.selectedSeasons};
     final seasons = sub.seasonCollection;
     if (seasons.isEmpty) {
       _toast('没有可调整的季');
       return;
     }
-    final ok = await showDialog<bool>(
+    final ok = await showMcSheet<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('调整订阅'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final s in seasons)
-              CheckboxListTile(
-                dense: true,
-                value: selected.contains(s.seasonNumber),
-                title: Text(
-                  s.name ?? '第 ${s.seasonNumber} 季 · ${s.episodesLine}',
-                  style: const TextStyle(fontSize: 13),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 6, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('调整订阅选季', style: McText.titleSm),
+              const SizedBox(height: 12),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 280),
+                child: SingleChildScrollView(
+                  child: McInsetGroup(
+                    margin: EdgeInsets.zero,
+                    dividerIndent: 46,
+                    children: [
+                      for (final s in seasons)
+                        McInsetRow(
+                          leading: Icon(
+                            selected.contains(s.seasonNumber)
+                                ? McIcons.checkCircleFill
+                                : McIcons.circler,
+                            size: 20,
+                            color: selected.contains(s.seasonNumber)
+                                ? McTokens.accentStrong
+                                : McTokens.textFaint,
+                          ),
+                          title: s.name ?? '第 ${s.seasonNumber} 季',
+                          subtitle: s.episodesLine,
+                          onTap: () => setSheetState(() {
+                            if (selected.contains(s.seasonNumber)) {
+                              selected.remove(s.seasonNumber);
+                            } else {
+                              selected.add(s.seasonNumber);
+                            }
+                          }),
+                        ),
+                    ],
+                  ),
                 ),
-                onChanged: (v) {
-                  if (v == true) {
-                    selected.add(s.seasonNumber);
-                  } else {
-                    selected.remove(s.seasonNumber);
-                  }
-                  (context as Element).markNeedsBuild();
-                },
               ),
-          ],
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: McActionPill(
+                      label: '取消',
+                      primary: false,
+                      expanded: true,
+                      onTap: () => Navigator.pop(ctx, false),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: McActionPill(
+                      label: '确定',
+                      primary: true,
+                      expanded: true,
+                      onTap: () => Navigator.pop(ctx, true),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消')),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('确定')),
-        ],
       ),
     );
     if (ok == true) await controller.updateSeasons(selected.toList());
@@ -149,7 +180,6 @@ class _SubscriptionDetailPageState
   }
 
   Future<void> _pickRuleSet(SubscriptionDetailController controller) async {
-    // 规则组只有超管可读（GET /rule-sets 是 require_admin）：失败静默降级
     List<RuleSetView> ruleSets;
     try {
       ruleSets = await ref.read(subscriptionsApiProvider).ruleSets();
@@ -158,18 +188,22 @@ class _SubscriptionDetailPageState
       return;
     }
     if (!mounted) return;
-    final picked = await showDialog<int>(
+    final picked = await showMcSheet<int>(
       context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('选择规则组'),
-        children: [
-          for (final r in ruleSets)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, r.id),
-              child: Text('${r.name} · ${specSummary(r.spec)}',
-                  style: const TextStyle(fontSize: 12)),
-            ),
-        ],
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+        child: McInsetGroup(
+          header: '选择规则组',
+          margin: EdgeInsets.zero,
+          children: [
+            for (final r in ruleSets)
+              McInsetRow(
+                title: r.name,
+                subtitle: specSummary(r.spec),
+                onTap: () => Navigator.pop(ctx, r.id),
+              ),
+          ],
+        ),
       ),
     );
     if (picked != null) await controller.updateRuleSet(picked);
@@ -177,27 +211,49 @@ class _SubscriptionDetailPageState
   }
 
   Future<void> _confirmUnsubscribe(
-      SubscriptionDetailController controller, SubscriptionView sub) async {
-    // 文案对齐安卓："取消订阅《title》将停止追踪剩余内容。默认只取消订阅，已经下载或入库的内容都会保留。"
-    final ok = await showDialog<bool>(
+    SubscriptionDetailController controller,
+    SubscriptionView sub,
+  ) async {
+    final ok = await showMcSheet<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('取消订阅'),
-        content: Text(
-          '取消订阅《${sub.media.title}》将停止追踪剩余内容。'
-          '默认只取消订阅，已经下载或入库的内容都会保留。',
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('取消订阅', style: McText.titleSm),
+            const SizedBox(height: 8),
+            Text(
+              '取消订阅《${sub.media.title}》将停止追踪剩余内容。'
+              '默认只取消订阅，已经下载或入库的内容都会保留。',
+              style: McText.sub.muted,
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: '保留',
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.pop(ctx, false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: '取消订阅',
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    onTap: () => Navigator.pop(ctx, true),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('保留')),
-          FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFE5615B)),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('取消订阅'),
-          ),
-        ],
       ),
     );
     if (ok == true) {
@@ -224,81 +280,132 @@ class _SubscriptionDetailPageState
     final sub = state.value;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(sub?.media.title ?? '订阅详情'),
-        actions: [
-          if (sub != null)
-            IconButton(
-              icon: const Icon(McIcons.moreFill),
-              tooltip: '更多操作',
-              onPressed: () => _showMoreMenu(controller, sub),
-            ),
+      backgroundColor: McTokens.bg,
+      body: Column(
+        children: [
+          McFloatingDetailBar(
+            onBack: () => context.canPop()
+                ? context.pop()
+                : context.go('/subscriptions'),
+            title: sub?.media.title ?? '订阅详情',
+            titleVisible: true,
+            trailing: [
+              if (sub != null)
+                McGlassIconButton(
+                  icon: McIcons.more,
+                  tooltip: '更多操作',
+                  onTap: () => _showMoreMenu(controller, sub),
+                ),
+            ],
+          ),
+          Expanded(
+            child: state.isLoading && sub == null
+                ? const McLoadingView()
+                : state.hasError
+                    ? McErrorView(
+                        text: '${state.error}',
+                        onRetry: () => controller.load(),
+                      )
+                    : sub == null
+                        ? const SizedBox.shrink()
+                        : ListView(
+                            padding: const EdgeInsets.fromLTRB(
+                              McTokens.pagePadding,
+                              12,
+                              McTokens.pagePadding,
+                              32,
+                            ),
+                            children: [
+                              _SummaryCard(sub: sub),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: McGlassButton(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 10,
+                                        horizontal: 8,
+                                      ),
+                                      onTap: () async {
+                                        await controller.searchNow();
+                                        if (mounted) _consumeNotice(controller);
+                                      },
+                                      child: const Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(McIcons.search, size: 15),
+                                          SizedBox(width: 5),
+                                          Text('立即搜索'),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: McGlassButton(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 10,
+                                        horizontal: 8,
+                                      ),
+                                      onTap: () => context.push(
+                                        '/subscriptions/wall/${sub.id}',
+                                      ),
+                                      child: const Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(McIcons.gridFill, size: 15),
+                                          SizedBox(width: 5),
+                                          Text('资源墙'),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: McGlassButton(
+                                      tone: McGlassTone.danger,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 10,
+                                        horizontal: 8,
+                                      ),
+                                      onTap: () =>
+                                          _confirmUnsubscribe(controller, sub),
+                                      child: const Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(McIcons.linkUnlink, size: 15),
+                                          SizedBox(width: 5),
+                                          Text('取消订阅'),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+                              const Text('追踪明细', style: McText.titleSm),
+                              const SizedBox(height: 6),
+                              TrackingList(sub: sub),
+                              const SizedBox(height: 20),
+                              const Text('活动记录', style: McText.titleSm),
+                              const SizedBox(height: 6),
+                              ActivityTimeline(
+                                activities: controller.activities,
+                              ),
+                            ],
+                          ),
+          ),
         ],
       ),
-      body: state.isLoading && sub == null
-          ? const McLoadingView()
-          : state.hasError
-              ? McErrorView(
-                  text: '${state.error}', onRetry: () => controller.load())
-              : sub == null
-                  ? const SizedBox.shrink()
-                  : ListView(
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        _SummaryCard(sub: sub),
-                        const SizedBox(height: 12),
-                        // 操作行：立即搜索 / 订阅墙
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                icon: const Icon(McIcons.search, size: 16),
-                                label: const Text('立即搜索'),
-                                onPressed: () async {
-                                  await controller.searchNow();
-                                  if (mounted) _consumeNotice(controller);
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                icon: const Icon(McIcons.gridFill, size: 16),
-                                label: const Text('资源墙'),
-                                onPressed: () => context
-                                    .push('/subscriptions/wall/${sub.id}'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                icon: const Icon(McIcons.linkUnlink, size: 16),
-                                label: const Text('取消订阅'),
-                                onPressed: () =>
-                                    _confirmUnsubscribe(controller, sub),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        const Text('追踪明细',
-                            style: TextStyle(
-                                fontSize: 14, fontWeight: FontWeight.w700)),
-                        TrackingList(sub: sub),
-                        const SizedBox(height: 16),
-                        const Text('活动记录',
-                            style: TextStyle(
-                                fontSize: 14, fontWeight: FontWeight.w700)),
-                        ActivityTimeline(activities: controller.activities),
-                      ],
-                    ),
     );
   }
 }
 
 enum _DetailAction { seasons, upgrade, follow, ruleSet, pause }
 
-/// 摘要卡：海报 + 状态徽标 + 四段进度条（imported/downloaded/grabbed/wanted）+ 进度一句话。
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({required this.sub});
 
@@ -319,24 +426,22 @@ class _SummaryCard extends StatelessWidget {
                 child: LinearProgressIndicator(
                   value: (v / total).clamp(0.0, 1.0),
                   minHeight: 5,
-                  backgroundColor: Colors.white10,
+                  backgroundColor: McTokens.surfaceInset,
                   valueColor: AlwaysStoppedAnimation(c),
                 ),
               ),
-              const SizedBox(height: 4),
-              Text('$label $v',
-                  style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.white.withValues(alpha: 0.5))),
+              const SizedBox(height: 5),
+              Text('$label $v', style: McText.micro.muted),
             ],
           ),
         );
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(14),
+        color: McTokens.surfaceRaised,
+        borderRadius: BorderRadius.circular(McTokens.cardRadius),
+        border: Border.all(color: McTokens.line, width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -347,43 +452,39 @@ class _SummaryCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(999),
+                  borderRadius: BorderRadius.circular(McTokens.pillRadius),
+                  border: Border.all(color: color.withValues(alpha: 0.35)),
                 ),
                 child: Text(
                   subscriptionStatusLabel(sub),
-                  style: TextStyle(fontSize: 11, color: color),
+                  style: McText.micro.copyWith(color: color),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   subscriptionProgressNote(sub),
-                  style: TextStyle(
-                      fontSize: 12, color: Colors.white.withValues(alpha: 0.7)),
+                  style: McText.caption.muted,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Row(
             children: [
-              seg(p.imported, const Color(0xFF34C77B), '入库'),
+              seg(p.imported, McTokens.ok, '入库'),
               const SizedBox(width: 8),
-              seg(p.downloaded, const Color(0xFF6AA7FF), '已下载'),
+              seg(p.downloaded, McTokens.info, '已下载'),
               const SizedBox(width: 8),
-              seg(p.grabbed, const Color(0xFFF5B84C), '下载中'),
+              seg(p.grabbed, McTokens.warning, '下载中'),
               const SizedBox(width: 8),
-              seg(p.wanted, Colors.white24, '缺'),
+              seg(p.wanted, McTokens.textFaint, '缺'),
             ],
           ),
-          if (sub.followFuture)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text('自动续订已开启',
-                  style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.white.withValues(alpha: 0.45))),
-            ),
+          if (sub.followFuture) ...[
+            const SizedBox(height: 8),
+            Text('自动续订已开启', style: McText.micro.faint),
+          ],
         ],
       ),
     );

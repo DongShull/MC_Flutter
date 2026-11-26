@@ -1,22 +1,26 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/adaptive.dart';
-import '../../../core/designsystem/state_views.dart';
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/state_views.dart';
+import '../../../core/designsystem/theme.dart';
 import '../../../core/image/image_urls.dart';
 import '../../../core/models/format.dart';
-
 import '../state/activity_derive.dart';
 import '../state/controllers.dart';
 import '../state/models.dart';
 import '../widgets/watch_stats_panel.dart';
 
-/// 活动中心（对齐 iOS ActivityView.dashboard 总览结构）：
-/// 单页分区列表——摘要行 → 需要处理 → 正在播放 → 下载中 → 进行中 →
-/// 最近播放 → 观看统计 → 最近完成。分区头「● 标题 数量 …… 查看全部」，
-/// 行是「一眼能看懂的摘要」，完整操作收进行内按钮。
+/// 活动页（Tab 4，1:1 对齐 iOS `ActivityView.swift` & 参考图 `scene-3.zh.jpg`）：
+/// - 纯黑无界画布 + 左上 `30sp Bold`「活动」大标题 + 右侧玻璃刷新圆钮与搜索圆钮；
+/// - 紧随标题下的一行实时状态摘要（如 `4 台设备在播放 · 1 个下载进行中`）；
+/// - 按紧急度自上而下排列 `McInsetGroup` 圆角卡片组：
+///   `● 需要处理`（红点）→ `● 正在播放`（绿点）→ `● 正在下载`（蓝点）→ `进行中` → `最近播放` → `观看统计` → `最近完成`。
 class ActivityPage extends ConsumerStatefulWidget {
   const ActivityPage({super.key});
 
@@ -34,226 +38,260 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
     try {
       await action();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
-        );
-      }
+      if (mounted) McToast.error(e.toString());
     }
   }
+
+  bool _hasFailed(TaskActivity activity) =>
+      activity.attentionJobs.any((j) => j.status == 'failed');
 
   @override
   Widget build(BuildContext context) {
     final snapshot = ref.watch(activityControllerProvider);
     final activity = deriveTaskActivity(snapshot.downloads, snapshot.jobs);
     final form = McFormWatch.of(context);
-    final windowClass = mcWindowClassOf(form);
+    final wide = mcWindowClassOf(form) != McWindowClass.compact;
     final playback = snapshot.playback;
     final watching = playback?.sessions.length ?? 0;
     final historyTotal = activity.historyJobs.length;
     final downloading = playback?.downloads.length ?? 0;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('活动中心'),
-        actions: [
-          McFocusRing(
-            borderRadius: 24,
-            child: IconButton(
-              icon: const Icon(McIcons.refreshS),
-              onPressed: () => _guard(_controller.refresh),
-            ),
-          ),
-        ],
-      ),
-      body: snapshot.loading
-          ? const McLoadingView()
-          : RefreshIndicator(
-              onRefresh: () => _guard(_controller.refresh),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: windowClass == McWindowClass.compact
-                        ? double.infinity
-                        : 720,
+      backgroundColor: McTokens.bg,
+      body: RefreshIndicator(
+        edgeOffset: MediaQuery.paddingOf(context).top + 56,
+        color: McTokens.accentStrong,
+        backgroundColor: McTokens.surfaceSolid,
+        onRefresh: () => _guard(_controller.refresh),
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            McSliverTopBar(
+              title: '活动',
+              actions: [
+                McFocusRing(
+                  borderRadius: 22,
+                  child: McGlassIconButton(
+                    icon: McIcons.refreshS,
+                    tooltip: '刷新状态',
+                    onTap: () => _guard(_controller.refresh),
                   ),
-                  child: ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.only(bottom: 24),
-                    children: [
-                      // 摘要行：N 项需要处理 · M 台设备在播放 · ……；空态「一切正常」。
-                      _SummaryLine(
-                        attention: activity.attentionTotal,
-                        watching: watching,
-                        downloading: downloading,
-                        active: activity.activeTotal,
-                      ),
-                      if (snapshot.error != null)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                          child: _WarningBanner(message: snapshot.error!),
-                        ),
-                      if (activity.attentionTotal > 0)
-                        _Section(
-                          header: _SectionHeader(
-                            title: '需要处理',
-                            count: activity.attentionTotal,
-                            tint: _kDanger,
-                            trailing: _hasFailed(activity)
-                                ? ('全部清除', () => _guard(_controller.dismissAllJobs))
-                                : null,
+                ),
+                const SizedBox(width: 4),
+              ],
+              onSearch: () => context.push('/search'),
+            ),
+            if (snapshot.loading && playback == null && snapshot.jobs.isEmpty)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: McLoadingView(),
+              )
+            else
+              SliverToBoxAdapter(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: wide ? 760 : double.infinity,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 120),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _SummaryLine(
+                            attention: activity.attentionTotal,
+                            watching: watching,
+                            downloading: downloading,
+                            active: activity.activeTotal,
                           ),
-                          rows: [
-                            for (final group in activity.attentionGroups)
-                              _ActiveDownloadRow(
-                                group: group,
-                                onDelete: group.tasks.length == 1 &&
-                                        group.tasks.first.downloaderId != null
-                                    ? () => _guard(() => _controller
-                                        .deleteDownloadTask(group.tasks.first))
-                                    : null,
+                          if (snapshot.error != null)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                McTokens.pagePadding,
+                                8,
+                                McTokens.pagePadding,
+                                0,
                               ),
-                            for (final job in activity.attentionJobs)
-                              _ActiveJobRow(
-                                job: job,
-                                onCancel: () =>
-                                    _guard(() => _controller.cancelJob(job.id)),
-                                onDismiss: () =>
-                                    _guard(() => _controller.dismissJob(job.id)),
-                              ),
-                          ],
-                        ),
-                      if (playback != null && playback.sessions.isNotEmpty)
-                        _Section(
-                          header: _SectionHeader(
-                            title: '正在播放',
-                            count: playback.sessions.length,
-                            tint: _kSuccess,
-                          ),
-                          rows: [
-                            for (final session in playback.sessions)
-                              _SessionRow(
-                                session: session,
-                                onEnd: () => _guard(() => _controller
-                                    .endPlaybackSession(session.deviceId)),
-                              ),
-                          ],
-                        ),
-                      if (playback != null && playback.downloads.isNotEmpty)
-                        _Section(
-                          header: _SectionHeader(
-                            title: '下载中',
-                            count: playback.downloads.length,
-                          ),
-                          rows: [
-                            for (final download in playback.downloads)
-                              _FileDownloadRow(download: download),
-                          ],
-                        ),
-                      if (activity.activeTotal > 0)
-                        _Section(
-                          header: _SectionHeader(
-                            title: '进行中',
-                            count: activity.activeTotal,
-                          ),
-                          rows: [
-                            for (final group in activity.activeGroups)
-                              _ActiveDownloadRow(
-                                group: group,
-                                onDelete: group.tasks.length == 1 &&
-                                        group.tasks.first.downloaderId != null
-                                    ? () => _guard(() => _controller
-                                        .deleteDownloadTask(group.tasks.first))
-                                    : null,
-                              ),
-                            for (final job in activity.activeJobs)
-                              _ActiveJobRow(
-                                job: job,
-                                onCancel: job.status == 'queued' ||
-                                        job.status == 'running' ||
-                                        job.status == 'retry_wait'
-                                    ? () =>
-                                        _guard(() => _controller.cancelJob(job.id))
-                                    : null,
-                              ),
-                          ],
-                        ),
-                      if (!snapshot.historyForbidden &&
-                          snapshot.history != null &&
-                          snapshot.history!.entries.isNotEmpty)
-                        _Section(
-                          header: const _SectionHeader(title: '最近播放'),
-                          rows: [
-                            for (final entry
-                                in snapshot.history!.entries.take(6))
-                              _RecentPlayRow(entry: entry),
-                          ],
-                        ),
-                      if (!snapshot.statsForbidden &&
-                          snapshot.watchStats != null)
-                        _Section(
-                          header: const _SectionHeader(title: '观看统计'),
-                          child: WatchStatsPanel(
-                            stats: snapshot.watchStats!,
-                            days: snapshot.watchStatsDays,
-                            memberId: snapshot.watchStatsMemberId,
-                            onDaysChanged: (d) =>
-                                _guard(() => _controller.setWatchStatsDays(d)),
-                            onMemberSelected: (id) =>
-                                _guard(() => _controller.setWatchStatsMember(id)),
-                          ),
-                        ),
-                      if (activity.historyJobs.isNotEmpty)
-                        _Section(
-                          header: _SectionHeader(
-                            title: '最近完成',
-                            count: activity.historyJobs.length,
-                            trailing: _showAllFinished
-                                ? null
-                                : (
-                                    '查看全部 $historyTotal',
-                                    () => setState(
-                                        () => _showAllFinished = true),
+                              child: _WarningBanner(message: snapshot.error!),
+                            ),
+                          if (activity.attentionTotal > 0)
+                            _DashboardSection(
+                              title: '需要处理',
+                              dotColor: McTokens.danger,
+                              count: activity.attentionTotal,
+                              trailingText: _hasFailed(activity)
+                                  ? '全部清除'
+                                  : null,
+                              onTrailingTap: _hasFailed(activity)
+                                  ? () => _guard(_controller.dismissAllJobs)
+                                  : null,
+                              rows: [
+                                for (final group in activity.attentionGroups)
+                                  _ActiveDownloadRow(
+                                    group: group,
+                                    onDelete:
+                                        group.tasks.length == 1 &&
+                                            group.tasks.first.downloaderId !=
+                                                null
+                                        ? () => _guard(
+                                            () => _controller
+                                                .deleteDownloadTask(
+                                                  group.tasks.first,
+                                                ),
+                                          )
+                                        : null,
                                   ),
-                          ),
-                          rows: [
-                            for (final job in _showAllFinished
-                                ? activity.historyJobs
-                                : activity.historyJobs.take(5))
-                              _FinishedJobRow(
-                                job: job,
-                                onUndismiss: job.status == 'failed' &&
-                                        jobIsDismissed(job)
-                                    ? () =>
-                                        _guard(() => _controller.undismissJob(job.id))
-                                    : null,
-                                onRetry: job.status == 'cancelled' &&
-                                        !jobIsDismissed(job)
-                                    ? () =>
-                                        _guard(() => _controller.retryJob(job.id))
-                                    : null,
+                                for (final job in activity.attentionJobs)
+                                  _ActiveJobRow(
+                                    job: job,
+                                    onCancel: () => _guard(
+                                      () => _controller.cancelJob(job.id),
+                                    ),
+                                    onDismiss: () => _guard(
+                                      () => _controller.dismissJob(job.id),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          if (playback != null && playback.sessions.isNotEmpty)
+                            _DashboardSection(
+                              title: '正在播放',
+                              dotColor: McTokens.ok,
+                              count: playback.sessions.length,
+                              rows: [
+                                for (final session in playback.sessions)
+                                  _SessionRow(
+                                    session: session,
+                                    onEnd: () => _guard(
+                                      () => _controller.endPlaybackSession(
+                                        session.deviceId,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          if (playback != null && playback.downloads.isNotEmpty)
+                            _DashboardSection(
+                              title: '正在下载',
+                              dotColor: McTokens.info,
+                              count: playback.downloads.length,
+                              rows: [
+                                for (final download in playback.downloads)
+                                  _FileDownloadRow(download: download),
+                              ],
+                            ),
+                          if (activity.activeTotal > 0)
+                            _DashboardSection(
+                              title: '进行中',
+                              dotColor: McTokens.info,
+                              count: activity.activeTotal,
+                              rows: [
+                                for (final group in activity.activeGroups)
+                                  _ActiveDownloadRow(
+                                    group: group,
+                                    onDelete:
+                                        group.tasks.length == 1 &&
+                                            group.tasks.first.downloaderId !=
+                                                null
+                                        ? () => _guard(
+                                            () => _controller
+                                                .deleteDownloadTask(
+                                                  group.tasks.first,
+                                                ),
+                                          )
+                                        : null,
+                                  ),
+                                for (final job in activity.activeJobs)
+                                  _ActiveJobRow(
+                                    job: job,
+                                    onCancel:
+                                        job.status == 'queued' ||
+                                            job.status == 'running' ||
+                                            job.status == 'retry_wait'
+                                        ? () => _guard(
+                                            () => _controller.cancelJob(job.id),
+                                          )
+                                        : null,
+                                  ),
+                              ],
+                            ),
+                          if (!snapshot.historyForbidden &&
+                              snapshot.history != null &&
+                              snapshot.history!.entries.isNotEmpty)
+                            _DashboardSection(
+                              title: '最近播放',
+                              rows: [
+                                for (final entry
+                                    in snapshot.history!.entries.take(6))
+                                  _RecentPlayRow(entry: entry),
+                              ],
+                            ),
+                          if (!snapshot.statsForbidden &&
+                              snapshot.watchStats != null)
+                            _DashboardSection(
+                              title: '观看统计',
+                              customChild: WatchStatsPanel(
+                                stats: snapshot.watchStats!,
+                                days: snapshot.watchStatsDays,
+                                memberId: snapshot.watchStatsMemberId,
+                                onDaysChanged: (d) => _guard(
+                                  () => _controller.setWatchStatsDays(d),
+                                ),
+                                onMemberSelected: (id) => _guard(
+                                  () => _controller.setWatchStatsMember(id),
+                                ),
                               ),
-                          ],
-                        ),
-                    ],
+                            ),
+                          if (activity.historyJobs.isNotEmpty)
+                            _DashboardSection(
+                              title: '最近完成',
+                              count: activity.historyJobs.length,
+                              trailingText: _showAllFinished
+                                  ? null
+                                  : '查看全部 $historyTotal',
+                              onTrailingTap: _showAllFinished
+                                  ? null
+                                  : () => setState(
+                                      () => _showAllFinished = true,
+                                    ),
+                              rows: [
+                                for (final job in _showAllFinished
+                                    ? activity.historyJobs
+                                    : activity.historyJobs.take(5))
+                                  _FinishedJobRow(
+                                    job: job,
+                                    onUndismiss:
+                                        job.status == 'failed' &&
+                                            jobIsDismissed(job)
+                                        ? () => _guard(
+                                            () => _controller.undismissJob(
+                                              job.id,
+                                            ),
+                                          )
+                                        : null,
+                                    onRetry:
+                                        job.status == 'cancelled' &&
+                                            !jobIsDismissed(job)
+                                        ? () => _guard(
+                                            () => _controller.retryJob(job.id),
+                                          )
+                                        : null,
+                                  ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+          ],
+        ),
+      ),
     );
   }
-
-  bool _hasFailed(TaskActivity activity) =>
-      activity.attentionJobs.any((j) => j.status == 'failed');
 }
 
-// iOS 分区配色（与 ActivityDashboardRows.swift 的 Theme.danger/success/info 对应）。
-const Color _kDanger = Color(0xFFE5615B);
-const Color _kSuccess = Color(0xFF5CB86A);
-const Color _kInfo = Color(0xFF5B8DEF);
-const Color _kFaint = Color(0xFF98989E);
-
-/// 相对时间：刚刚 / N 分钟前 / N 小时前 / N 天前 / 日期。
 String _relative(String? iso) {
   final t = DateTime.tryParse(iso ?? '')?.toLocal();
   if (t == null) return '';
@@ -267,8 +305,6 @@ String _relative(String? iso) {
   if (days < 7) return '$days 天前';
   return t.toString().substring(0, 10);
 }
-
-// ---------- 摘要行 ----------
 
 class _SummaryLine extends StatelessWidget {
   const _SummaryLine({
@@ -285,30 +321,41 @@ class _SummaryLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final base = Theme.of(context)
-        .textTheme
-        .bodySmall
-        ?.copyWith(color: _kFaint);
-    final strong = base?.copyWith(color: _kDanger, fontWeight: FontWeight.w600);
+    final base = McText.caption.muted.tabular;
+    final strong = McText.caption
+        .copyWith(color: McTokens.danger, fontWeight: FontWeight.w600)
+        .tabular;
     final spans = <TextSpan>[];
     void add(String text, [TextStyle? style]) {
-      if (spans.isNotEmpty) spans.add(const TextSpan(text: ' · '));
+      if (spans.isNotEmpty) {
+        spans.add(TextSpan(text: ' · ', style: McText.caption.faint));
+      }
       spans.add(TextSpan(text: text, style: style));
     }
 
     if (attention > 0) add('$attention 项需要处理', strong);
     if (watching > 0) add('$watching 台设备在播放');
-    if (downloading > 0) add('$downloading 个下载');
-    if (active > 0) add('$active 个任务进行中');
+    if (downloading > 0) add('$downloading 个下载进行中');
+    if (active > 0) add('$active 个后台任务');
     if (spans.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-        child: Text('一切正常 · 现在没有人在看', style: base),
+        padding: const EdgeInsets.fromLTRB(
+          McTokens.pagePadding,
+          4,
+          McTokens.pagePadding,
+          4,
+        ),
+        child: Text('一切正常 · 当前无活动会话', style: base),
       );
     }
-    if (watching == 0) add('现在没有人在看');
+    if (watching == 0) add('当前无人在看');
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.fromLTRB(
+        McTokens.pagePadding,
+        4,
+        McTokens.pagePadding,
+        4,
+      ),
       child: Text.rich(TextSpan(children: spans, style: base)),
     );
   }
@@ -322,24 +369,22 @@ class _WarningBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: _kDanger.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(10),
+        color: const Color(0x1FFF6B6B),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0x4DFF6B6B), width: 1),
       ),
       child: Row(
         children: [
-          const Icon(McIcons.alertFill, color: _kDanger, size: 18),
+          const Icon(McIcons.alert1, color: McTokens.danger, size: 17),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               message,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: _kDanger),
+              style: McText.caption.copyWith(color: McTokens.danger),
             ),
           ),
         ],
@@ -348,114 +393,58 @@ class _WarningBanner extends StatelessWidget {
   }
 }
 
-// ---------- 分区骨架 ----------
-
-/// 分区头：「● 标题 数量 …… 查看全部 ›」；圆点只给需要处理（红）与正在播放（绿）。
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
+class _DashboardSection extends StatelessWidget {
+  const _DashboardSection({
     required this.title,
+    this.dotColor,
     this.count,
-    this.tint,
-    this.trailing,
+    this.trailingText,
+    this.onTrailingTap,
+    this.rows = const [],
+    this.customChild,
   });
 
   final String title;
+  final Color? dotColor;
   final int? count;
-  final Color? tint;
-  final (String, VoidCallback)? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 6),
-      child: Row(
-        children: [
-          if (tint != null) ...[
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(color: tint, shape: BoxShape.circle),
-            ),
-            const SizedBox(width: 6),
-          ],
-          Text(title, style: theme.textTheme.titleSmall),
-          if (count != null) ...[
-            const SizedBox(width: 6),
-            Text('$count',
-                style: theme.textTheme.bodySmall?.copyWith(color: _kFaint)),
-          ],
-          const Spacer(),
-          if (trailing != null)
-            GestureDetector(
-              onTap: trailing!.$2,
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                child: Row(
-                  children: [
-                    Text(trailing!.$1,
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: _kFaint)),
-                    const Icon(McIcons.chevronRight,
-                        size: 14, color: _kFaint),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// iOS insetGrouped 分区：圆角卡片包住所有行，行间细分割线。
-class _Section extends StatelessWidget {
-  const _Section({required this.header, this.rows = const [], this.child});
-
-  final _SectionHeader header;
+  final String? trailingText;
+  final VoidCallback? onTrailingTap;
   final List<Widget> rows;
-  final Widget? child;
+  final Widget? customChild;
 
   @override
   Widget build(BuildContext context) {
-    final divider = Divider(
-        height: 1,
-        thickness: 0.5,
-        indent: 16,
-        color: Theme.of(context).dividerColor);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        header,
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Card(
-            margin: EdgeInsets.zero,
-            elevation: 0,
-            clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: child ??
-                Column(
-                  children: [
-                    for (final (i, row) in rows.indexed) ...[
-                      if (i > 0) divider,
-                      row,
-                    ],
-                  ],
-                ),
-          ),
+        const SizedBox(height: 22),
+        McSectionHeader(
+          title: title,
+          leadingDotColor: dotColor,
+          countLabel: count?.toString(),
+          trailingText: trailingText,
+          onTap: onTrailingTap,
         ),
+        const SizedBox(height: 10),
+        if (customChild != null)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: McTokens.pagePadding),
+            decoration: BoxDecoration(
+              color: McTokens.surfaceRaised,
+              borderRadius: BorderRadius.circular(McTokens.cardRadius),
+              border: Border.all(color: McTokens.line, width: 1),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: customChild,
+          )
+        else
+          McInsetGroup(children: rows),
       ],
     );
   }
 }
 
-// ---------- 行 ----------
-
-/// 正在播放一行：海报 · 标题 / 成员·设备 / 进度条 + 结束按钮。
+/// 正在播放会话精排行（对齐 `scene-3.zh.jpg`：圆角小海报 + 四行紧凑指标 + 左滑终止会话）。
 class _SessionRow extends StatelessWidget {
   const _SessionRow({required this.session, required this.onEnd});
 
@@ -464,79 +453,198 @@ class _SessionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final media = session.media;
-    final poster = McImageUrls.build(media.posterUrl, widthPx: 96);
-    final progress = (session.positionMs != null &&
-            session.durationMs != null &&
-            session.durationMs! > 0)
-        ? session.positionMs! / session.durationMs!
+    final poster = McImageUrls.resolve(media.posterUrl, widthPx: 140);
+    final posMs = session.positionMs ?? 0;
+    final durMs = session.durationMs ?? 0;
+    final progress = (posMs > 0 && durMs > 0)
+        ? (posMs / durMs).clamp(0.0, 1.0)
         : null;
-    final who =
-        session.memberName.isNotEmpty ? session.memberName : session.client;
+    final pct = progress != null ? '${(progress * 100).round()}%' : null;
+    final who = session.memberName.isNotEmpty
+        ? session.memberName
+        : session.client;
     final epLabel = mcEpisodeLabel(media.seasonNumber, media.episodeNumber);
-    final episode = media.seasonNumber > 0 ? ' $epLabel' : '';
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _Poster(url: poster, width: 48, height: 70),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  (media.title.isEmpty ? '未知内容' : media.title) + episode,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  [
-                    if (who.isNotEmpty) who,
-                    if (session.deviceName.isNotEmpty) session.deviceName,
-                    session.paused ? '已暂停' : '正在播放',
-                    if (session.rateBytesPerSecond != null &&
-                        session.rateBytesPerSecond! > 0)
-                      mcFormatSpeed(session.rateBytesPerSecond!),
-                  ].join(' · '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(color: _kFaint),
-                ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(3),
-                  child: LinearProgressIndicator(
-                    value: progress?.clamp(0.0, 1.0),
-                    minHeight: 3,
-                    color: session.paused ? _kFaint : _kInfo,
-                    backgroundColor: _kFaint.withValues(alpha: 0.25),
+    final episode = media.seasonNumber > 0 ? ' · $epLabel' : '';
+    final speed =
+        (session.rateBytesPerSecond != null && session.rateBytesPerSecond! > 0)
+        ? '↓ ${mcFormatSpeed(session.rateBytesPerSecond!)}'
+        : null;
+
+    return Dismissible(
+      key: ValueKey('play-session-${session.deviceId}'),
+      direction: DismissDirection.endToStart,
+      confirmDismiss: (_) async {
+        await onEnd();
+        return false;
+      },
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        color: McTokens.danger,
+        child: const Icon(McIcons.stopCircle, color: Colors.white, size: 20),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _PosterThumb(url: poster, width: 52, height: 76),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          (media.title.isEmpty ? '未知内容' : media.title) +
+                              episode,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: McText.sub
+                              .copyWith(
+                                color: McTokens.text,
+                                fontWeight: FontWeight.w600,
+                              )
+                              .tabular,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      McPressable(
+                        onTap: onEnd,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0x1FFF6B6B),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: const Color(0x40FF6B6B),
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            '结束',
+                            style: McText.micro.copyWith(
+                              color: McTokens.danger,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 3),
+                  Text(
+                    [
+                      if (who.isNotEmpty) who,
+                      if (session.deviceName.isNotEmpty) session.deviceName,
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: McText.caption.muted,
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 1.5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: session.paused
+                              ? McTokens.surfaceInset
+                              : const Color(0x1F4ADE80),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: session.paused
+                                ? McTokens.line
+                                : const Color(0x4D4ADE80),
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          session.paused ? '已暂停' : '直连',
+                          style: McText.micro.copyWith(
+                            color: session.paused
+                                ? McTokens.textMuted
+                                : McTokens.ok,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        [
+                          session.paused ? '❚❚ 暂停' : '▶ 播放中',
+                          if (pct != null) pct,
+                        ].join(' · '),
+                        style: McText.caption.muted.tabular,
+                      ),
+                      const Spacer(),
+                      if (speed != null)
+                        Text(
+                          speed,
+                          style: McText.micro
+                              .copyWith(
+                                color: McTokens.info,
+                                fontWeight: FontWeight.w500,
+                              )
+                              .tabular,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 3,
+                      color: session.paused
+                          ? McTokens.textFaint
+                          : McTokens.accentStrong,
+                      backgroundColor: const Color(0x26FFFFFF),
+                    ),
+                  ),
+                  if (durMs > 0) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          mcFormatClock(posMs ~/ 1000),
+                          style: McText.micro
+                              .copyWith(
+                                fontWeight: FontWeight.w400,
+                                color: McTokens.textFaint,
+                              )
+                              .tabular,
+                        ),
+                        Text(
+                          mcFormatClock(durMs ~/ 1000),
+                          style: McText.micro
+                              .copyWith(
+                                fontWeight: FontWeight.w400,
+                                color: McTokens.textFaint,
+                              )
+                              .tabular,
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          TextButton(
-            onPressed: onEnd,
-            style: TextButton.styleFrom(
-              foregroundColor: _kDanger,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-            ),
-            child: const Text('结束'),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-/// 进行中的下载组一行：图标 · 标题（N 个资源）· 状态 · 进度。
 class _ActiveDownloadRow extends StatelessWidget {
   const _ActiveDownloadRow({required this.group, this.onDelete});
 
@@ -545,35 +653,34 @@ class _ActiveDownloadRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final task = group.tasks.first;
     final percent = (task.progress ?? 0) * 100;
     final taskCount = group.tasks.length;
     final pct = percent.floor();
+    final isError = task.state == 'error';
     final stateLine = switch (task.state) {
       'downloading' => '下载中',
       'paused' => '已暂停',
-      'stalled' => '已停滞',
+      'stalled' => '等待连接',
       'checking' => '校验中',
-      'completed' => '下载完成',
-      'error' => task.errorMessage ?? '出错',
+      'completed' => '已完成',
+      'error' => task.errorMessage ?? '下载出错',
       _ => task.state,
     };
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          SizedBox(
-            width: 26,
-            child: Icon(
-              task.state == 'downloading'
-                  ? McIcons.arrowDown
-                  : task.state == 'paused' || task.state == 'stalled'
-                      ? McIcons.pause
-                      : McIcons.clockFill,
-              size: 20,
-              color: task.state == 'error' ? _kDanger : _kInfo,
-            ),
+          Icon(
+            task.state == 'downloading'
+                ? McIcons.downloadCloudOut
+                : task.state == 'paused' || task.state == 'stalled'
+                ? McIcons.pause
+                : isError
+                ? McIcons.alert1
+                : McIcons.clock,
+            size: 19,
+            color: isError ? McTokens.danger : McTokens.info,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -587,21 +694,23 @@ class _ActiveDownloadRow extends StatelessWidget {
                         group.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(fontWeight: FontWeight.w600),
+                        style: McText.sub.copyWith(
+                          color: McTokens.text,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                    if (group.tasks.length > 1)
-                      Text(
-                        ' $taskCount 个资源',
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: _kFaint),
-                      ),
+                    if (taskCount > 1)
+                      Text(' $taskCount 项', style: McText.caption.faint.tabular),
                     const SizedBox(width: 8),
                     Text(
                       '$pct%',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                          color: _kFaint, fontWeight: FontWeight.w600),
+                      style: McText.caption
+                          .copyWith(
+                            color: McTokens.textMuted,
+                            fontWeight: FontWeight.w600,
+                          )
+                          .tabular,
                     ),
                   ],
                 ),
@@ -610,34 +719,40 @@ class _ActiveDownloadRow extends StatelessWidget {
                   stateLine,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(color: _kFaint),
+                  style: McText.caption.copyWith(
+                    color: isError ? McTokens.danger : McTokens.textMuted,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(3),
+                  borderRadius: BorderRadius.circular(2),
                   child: LinearProgressIndicator(
                     value: percent.clamp(0.0, 100.0) / 100,
                     minHeight: 3,
-                    color: _kInfo,
-                    backgroundColor: _kFaint.withValues(alpha: 0.25),
+                    color: isError ? McTokens.danger : McTokens.info,
+                    backgroundColor: const Color(0x26FFFFFF),
                   ),
                 ),
               ],
             ),
           ),
-          if (onDelete != null)
-            IconButton(
-              tooltip: '删除',
-              icon: const Icon(McIcons.trashFill, size: 18, color: _kDanger),
-              onPressed: onDelete,
+          if (onDelete != null) ...[
+            const SizedBox(width: 8),
+            McGlassIconButton(
+              icon: McIcons.trash2,
+              size: 32,
+              iconSize: 15,
+              iconColor: McTokens.danger,
+              tooltip: '删除任务',
+              onTap: onDelete,
             ),
+          ],
         ],
       ),
     );
   }
 }
 
-/// 进行中的后台作业一行：齿轮 · 标题 · 状态 · 进度；尾随取消 / 忽略。
 class _ActiveJobRow extends StatelessWidget {
   const _ActiveJobRow({required this.job, this.onCancel, this.onDismiss});
 
@@ -647,21 +762,17 @@ class _ActiveJobRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final percent = job.progress.percent;
     final needsAttention = jobNeedsAttention(job);
     final pct = percent?.round();
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          SizedBox(
-            width: 26,
-            child: Icon(
-              needsAttention ? McIcons.alertCircleFill : McIcons.settingFill,
-              size: 18,
-              color: needsAttention ? _kDanger : _kInfo,
-            ),
+          Icon(
+            needsAttention ? McIcons.alert1 : McIcons.setting1,
+            size: 18,
+            color: needsAttention ? McTokens.danger : McTokens.info,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -675,63 +786,69 @@ class _ActiveJobRow extends StatelessWidget {
                         jobTypeLabel(job),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(fontWeight: FontWeight.w600),
+                        style: McText.sub.copyWith(
+                          color: McTokens.text,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                    if (percent != null)
+                    if (pct != null)
                       Text(
                         '$pct%',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                            color: _kFaint, fontWeight: FontWeight.w600),
+                        style: McText.caption.muted.tabular,
                       ),
                   ],
                 ),
-                if (job.progress.message.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      job.progress.message,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style:
-                          theme.textTheme.bodySmall?.copyWith(color: _kFaint),
-                    ),
+                if (job.progress.message.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    job.progress.message,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: McText.caption.muted,
                   ),
+                ],
                 if (!needsAttention && percent != null) ...[
                   const SizedBox(height: 6),
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(3),
+                    borderRadius: BorderRadius.circular(2),
                     child: LinearProgressIndicator(
                       value: percent.clamp(0.0, 100.0) / 100,
                       minHeight: 3,
-                      color: _kInfo,
-                      backgroundColor: _kFaint.withValues(alpha: 0.25),
+                      color: McTokens.info,
+                      backgroundColor: const Color(0x26FFFFFF),
                     ),
                   ),
                 ],
               ],
             ),
           ),
-          if (onCancel != null)
-            IconButton(
+          if (onCancel != null) ...[
+            const SizedBox(width: 6),
+            McGlassIconButton(
+              icon: McIcons.close2,
+              size: 32,
+              iconSize: 15,
               tooltip: '取消',
-              icon: const Icon(McIcons.close2, size: 18, color: _kFaint),
-              onPressed: onCancel,
+              onTap: onCancel,
             ),
-          if (onDismiss != null)
-            IconButton(
+          ],
+          if (onDismiss != null) ...[
+            const SizedBox(width: 6),
+            McGlassIconButton(
+              icon: McIcons.eyeOff,
+              size: 32,
+              iconSize: 15,
               tooltip: '忽略',
-              icon: const Icon(McIcons.eyeClosedFill, size: 18, color: _kFaint),
-              onPressed: onDismiss,
+              onTap: onDismiss,
             ),
+          ],
         ],
       ),
     );
   }
 }
 
-/// 设备整文件下载一行。
 class _FileDownloadRow extends StatelessWidget {
   const _FileDownloadRow({required this.download});
 
@@ -739,19 +856,19 @@ class _FileDownloadRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final media = download.media;
-    final who =
-        download.memberName.isNotEmpty ? download.memberName : download.deviceName;
+    final who = download.memberName.isNotEmpty
+        ? download.memberName
+        : download.deviceName;
     final percent = download.progressPercent;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          const SizedBox(
-            width: 26,
-            child: Icon(McIcons.downloadCloudOutFill,
-                size: 20, color: _kInfo),
+          const Icon(
+            McIcons.downloadCloudOut,
+            size: 19,
+            color: McTokens.info,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -762,8 +879,10 @@ class _FileDownloadRow extends StatelessWidget {
                   media?.title ?? download.fileName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: McText.sub.copyWith(
+                    color: McTokens.text,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -772,21 +891,21 @@ class _FileDownloadRow extends StatelessWidget {
                     mcFormatBytes(download.sizeBytes),
                     if (download.rateBytesPerSecond != null &&
                         download.rateBytesPerSecond! > 0)
-                      mcFormatSpeed(download.rateBytesPerSecond!),
+                      '↓ ${mcFormatSpeed(download.rateBytesPerSecond!)}',
                   ].join(' · '),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(color: _kFaint),
+                  style: McText.caption.muted.tabular,
                 ),
                 if (percent != null) ...[
                   const SizedBox(height: 6),
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(3),
+                    borderRadius: BorderRadius.circular(2),
                     child: LinearProgressIndicator(
                       value: percent.clamp(0.0, 100.0) / 100,
                       minHeight: 3,
-                      color: _kInfo,
-                      backgroundColor: _kFaint.withValues(alpha: 0.25),
+                      color: McTokens.info,
+                      backgroundColor: const Color(0x26FFFFFF),
                     ),
                   ),
                 ],
@@ -799,7 +918,6 @@ class _FileDownloadRow extends StatelessWidget {
   }
 }
 
-/// 最近播放一行：小海报 · 标题 / 成员·年份 / 右列「看到哪 + 相对时间」。
 class _RecentPlayRow extends StatelessWidget {
   const _RecentPlayRow({required this.entry});
 
@@ -807,40 +925,42 @@ class _RecentPlayRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final media = entry.media;
-    final poster = McImageUrls.build(media.posterUrl, widthPx: 96);
+    final poster = McImageUrls.resolve(media.posterUrl, widthPx: 120);
     final epLabel = mcEpisodeLabel(media.seasonNumber, media.episodeNumber);
-    final episode = media.seasonNumber > 0 ? ' $epLabel' : '';
+    final episode = media.seasonNumber > 0 ? ' · $epLabel' : '';
     final lid = media.libraryId;
     final mid = media.mediaItemId;
     final year = media.year;
     final right = entry.completed
-        ? '看完'
+        ? '已看完'
         : entry.watchedMs > 0
-            ? mcFormatWatched(entry.watchedMs)
-            : '';
-    final row = GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: lid == null
-          ? null
-          : () => context.push('/detail/$lid/$mid'),
+        ? mcFormatWatched(entry.watchedMs)
+        : '';
+
+    return McPressable(
+      onTap: lid == null ? null : () => context.push('/detail/$lid/$mid'),
+      scaleDown: 0.99,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Row(
           children: [
-            _Poster(url: poster, width: 34, height: 50),
+            _PosterThumb(url: poster, width: 38, height: 56),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    (media.title.isEmpty ? '已删除的条目' : media.title) + episode,
+                    (media.title.isEmpty ? '已移除条目' : media.title) + episode,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
+                    style: McText.sub
+                        .copyWith(
+                          color: McTokens.text,
+                          fontWeight: FontWeight.w600,
+                        )
+                        .tabular,
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -850,8 +970,7 @@ class _RecentPlayRow extends StatelessWidget {
                     ].join(' · '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style:
-                        theme.textTheme.bodySmall?.copyWith(color: _kFaint),
+                    style: McText.caption.muted.tabular,
                   ),
                 ],
               ),
@@ -863,13 +982,23 @@ class _RecentPlayRow extends StatelessWidget {
                 if (right.isNotEmpty)
                   Text(
                     right,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                        color: entry.completed ? _kSuccess : _kFaint,
-                        fontWeight: FontWeight.w600),
+                    style: McText.caption
+                        .copyWith(
+                          color: entry.completed
+                              ? McTokens.ok
+                              : McTokens.textMuted,
+                          fontWeight: FontWeight.w600,
+                        )
+                        .tabular,
                   ),
                 Text(
                   _relative(entry.startedAt),
-                  style: theme.textTheme.bodySmall?.copyWith(color: _kFaint),
+                  style: McText.micro
+                      .copyWith(
+                        fontWeight: FontWeight.w400,
+                        color: McTokens.textFaint,
+                      )
+                      .tabular,
                 ),
               ],
             ),
@@ -877,11 +1006,9 @@ class _RecentPlayRow extends StatelessWidget {
         ),
       ),
     );
-    return row;
   }
 }
 
-/// 最近完成一行：状态图标 · 标题 / 摘要 · 相对时间；撤销忽略 / 重新执行。
 class _FinishedJobRow extends StatelessWidget {
   const _FinishedJobRow({required this.job, this.onUndismiss, this.onRetry});
 
@@ -891,20 +1018,19 @@ class _FinishedJobRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final dismissed = job.status == 'failed' && jobIsDismissed(job);
     final (iconData, iconColor) = job.status == 'succeeded'
-        ? (McIcons.checkCircle, _kSuccess)
+        ? (McIcons.checkCircleFill, McTokens.ok)
         : dismissed
-            ? (McIcons.eyeClosedFill, _kFaint)
-            : (McIcons.closeCircle, _kFaint);
+        ? (McIcons.eyeOff, McTokens.textFaint)
+        : (McIcons.closeCircle, McTokens.textFaint);
+    final summary = historicalJobSummary(job);
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
-          SizedBox(
-              width: 26,
-              child: Icon(iconData, size: 20, color: iconColor)),
+          Icon(iconData, size: 18, color: iconColor),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -914,72 +1040,88 @@ class _FinishedJobRow extends StatelessWidget {
                   historicalJobTitle(job),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                if (historicalJobSummary(job).isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      historicalJobSummary(job),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style:
-                          theme.textTheme.bodySmall?.copyWith(color: _kFaint),
-                    ),
+                  style: McText.sub.copyWith(
+                    color: McTokens.text,
+                    fontWeight: FontWeight.w500,
                   ),
+                ),
+                if (summary.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    summary,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: McText.caption.muted,
+                  ),
+                ],
               ],
             ),
           ),
           const SizedBox(width: 8),
           Text(
             _relative(job.finishedAt ?? job.createdAt),
-            style: theme.textTheme.bodySmall?.copyWith(color: _kFaint),
+            style: McText.caption.faint.tabular,
           ),
-          if (onUndismiss != null)
-            IconButton(
-              tooltip: '撤销忽略',
-              icon: const Icon(McIcons.clockwise, size: 18, color: _kInfo),
-              onPressed: onUndismiss,
+          if (onUndismiss != null) ...[
+            const SizedBox(width: 6),
+            McGlassIconButton(
+              icon: McIcons.clockwise,
+              size: 30,
+              iconSize: 15,
+              tooltip: '恢复显示',
+              onTap: onUndismiss,
             ),
-          if (onRetry != null)
-            IconButton(
+          ],
+          if (onRetry != null) ...[
+            const SizedBox(width: 6),
+            McGlassIconButton(
+              icon: McIcons.replay,
+              size: 30,
+              iconSize: 15,
               tooltip: '重新执行',
-              icon: const Icon(McIcons.replay, size: 18, color: _kInfo),
-              onPressed: onRetry,
+              onTap: onRetry,
             ),
+          ],
         ],
       ),
     );
   }
 }
 
-/// 海报占位（活动页统一小图）。
-class _Poster extends StatelessWidget {
-  const _Poster({required this.url, required this.width, required this.height});
+class _PosterThumb extends StatelessWidget {
+  const _PosterThumb({
+    required this.url,
+    required this.width,
+    required this.height,
+  });
 
-  final String? url;
+  final String url;
   final double width;
   final double height;
 
   @override
   Widget build(BuildContext context) {
-    final has = url != null && url!.isNotEmpty;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        width: width,
-        height: height,
-        color: _kFaint.withValues(alpha: 0.2),
-        child: has
-            ? Image.network(
-                url!,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) =>
-                    const Center(child: Icon(McIcons.film, size: 18, color: _kFaint)),
-              )
-            : const Center(child: Icon(McIcons.film, size: 18, color: _kFaint)),
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: McTokens.posterPlaceholder,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: McTokens.line, width: 1),
       ),
+      clipBehavior: Clip.antiAlias,
+      child: url.isNotEmpty
+          ? CachedNetworkImage(
+              imageUrl: url,
+              httpHeaders: mcImageHeaders(),
+              fit: BoxFit.cover,
+              errorWidget: (_, __, ___) => const Center(
+                child: Icon(McIcons.film, size: 16, color: McTokens.textFaint),
+              ),
+            )
+          : const Center(
+              child: Icon(McIcons.film, size: 16, color: McTokens.textFaint),
+            ),
     );
   }
 }

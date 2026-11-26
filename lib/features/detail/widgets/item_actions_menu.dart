@@ -1,36 +1,71 @@
 import 'package:flutter/material.dart';
+
+import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_icons.dart';
 
-/// 动作菜单（对齐 ItemActionsMenu.kt / ItemActionSheets.kt 的字段子集；
-/// 离线下载 / 分享 / 字幕生成等只留入口意图，具体任务域由对应 feature 完成）。
-enum ItemAction { subscribe, download, share, subtitleGen, refreshMetadata, delete }
+/// 条目更多操作毛玻璃弹层（对齐 iOS `ItemActionsMenu`）。
+enum ItemAction {
+  subscribe,
+  download,
+  share,
+  subtitleGen,
+  refreshMetadata,
+  delete,
+}
 
 Future<ItemAction?> showItemActionsMenu(BuildContext context) {
-  return showModalBottomSheet<ItemAction>(
+  return showMcSheet<ItemAction>(
     context: context,
-    showDragHandle: true,
-    builder: (context) => SafeArea(
+    builder: (ctx) => Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _item(context, McIcons.rss, '订阅 / 管理订阅', ItemAction.subscribe),
-          _item(context, McIcons.downloadCloudOutFill, '下载（离线）', ItemAction.download),
-          _item(context, McIcons.share, '分享', ItemAction.share),
-          _item(context, McIcons.closedCaptioning, '生成字幕（AI）', ItemAction.subtitleGen),
-          _item(context, McIcons.refreshS, '刷新元数据', ItemAction.refreshMetadata),
-          _item(context, McIcons.trash2, '删除', ItemAction.delete, danger: true),
+          McInsetGroup(
+            margin: EdgeInsets.zero,
+            dividerIndent: 48,
+            children: [
+              McInsetRow(
+                icon: McIcons.bookmark,
+                title: '订阅 / 管理订阅',
+                onTap: () => Navigator.of(ctx).pop(ItemAction.subscribe),
+              ),
+              McInsetRow(
+                icon: McIcons.downloadCloudOut,
+                title: '离线缓存到本地',
+                onTap: () => Navigator.of(ctx).pop(ItemAction.download),
+              ),
+              McInsetRow(
+                icon: McIcons.share,
+                title: '分享观看链接',
+                onTap: () => Navigator.of(ctx).pop(ItemAction.share),
+              ),
+              McInsetRow(
+                icon: McIcons.closedCaptioning,
+                title: 'AI 生成中文字幕',
+                onTap: () => Navigator.of(ctx).pop(ItemAction.subtitleGen),
+              ),
+              McInsetRow(
+                icon: McIcons.refreshS,
+                title: '重新识别 / 刷新元数据',
+                onTap: () => Navigator.of(ctx).pop(ItemAction.refreshMetadata),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          McInsetGroup(
+            margin: EdgeInsets.zero,
+            children: [
+              McInsetRow(
+                icon: McIcons.trash2,
+                title: '删除此条目',
+                destructive: true,
+                onTap: () => Navigator.of(ctx).pop(ItemAction.delete),
+              ),
+            ],
+          ),
         ],
       ),
     ),
-  );
-}
-
-Widget _item(BuildContext context, IconData icon, String label, ItemAction action,
-    {bool danger = false}) {
-  final color = danger ? Theme.of(context).colorScheme.error : null;
-  return ListTile(
-    leading: Icon(icon, color: color),
-    title: Text(label, style: TextStyle(color: color)),
-    onTap: () => Navigator.of(context).pop(action),
   );
 }

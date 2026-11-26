@@ -1,25 +1,31 @@
 import 'package:flutter/material.dart';
-
 import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/adaptive.dart';
+import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/poster_card.dart';
+import '../../../core/designsystem/theme.dart';
 import '../state/models.dart';
-import '../../../core/designsystem/mc_icons.dart';
 
-/// LibraryItemView → 海报卡片（详情导航 TODO：跳 detail/player 路由名）。
-Widget mcItemCard(BuildContext context, LibraryItemView item, {double width = 120}) {
+/// LibraryItemView → 海报卡片。
+Widget mcItemCard(
+  BuildContext context,
+  LibraryItemView item, {
+  double width = 120,
+}) {
   final badge = item.kind == 'episode'
       ? (item.seasons.isNotEmpty ? 'S1' : null)
       : (item.resolutions.isNotEmpty ? item.resolutions.first : null);
-  // TV 形态下海报卡包焦点环；非 TV 原样返回 child，零开销。
   return McFocusRing(
-    borderRadius: 12,
+    borderRadius: McTokens.posterRadius,
     child: McPosterCard(
       title: item.title,
       posterUrl: item.posterUrl,
       aspect: item.primaryAspect,
-      subtitle: [item.year?.toString(), if (item.kindLabel.isNotEmpty) item.kindLabel].nonNulls.join(' · '),
+      subtitle: [
+        item.year?.toString(),
+        if (item.kindLabel.isNotEmpty) item.kindLabel,
+      ].nonNulls.join(' · '),
       badge: badge,
       width: width,
       onTap: () {
@@ -30,7 +36,7 @@ Widget mcItemCard(BuildContext context, LibraryItemView item, {double width = 12
   );
 }
 
-/// 横滑行：标题行（含 meta）+ 120 宽海报横滑（对齐 Kotlin HomeRow）。
+/// 横滑行：银玻璃统一 `McSectionHeader` + 120 宽海报横滑。
 class McHomeRowSection extends StatelessWidget {
   const McHomeRowSection({
     super.key,
@@ -52,39 +58,23 @@ class McHomeRowSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(title,
-                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-              ),
-              if (meta != null)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Text(
-                    meta!,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                    ),
-                  ),
-                ),
-              if (onMore != null)
-                GestureDetector(
-                  onTap: onMore,
-                  child: const Icon(McIcons.arrowRight, size: 20),
-                ),
-            ],
+          padding: const EdgeInsets.only(top: 16, bottom: 10),
+          child: McSectionHeader(
+            title: title,
+            trailingText: meta ?? (onMore != null ? '查看全部' : null),
+            onTap: onMore,
           ),
         ),
         SizedBox(
-          height: 220,
+          height: 224,
           child: ListView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(
+              horizontal: McTokens.pagePadding,
+            ),
             children: [
-              for (final c in children) Padding(padding: const EdgeInsets.only(right: 10), child: c),
+              for (final c in children)
+                Padding(padding: const EdgeInsets.only(right: 12), child: c),
             ],
           ),
         ),
@@ -92,4 +82,3 @@ class McHomeRowSection extends StatelessWidget {
     );
   }
 }
-

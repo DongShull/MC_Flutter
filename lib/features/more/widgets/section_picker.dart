@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/designsystem/mc_glass.dart';
+import '../../../core/designsystem/theme.dart';
 
-/// 三段胶囊分段选择器（对齐鸿蒙 SectionPicker）：
-/// 圆角 27 容器内等宽分段按钮，选中高亮；服务器段可带提醒红点。
+/// 三段式圆角胶囊分段切换器 `[ 会话 | 下载 | 服务器 ]`（带未读红点徽标）。
 class SectionPicker extends StatelessWidget {
   const SectionPicker({
     super.key,
@@ -18,79 +18,84 @@ class SectionPicker extends StatelessWidget {
   final List<IconData> icons;
   final int selected;
   final ValueChanged<int> onSelect;
-
-  /// 带红点的段下标（服务器段：admin 且有提醒时），null 表示无。
   final int? badgeIndex;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      padding: const EdgeInsets.all(5),
+      margin: const EdgeInsets.fromLTRB(
+        McTokens.pagePadding,
+        14,
+        McTokens.pagePadding,
+        4,
+      ),
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(27),
-        border: Border.all(color: scheme.outlineVariant),
+        color: McTokens.surfaceRaised,
+        borderRadius: BorderRadius.circular(McTokens.pillRadius),
+        border: Border.all(color: McTokens.line, width: 1),
       ),
       child: Row(
         children: [
           for (var i = 0; i < labels.length; i++)
             Expanded(
-              child: InkWell(
-                borderRadius: BorderRadius.circular(22),
+              child: McPressable(
                 onTap: () => onSelect(i),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                haptic: true,
+                scaleDown: 0.98,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  padding: const EdgeInsets.symmetric(vertical: 9),
                   decoration: i == selected
                       ? McGlass.decoration(
                           McGlassTone.strong,
-                          radius: 22,
+                          radius: McTokens.pillRadius,
                         )
                       : BoxDecoration(
                           color: Colors.transparent,
-                          borderRadius: BorderRadius.circular(22),
+                          borderRadius: BorderRadius.circular(
+                            McTokens.pillRadius,
+                          ),
                         ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      badgeIndex == i
-                          ? Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                Icon(icons[i],
-                                    size: 16,
-                                    color: i == selected
-                                        ? scheme.onSurface
-                                        : scheme.onSurfaceVariant),
-                                Positioned(
-                                  right: -3,
-                                  top: -3,
-                                  child: Container(
-                                    width: 6,
-                                    height: 6,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: scheme.error,
-                                    ),
-                                  ),
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Icon(
+                            icons[i],
+                            size: 16,
+                            color: i == selected
+                                ? McTokens.text
+                                : McTokens.textMuted,
+                          ),
+                          if (badgeIndex == i)
+                            Positioned(
+                              right: -4,
+                              top: -3,
+                              child: Container(
+                                width: 7,
+                                height: 7,
+                                decoration: const BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: McTokens.danger,
                                 ),
-                              ],
-                            )
-                          : Icon(icons[i],
-                              size: 16,
-                              color: i == selected
-                                  ? scheme.onPrimaryContainer
-                                  : scheme.onSurfaceVariant),
+                              ),
+                            ),
+                        ],
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         labels[i],
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
+                        style: McText.sub.copyWith(
                           color: i == selected
-                              ? scheme.onSurface
-                              : scheme.onSurfaceVariant,
+                              ? McTokens.text
+                              : McTokens.textMuted,
+                          fontWeight: i == selected
+                              ? FontWeight.w600
+                              : FontWeight.w500,
                         ),
                       ),
                     ],

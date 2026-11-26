@@ -1,18 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/adaptive.dart';
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
+import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/state_views.dart';
+import '../../../core/designsystem/theme.dart';
 import '../state/library_detail_controller.dart';
 import '../state/models.dart';
-import '../../../core/designsystem/adaptive.dart';
-import '../../../core/designsystem/state_views.dart';
 import '../widgets/library_widgets.dart';
-import '../../../core/designsystem/mc_icons.dart';
 
 /// 单库页（对齐 Kotlin LibraryDetailScreen.kt）：
-/// 筛选墙。分段「影片/合集」；筛选条即时生效（铁律：点一下就变）；排序抽屉；
-/// sort=='title' 时显示字母索引条；滚动分页；URL 即状态（查询串还原筛选）。
+/// 筛选墙 + 排序抽屉 + 滚动分页 + URL 即状态。
 class LibraryDetailPage extends ConsumerStatefulWidget {
-  const LibraryDetailPage({super.key, required this.libraryId, this.query = const {}});
+  const LibraryDetailPage({
+    super.key,
+    required this.libraryId,
+    this.query = const {},
+  });
 
   final int libraryId;
   final Map<String, String> query;
@@ -26,7 +33,10 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
   void initState() {
     super.initState();
     Future.microtask(() {
-      final arg = LibraryDetailArg(libraryId: widget.libraryId, initialQuery: widget.query);
+      final arg = LibraryDetailArg(
+        libraryId: widget.libraryId,
+        initialQuery: widget.query,
+      );
       ref.read(libraryDetailProvider(arg).notifier);
     });
   }
@@ -40,106 +50,169 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
     final library = state.library;
     final form = McFormWatch.of(context);
     return Scaffold(
-      appBar: AppBar(
-        title: Text(library?.name ?? '媒体库'),
-        actions: [
-          IconButton(
-            icon: Badge(
-              isLabelVisible: state.filter.activeCount > 0,
-              label: Text('${state.filter.activeCount}'),
-              child: const Icon(McIcons.filterS),
-            ),
-            tooltip: '筛选',
-            onPressed: () => _openFilterSheet(context, state),
+      backgroundColor: McTokens.bg,
+      body: Column(
+        children: [
+          McFloatingDetailBar(
+            onBack: () =>
+                context.canPop() ? context.pop() : context.go('/home'),
+            title: library?.name ?? '媒体库',
+            titleVisible: true,
+            trailing: [
+              McGlassIconButton(
+                icon: McIcons.filterS,
+                tooltip: '筛选',
+                badgeColor: state.filter.activeCount > 0
+                    ? McTokens.accentStrong
+                    : null,
+                onTap: () => _openFilterSheet(context, state),
+              ),
+              const SizedBox(width: 6),
+              McGlassIconButton(
+                icon: McIcons.sort,
+                tooltip: '排序',
+                onTap: () => _openSortSheet(context, state),
+              ),
+            ],
           ),
-          IconButton(
-            icon: const Icon(McIcons.sort),
-            tooltip: '排序',
-            onPressed: () => _openSortSheet(context, state),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: () async =>
+                  ref.read(libraryDetailProvider(_arg).notifier).reload(),
+              child: state.loading && state.items.isEmpty
+                  ? const McLoadingView()
+                  : state.error != null && state.items.isEmpty
+                      ? McErrorView(
+                          text: state.error!,
+                          onRetry: () => ref
+                              .read(libraryDetailProvider(_arg).notifier)
+                              .reload(),
+                        )
+                      : NotificationListener<ScrollNotification>(
+                          onNotification: (n) {
+                            if (n.metrics.pixels >
+                                n.metrics.maxScrollExtent - 400) {
+                              ref
+                                  .read(libraryDetailProvider(_arg).notifier)
+                                  .loadMore();
+                            }
+                            return false;
+                          },
+                          child: CustomScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            slivers: [
+                              SliverToBoxAdapter(
+                                child: _filterBar(context, state),
+                              ),
+                              SliverPadding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  McTokens.pagePadding,
+                                  8,
+                                  McTokens.pagePadding,
+                                  32,
+                                ),
+                                sliver: state.items.isEmpty
+                                    ? const SliverToBoxAdapter(
+                                        child: McEmptyView(
+                                          text: '没有符合条件的媒体',
+                                        ),
+                                      )
+                                    : SliverGrid(
+                                        gridDelegate: form == McDeviceForm.phone
+                                            ? const SliverGridDelegateWithMaxCrossAxisExtent(
+                                                maxCrossAxisExtent: 130,
+                                                mainAxisSpacing: 14,
+                                                crossAxisSpacing: 12,
+                                                childAspectRatio: 0.55,
+                                              )
+                                            : SliverGridDelegateWithFixedCrossAxisCount(
+                                                crossAxisCount:
+                                                    mcGridCrossAxisCount(
+                                                  form,
+                                                  BoxConstraints.tightFor(
+                                                    width: MediaQuery.widthOf(
+                                                          context,
+                                                        ) -
+                                                        32,
+                                                  ),
+                                                  cellExtent: 130,
+                                                ),
+                                                mainAxisSpacing: 14,
+                                                crossAxisSpacing: 12,
+                                                childAspectRatio: 0.55,
+                                              ),
+                                        delegate: SliverChildBuilderDelegate(
+                                          (context, i) => mcItemCard(
+                                            context,
+                                            state.items[i],
+                                          ),
+                                          childCount: state.items.length,
+                                        ),
+                                      ),
+                              ),
+                            ],
+                          ),
+                        ),
+            ),
           ),
         ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: () async => ref.read(libraryDetailProvider(_arg).notifier).reload(),
-        child: state.loading && state.items.isEmpty
-            ? const McLoadingView()
-            : state.error != null && state.items.isEmpty
-                ? McErrorView(
-                    text: state.error!,
-                    onRetry: () => ref.read(libraryDetailProvider(_arg).notifier).reload())
-                : NotificationListener<ScrollNotification>(
-                    onNotification: (n) {
-                      if (n.metrics.pixels > n.metrics.maxScrollExtent - 400) {
-                        ref.read(libraryDetailProvider(_arg).notifier).loadMore();
-                      }
-                      return false;
-                    },
-                    child: CustomScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      slivers: [
-                        SliverToBoxAdapter(child: _filterBar(context, state)),
-                        SliverPadding(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                          sliver: state.items.isEmpty
-                              ? const SliverToBoxAdapter(
-                                  child: McEmptyView(text: '没有符合条件的媒体'))
-                              : SliverGrid(
-                                  // 平板/TV 自适应列数；手机保持现有密度不变。
-                                  gridDelegate: form == McDeviceForm.phone
-                                      ? const SliverGridDelegateWithMaxCrossAxisExtent(
-                                          maxCrossAxisExtent: 130,
-                                          mainAxisSpacing: 12,
-                                          crossAxisSpacing: 12,
-                                          childAspectRatio: 0.55,
-                                        )
-                                      : SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: mcGridCrossAxisCount(
-                                              form,
-                                              BoxConstraints.tightFor(
-                                                  width:
-                                                      MediaQuery.widthOf(context) - 32),
-                                          cellExtent: 130),
-                                          mainAxisSpacing: 12,
-                                          crossAxisSpacing: 12,
-                                          childAspectRatio: 0.55,
-                                        ),
-                                  delegate: SliverChildBuilderDelegate(
-                                    (context, i) => mcItemCard(context, state.items[i]),
-                                    childCount: state.items.length,
-                                  ),
-                                ),
-                        ),
-                      ],
-                    ),
-                  ),
       ),
     );
   }
 
-  /// 顶部一行：当前生效的筛选 chip（可点 × 移除）+ 清空。
   Widget _filterBar(BuildContext context, LibraryDetailState state) {
     final f = state.filter;
     final chips = <Widget>[
-      for (final g in f.genres) _chip('类型: $g', () => _remove((s) => s.copyWith(genres: {...s.genres}..remove(g)))),
-      for (final c in f.countries) _chip('地区: $c', () => _remove((s) => s.copyWith(countries: {...s.countries}..remove(c)))),
-      for (final d in f.decades) _chip('年代: $d', () => _remove((s) => s.copyWith(decades: {...s.decades}..remove(d)))),
-      for (final w in f.watch) _chip(w == 'unwatched' ? '未看' : w, () => _remove((s) => s.copyWith(watch: {...s.watch}..remove(w)))),
+      for (final g in f.genres)
+        _chip(
+          '类型: $g',
+          () => _remove((s) => s.copyWith(genres: {...s.genres}..remove(g))),
+        ),
+      for (final c in f.countries)
+        _chip(
+          '地区: $c',
+          () => _remove(
+            (s) => s.copyWith(countries: {...s.countries}..remove(c)),
+          ),
+        ),
+      for (final d in f.decades)
+        _chip(
+          '年代: $d',
+          () => _remove((s) => s.copyWith(decades: {...s.decades}..remove(d))),
+        ),
+      for (final w in f.watch)
+        _chip(
+          w == 'unwatched' ? '未看' : w,
+          () => _remove((s) => s.copyWith(watch: {...s.watch}..remove(w))),
+        ),
       if (f.ratingGte != null)
-        _chip('评分 ≥ ${f.ratingGte}', () => _remove((s) => s.copyWith(clearRating: true))),
-      for (final r in f.resolutions) _chip(r, () => _remove((s) => s.copyWith(resolutions: {...s.resolutions}..remove(r)))),
-      if (f.hdr != null) _chip('HDR', () => _remove((s) => s.copyWith(clearHdr: true))),
+        _chip(
+          '评分 ≥ ${f.ratingGte}',
+          () => _remove((s) => s.copyWith(clearRating: true)),
+        ),
+      for (final r in f.resolutions)
+        _chip(
+          r,
+          () => _remove(
+            (s) => s.copyWith(resolutions: {...s.resolutions}..remove(r)),
+          ),
+        ),
+      if (f.hdr != null)
+        _chip('HDR', () => _remove((s) => s.copyWith(clearHdr: true))),
     ];
     if (chips.isEmpty) return const SizedBox.shrink();
     return SizedBox(
       height: 40,
       child: ListView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: McTokens.pagePadding),
         children: [
           ...chips,
-          InputChip(
-            label: const Text('清空'),
-            onPressed: () => ref.read(libraryDetailProvider(_arg).notifier).clearFilter(),
+          McChip(
+            label: '清空',
+            compact: true,
+            onTap: () =>
+                ref.read(libraryDetailProvider(_arg).notifier).clearFilter(),
           ),
         ],
       ),
@@ -148,10 +221,11 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
 
   Widget _chip(String label, VoidCallback onRemove) => Padding(
         padding: const EdgeInsets.only(right: 8),
-        child: InputChip(
-          label: Text(label),
-          onDeleted: onRemove,
-          visualDensity: VisualDensity.compact,
+        child: McChip(
+          label: '$label ×',
+          selected: true,
+          compact: true,
+          onTap: onRemove,
         ),
       );
 
@@ -161,54 +235,66 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
   }
 
   void _openFilterSheet(BuildContext context, LibraryDetailState state) {
-    final facets = state.facets;
     final notifier = ref.read(libraryDetailProvider(_arg).notifier);
-    showModalBottomSheet<void>(
+    showMcSheet<void>(
       context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => DraggableScrollableSheet(
-        expand: false,
-        builder: (_, controller) => ListView(
-          controller: controller,
-          padding: const EdgeInsets.all(16),
-          children: [
-            const Text('筛选', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 12),
-            if (facets == null)
-              const Text('筛选维度加载中…')
-            else ...[
-              _facetGroup(
-                sheetContext,
-                '类型',
-                facets.genres,
-                state.filter.genres,
-                (v, on) {
-                  final cur = notifier.currentFilter;
-                  final next = {...cur.genres};
-                  on ? next.add(v.value) : next.remove(v.value);
-                  notifier.applyFilter(cur.copyWith(genres: next));
-                },
-              ),
-            ],
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      builder: (sheetContext) => Consumer(
+        builder: (context, sheetRef, _) {
+          final live = sheetRef.watch(libraryDetailProvider(_arg));
+          final facets = live.facets;
+          return ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.72,
+            ),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+              shrinkWrap: true,
               children: [
-                TextButton(
-                  onPressed: () {
-                    notifier.clearFilter();
-                    Navigator.of(sheetContext).pop();
-                  },
-                  child: const Text('清空全部'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.of(sheetContext).pop(),
-                  child: const Text('完成'),
+                const Text('筛选', style: McText.titleSm),
+                const SizedBox(height: 12),
+                if (facets == null)
+                  Text('筛选维度加载中…', style: McText.sub.muted)
+                else
+                  _facetGroup(
+                    '类型',
+                    facets.genres,
+                    live.filter.genres,
+                    (v, on) {
+                      final cur = notifier.currentFilter;
+                      final next = {...cur.genres};
+                      on ? next.add(v.value) : next.remove(v.value);
+                      notifier.applyFilter(cur.copyWith(genres: next));
+                    },
+                  ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: McActionPill(
+                        label: '清空全部',
+                        primary: false,
+                        expanded: true,
+                        onTap: () {
+                          notifier.clearFilter();
+                          Navigator.of(sheetContext).pop();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: McActionPill(
+                        label: '完成',
+                        primary: true,
+                        expanded: true,
+                        onTap: () => Navigator.of(sheetContext).pop(),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -221,20 +307,28 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
       ('rating', '按评分'),
       ('random', '随机'),
     ];
-    showModalBottomSheet<void>(
+    showMcSheet<void>(
       context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+        child: McInsetGroup(
+          header: '排序方式',
+          margin: EdgeInsets.zero,
           children: [
             for (final (value, label) in sorts)
-              ListTile(
-                title: Text(label),
+              McInsetRow(
+                title: label,
                 trailing: state.filter.sort == value
-                    ? const Icon(McIcons.check, size: 18)
+                    ? const Icon(
+                        McIcons.check,
+                        size: 18,
+                        color: McTokens.accentStrong,
+                      )
                     : null,
                 onTap: () {
-                  ref.read(libraryDetailProvider(_arg).notifier).setSort(value, null);
+                  ref
+                      .read(libraryDetailProvider(_arg).notifier)
+                      .setSort(value, null);
                   Navigator.of(sheetContext).pop();
                 },
               ),
@@ -248,7 +342,6 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
 typedef _FacetTap = void Function(FacetValue value, bool on);
 
 Widget _facetGroup(
-  BuildContext context,
   String title,
   List<FacetValue> facets,
   Set<String> selected,
@@ -257,20 +350,20 @@ Widget _facetGroup(
     Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 6),
+        Text(title, style: McText.sub.semibold),
+        const SizedBox(height: 8),
         Wrap(
           spacing: 8,
-          runSpacing: 4,
+          runSpacing: 8,
           children: [
             for (final f in facets)
-              FilterChip(
-                label: Text('${f.label} (${f.count})'),
+              McChip(
+                label: '${f.label} (${f.count})',
                 selected: selected.contains(f.value),
-                onSelected: (on) => onTap(f, on),
+                compact: true,
+                onTap: () => onTap(f, !selected.contains(f.value)),
               ),
           ],
         ),
-        const SizedBox(height: 12),
       ],
     );

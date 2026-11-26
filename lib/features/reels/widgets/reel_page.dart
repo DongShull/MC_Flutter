@@ -1,12 +1,14 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/designsystem/mc_glass.dart';
+import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/theme.dart';
+import '../../../core/image/image_urls.dart';
 import '../state/models.dart';
 import '../state/network_tier.dart';
-import '../../../core/designsystem/mc_icons.dart';
 
-/// 一页片段（对应 Android ReelPage 竖屏布局）：
-/// 16:9 横带（满宽、中心在屏高 46%）+ 右下图标列 + 左下导演与简介 +
-/// 最底一条细进度线。播放引擎由 player 域负责，横带里放封面 + 播放按钮。
+/// 单页竖屏片段：16:9 居中画格 + 液态玻璃起播圆钮与画质/全屏胶囊 + 右下交互列 + 贴底银白进度线。
 class ReelPage extends StatelessWidget {
   const ReelPage({
     super.key,
@@ -32,7 +34,8 @@ class ReelPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = item.title;
-    final cover = item.coverUrl ?? title.backdropUrl ?? title.posterUrl;
+    final rawCover = item.coverUrl ?? title.backdropUrl ?? title.posterUrl;
+    final resolvedCover = McImageUrls.resolve(rawCover, widthPx: 960);
     final overview =
         (title.episode?.overview ?? title.overview)?.trim() ?? '';
     final director = title.directors.isEmpty
@@ -44,12 +47,14 @@ class ReelPage extends StatelessWidget {
       builder: (context, constraints) {
         final bandWidth = constraints.maxWidth;
         final bandHeight = bandWidth * 9 / 16;
-        final bandTop = (constraints.maxHeight * 0.46 - bandHeight / 2)
-            .clamp(0.0, double.infinity);
+        final bandTop = (constraints.maxHeight * 0.45 - bandHeight / 2).clamp(
+          0.0,
+          double.infinity,
+        );
 
         return Stack(
+          fit: StackFit.expand,
           children: [
-            // ── 画面槽：竖屏是 16:9 横带（中心 46%）──
             Positioned(
               left: 0,
               right: 0,
@@ -57,24 +62,24 @@ class ReelPage extends StatelessWidget {
               height: bandHeight,
               child: GestureDetector(
                 onTap: onPlay,
-                child: Container(
-                  color: Colors.black,
-                  alignment: Alignment.center,
+                child: ColoredBox(
+                  color: McTokens.bg,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      if (cover != null)
-                        Image.network(
-                          cover,
-                          fit: BoxFit.contain, // 横带里整张封面完整可见，两侧留黑
-                          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      if (resolvedCover.isNotEmpty)
+                        CachedNetworkImage(
+                          imageUrl: resolvedCover,
+                          httpHeaders: mcImageHeaders(),
+                          fit: BoxFit.contain,
+                          errorWidget: (_, __, ___) => const SizedBox.shrink(),
                         ),
                       Center(
-                        child: IconButton.outlined(
-                          onPressed: onPlay,
-                          iconSize: 32,
-                          color: Colors.white,
-                          icon: const Icon(McIcons.play2Fill),
+                        child: McGlassIconButton(
+                          icon: McIcons.play2Fill,
+                          size: 60,
+                          iconSize: 28,
+                          onTap: onPlay,
                         ),
                       ),
                     ],
@@ -82,34 +87,30 @@ class ReelPage extends StatelessWidget {
                 ),
               ),
             ),
-
-            // ── 横带下方一行：画质胶囊 TODO、右侧「全屏观看」描边小胶囊 ──
             Positioned(
               left: 16,
               right: 16,
-              top: bandTop + bandHeight + 10,
+              top: bandTop + bandHeight + 12,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // 画质档位：蜂窝网络降 720p，Wi-Fi/有线原画（仅展示当前档）。
                   FutureBuilder<String>(
                     future: NetworkTier.current(),
-                    builder: (context, snap) => _OutlinedCapsule(
+                    builder: (context, snap) => _GlassCapsule(
                       label: snap.data ?? '原画',
                       onTap: onPlay,
                     ),
                   ),
-                  _OutlinedCapsule(
-                    label: '全屏观看',
+                  _GlassCapsule(
+                    label: '看全片',
+                    icon: McIcons.fullscreen1,
                     onTap: onPlay,
                   ),
                 ],
               ),
             ),
-
-            // ── 右下图标列：收藏 / 详情 / 已看 / 分享（无底色）──
             Positioned(
-              right: 10,
+              right: 12,
               bottom: 64,
               child: ReelActions(
                 favorite: favorite,
@@ -120,8 +121,6 @@ class ReelPage extends StatelessWidget {
                 onShare: onShare,
               ),
             ),
-
-            // ── 左下信息：导演行 + 三行简介 ──
             Positioned(
               left: 16,
               right: 84,
@@ -134,36 +133,39 @@ class ReelPage extends StatelessWidget {
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(
                         children: [
-                          CircleAvatar(
-                            radius: 16,
-                            backgroundColor:
-                                Colors.white.withValues(alpha: 0.14),
+                          Container(
+                            width: 30,
+                            height: 30,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: McTokens.surfaceInset,
+                              border: Border.all(
+                                color: McTokens.lineStrong,
+                                width: 1,
+                              ),
+                            ),
                             child: const Icon(
                               McIcons.user,
-                              size: 18,
-                              color: Colors.white70,
+                              size: 15,
+                              color: McTokens.textMuted,
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Expanded(
+                          Flexible(
                             child: Text(
                               director,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 15,
+                              style: McText.sub.copyWith(
+                                color: McTokens.text,
                                 fontWeight: FontWeight.w600,
-                                color: Colors.white,
                               ),
                             ),
                           ),
                           const SizedBox(width: 6),
                           Text(
                             title.kind == 'tv' ? '主创' : '导演',
-                            style: TextStyle(
-                              fontSize: 15,
-                              color: Colors.white.withValues(alpha: 0.6),
-                            ),
+                            style: McText.caption.muted,
                           ),
                         ],
                       ),
@@ -173,18 +175,15 @@ class ReelPage extends StatelessWidget {
                       overview,
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 14,
-                        height: 1.4,
-                        color: Colors.white.withValues(alpha: 0.82),
+                      style: McText.sub.copyWith(
+                        height: 1.45,
+                        fontWeight: FontWeight.w400,
+                        color: const Color(0xD6F3F5F9),
                       ),
                     ),
                 ],
               ),
             ),
-
-            // ── 最底一条细进度线（2dp，看了一半才显示；同抖音只在暂停淡入，
-            //    这里静态展示当前续播进度）──
             if (progress != null && progress > 0)
               Positioned(
                 left: 16,
@@ -194,10 +193,9 @@ class ReelPage extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                   child: LinearProgressIndicator(
                     value: progress.clamp(1, 99) / 100,
-                    minHeight: 2,
-                    backgroundColor:
-                        Colors.white.withValues(alpha: 0.22),
-                    color: Colors.white.withValues(alpha: 0.9),
+                    minHeight: 2.5,
+                    backgroundColor: const Color(0x38FFFFFF),
+                    color: McTokens.accentStrong,
                   ),
                 ),
               ),
@@ -208,8 +206,6 @@ class ReelPage extends StatelessWidget {
   }
 }
 
-/// 右下角一列无底色图标（图标 26、标签 11）：收藏 / 详情 / 已看 / 分享。
-/// 「详情」替换了原来的「播放」——刷到感兴趣的片最常做的是看详细信息。
 class ReelActions extends StatelessWidget {
   const ReelActions({
     super.key,
@@ -235,21 +231,21 @@ class ReelActions extends StatelessWidget {
         _ReelIcon(
           icon: favorite ? McIcons.heart2Fill : McIcons.heart2,
           label: '收藏',
-          color: favorite ? const Color(0xFFFF4459) : Colors.white,
+          color: favorite ? McTokens.danger : McTokens.text,
           onTap: onToggleFavorite,
         ),
         const SizedBox(height: 18),
         _ReelIcon(
           icon: McIcons.movie,
           label: '详情',
-          iconSize: 21, // 宽扁的符号小一号，整列视觉等重
+          iconSize: 22,
           onTap: onOpenDetail,
         ),
         const SizedBox(height: 18),
         _ReelIcon(
-          icon: McIcons.checkCircle,
+          icon: played ? McIcons.checkCircleFill : McIcons.checkCircle,
           label: '已看',
-          color: played ? const Color(0xFF4ADE80) : Colors.white,
+          color: played ? McTokens.ok : McTokens.text,
           onTap: onTogglePlayed,
         ),
         const SizedBox(height: 18),
@@ -263,8 +259,8 @@ class _ReelIcon extends StatelessWidget {
   const _ReelIcon({
     required this.icon,
     required this.label,
-    this.color = Colors.white,
-    this.iconSize = 26,
+    this.color = McTokens.text,
+    this.iconSize = 25,
     this.onTap,
   });
 
@@ -276,65 +272,60 @@ class _ReelIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        SizedBox(
-          width: 52,
-          height: 30,
-          child: IconButton(
-            onPressed: onTap,
-            padding: EdgeInsets.zero,
-            icon: Icon(icon, size: iconSize, color: color),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w500,
-            color: color,
-            shadows: [
-              Shadow(
-                color: Colors.black.withValues(alpha: 0.5),
-                offset: const Offset(0, 1),
-                blurRadius: 3,
+    return McPressable(
+      onTap: onTap,
+      haptic: true,
+      child: SizedBox(
+        width: 52,
+        child: Column(
+          children: [
+            Icon(icon, size: iconSize, color: color),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: McText.micro.copyWith(
+                fontWeight: FontWeight.w500,
+                color: color,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
 
-/// 描边小胶囊（画质档 / 全屏观看）
-class _OutlinedCapsule extends StatelessWidget {
-  const _OutlinedCapsule({required this.label, this.onTap});
+class _GlassCapsule extends StatelessWidget {
+  const _GlassCapsule({required this.label, this.icon, this.onTap});
 
   final String label;
+  final IconData? icon;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      shape: StadiumBorder(
-        side: BorderSide(color: Colors.white.withValues(alpha: 0.28)),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const StadiumBorder(),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
+    return McPressable(
+      onTap: onTap,
+      child: McLiquidGlass(
+        tone: McGlassTone.secondary,
+        radius: McTokens.pillRadius,
+        withShadow: false,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 14, color: McTokens.text),
+              const SizedBox(width: 5),
+            ],
+            Text(
+              label,
+              style: McText.caption.copyWith(
+                color: McTokens.text,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

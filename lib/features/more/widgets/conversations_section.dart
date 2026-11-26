@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
+import '../../../core/designsystem/state_views.dart';
+import '../../../core/designsystem/theme.dart';
 import '../state/controllers.dart';
 import '../state/models.dart';
 import 'quick_input.dart';
 
-/// 会话段（管理员）：AI 会话列表按 今天/昨天/更早 分组，
-/// 行点击进 /agent/session/{id}，长按 / 菜单：续接 / 重命名 / 删除。
+/// 会话段（管理员）：AI 历史对话按 今天 / 昨天 / 更早 分组，`McInsetGroup` 圆角容器 + 左滑管理 + 底部 `QuickInputCard`。
 class ConversationsSection extends ConsumerWidget {
   const ConversationsSection({super.key});
 
@@ -18,74 +21,45 @@ class ConversationsSection extends ConsumerWidget {
     final state = ref.watch(moreProvider);
     final sessions = state.valueOrNull?.sessions ?? const <SessionSummary>[];
     if (sessions.isEmpty) {
-      // 空态也保留页底快捷输入卡（对齐鸿蒙：常驻在会话段底部）。
-      return Column(
+      return const Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
-            child: Column(
-              children: [
-                Text(
-                  McStrings.conversationsEmptyTitle,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  McStrings.conversationsEmptyHint,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.55),
-                  ),
-                ),
-              ],
-            ),
+          QuickInputCard(),
+          SizedBox(height: 12),
+          McEmptyView(
+            icon: McIcons.aiStar,
+            title: McStrings.conversationsEmptyTitle,
+            text: McStrings.conversationsEmptyHint,
           ),
-          const QuickInputCard(),
         ],
       );
     }
-    final scheme = Theme.of(context).colorScheme;
+
     final groups = _groupByDay(sessions, DateTime.now());
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final group in groups) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Text(
-              group.$1,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          for (final s in group.$2)
-            _SwipeableSessionRow(
-              key: ValueKey('session-row-${s.id}'),
-              session: s,
-              onOpen: () => context.push('/agent/session/${s.id}'),
-              onFork: () => _fork(context, ref, s),
-              onRename: () => _rename(context, ref, s),
-              onDelete: () => _delete(context, ref, s),
-            ),
-        ],
-        const SizedBox(height: 8),
         const QuickInputCard(),
+        for (final group in groups) ...[
+          const SizedBox(height: 16),
+          McInsetGroup(
+            header: group.$1,
+            children: [
+              for (final s in group.$2)
+                _SwipeableSessionRow(
+                  key: ValueKey('session-row-${s.id}'),
+                  session: s,
+                  onOpen: () => context.push('/agent/session/${s.id}'),
+                  onFork: () => _fork(context, ref, s),
+                  onRename: () => _rename(context, ref, s),
+                  onDelete: () => _delete(context, ref, s),
+                ),
+            ],
+          ),
+        ],
       ],
     );
   }
 
-  /// 按自然日分组：今天 / 昨天 / 更早（组内保持原排序）。
   static List<(String, List<SessionSummary>)> _groupByDay(
     List<SessionSummary> sessions,
     DateTime now,
@@ -99,8 +73,8 @@ class ConversationsSection extends ConsumerWidget {
       final diff = updated == null
           ? 999
           : todayStart
-              .difference(DateTime(updated.year, updated.month, updated.day))
-              .inDays;
+                .difference(DateTime(updated.year, updated.month, updated.day))
+                .inDays;
       if (diff <= 0) {
         today.add(s);
       } else if (diff == 1) {
@@ -116,28 +90,19 @@ class ConversationsSection extends ConsumerWidget {
     ];
   }
 
-  /// 时间小字：今天/昨天 HH:mm；当年 M月d日；跨年 y/M/d。
   static String timeLabel(SessionSummary s, DateTime now) {
     final t = DateTime.tryParse(s.updatedAt ?? '');
     if (t == null) return '';
     String two(int v) => v.toString().padLeft(2, '0');
     final hm = '${two(t.hour)}:${two(t.minute)}';
     final todayStart = DateTime(now.year, now.month, now.day);
-    final diff = todayStart.difference(DateTime(t.year, t.month, t.day)).inDays;
+    final diff = todayStart
+        .difference(DateTime(t.year, t.month, t.day))
+        .inDays;
     if (diff <= 0) return hm;
     if (diff == 1) return '${McStrings.groupYesterday} $hm';
     if (t.year == now.year) return '${t.month}月${t.day}日';
     return '${t.year}/${t.month}/${t.day}';
-  }
-
-  static void _toast(BuildContext context, String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        behavior: SnackBarBehavior.floating,
-        width: 360,
-      ),
-    );
   }
 
   static Future<void> _fork(
@@ -151,7 +116,7 @@ class ConversationsSection extends ConsumerWidget {
       context.push('/agent/session/$newId');
       return;
     }
-    _toast(context, McStrings.forkFailedToast);
+    McToast.error(McStrings.forkFailedToast);
   }
 
   static Future<void> _rename(
@@ -160,32 +125,62 @@ class ConversationsSection extends ConsumerWidget {
     SessionSummary s,
   ) async {
     final controller = TextEditingController(text: s.title);
-    final next = await showDialog<String>(
+    final next = await showMcSheet<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text(McStrings.renameSessionTitle),
-        content: TextField(controller: controller, autofocus: true),
-        actions: [
-          TextButton(
-            onPressed: () => ctx.pop(),
-            child: const Text(McStrings.cancel),
-          ),
-          FilledButton(
-            onPressed: () => ctx.pop(controller.text),
-            child: const Text(McStrings.save),
-          ),
-        ],
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(McStrings.renameSessionTitle, style: McText.titleSm),
+            const SizedBox(height: 14),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              style: McText.body,
+              onSubmitted: (v) => Navigator.of(ctx).pop(v),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: McStrings.cancel,
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: McStrings.save,
+                    primary: true,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(controller.text),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
+    controller.dispose();
     if (next == null) return;
-    // 对齐鸿蒙：截 80 字、去空白；无变化不发请求。
     var title = next.trim();
     if (title.length > 80) title = title.substring(0, 80);
     if (title.isEmpty || title == s.title) return;
-    final err =
-        await ref.read(moreProvider.notifier).renameSession(s.id, title);
+    final err = await ref
+        .read(moreProvider.notifier)
+        .renameSession(s.id, title);
     if (!context.mounted) return;
-    _toast(context, err ?? McStrings.renamedToast);
+    if (err != null) {
+      McToast.error(err);
+    } else {
+      McToast.success(McStrings.renamedToast);
+    }
   }
 
   static Future<void> _delete(
@@ -193,36 +188,62 @@ class ConversationsSection extends ConsumerWidget {
     WidgetRef ref,
     SessionSummary s,
   ) async {
-    final ok = await showDialog<bool>(
+    final ok = await showMcSheet<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text(McStrings.deleteSessionTitle),
-        content: Text(McStrings.deleteSessionConfirmBody
-            .replaceFirst('%s', s.displayTitle)),
-        actions: [
-          TextButton(
-            onPressed: () => ctx.pop(false),
-            child: const Text(McStrings.cancel),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(McStrings.deleteSessionTitle, style: McText.titleSm),
+            const SizedBox(height: 8),
+            Text(
+              McStrings.deleteSessionConfirmBody.replaceFirst(
+                '%s',
+                s.displayTitle,
+              ),
+              style: McText.caption.muted,
             ),
-            onPressed: () => ctx.pop(true),
-            child: const Text(McStrings.delete),
-          ),
-        ],
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: McStrings.cancel,
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: McStrings.delete,
+                    icon: McIcons.trash2,
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
     if (ok != true) return;
     final err = await ref.read(moreProvider.notifier).deleteSession(s.id);
     if (!context.mounted) return;
-    _toast(context, err ?? McStrings.deletedToast);
+    if (err != null) {
+      McToast.error(err);
+    } else {
+      McToast.success(McStrings.deletedToast);
+    }
   }
 }
 
-/// 会话行左滑容器（对齐鸿蒙 SessionSwipe）：endToStart 滑出三个等宽动作
-/// 续接 / 重命名 / 删除；确认后立即执行（三个动作都会刷新列表，行随新数据重建）。
 class _SwipeableSessionRow extends StatelessWidget {
   const _SwipeableSessionRow({
     super.key,
@@ -239,77 +260,20 @@ class _SwipeableSessionRow extends StatelessWidget {
   final VoidCallback onRename;
   final VoidCallback onDelete;
 
-  /// 左滑背景（对齐鸿蒙 SessionSwipe）：续接蓝 / 重命名中性 / 删除红，
-  /// 顺序固定；删除红取 0xFFE5615B。
-  static const _deleteRed = Color(0xFFE5615B);
-
-  Widget _action(
-    BuildContext context, {
-    required IconData icon,
-    required Color tint,
-    required VoidCallback onTap,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: scheme.onSurface.withValues(alpha: 0.08),
-              ),
-            ),
-            child: Icon(icon, size: 20, color: tint),
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Dismissible(
       key: ValueKey('session-swipe-${session.id}-${session.updatedAt}'),
       direction: DismissDirection.endToStart,
       background: Container(
         alignment: Alignment.centerRight,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Row(
-          children: [
-            _action(
-              context,
-              icon: McIcons.history1,
-              tint: scheme.primary,
-              onTap: onFork,
-            ),
-            _action(
-              context,
-              icon: McIcons.edit2,
-              tint: scheme.onSurface,
-              onTap: onRename,
-            ),
-            _action(
-              context,
-              icon: McIcons.trash2,
-              tint: _deleteRed,
-              onTap: onDelete,
-            ),
-          ],
-        ),
+        padding: const EdgeInsets.only(right: 20),
+        color: McTokens.danger,
+        child: const Icon(McIcons.trash2, color: Colors.white, size: 20),
       ),
-      // confirmDismiss 放行后立即分派（整滑=删除确认；半滑时点背景按钮
-      // 走各自 onTap）：三个动作各自刷新会话列表，新数据进来时该行按
-      // 新 key 重建，避免二次误触。
-      confirmDismiss: (_) {
+      confirmDismiss: (_) async {
         onDelete();
-        return Future.value(true);
+        return false;
       },
       child: _SessionRow(
         session: session,
@@ -337,68 +301,38 @@ class _SessionRow extends StatelessWidget {
   final VoidCallback onRename;
   final VoidCallback onDelete;
 
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onOpen,
-      onLongPress: () => _showActions(context),
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 44),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
+  void _showActions(BuildContext context) {
+    showMcSheet<void>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+        child: McInsetGroup(
+          margin: EdgeInsets.zero,
           children: [
-            Expanded(
-              child: Text(
-                session.displayTitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: scheme.onSurface,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            session.running
-                ? Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: scheme.primary.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(11),
-                    ),
-                    child: Text(
-                      McStrings.runningBadge,
-                      style: TextStyle(fontSize: 12, color: scheme.primary),
-                    ),
-                  )
-                : Text(
-                    ConversationsSection.timeLabel(session, DateTime.now()),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-            PopupMenuButton<String>(
-              icon: Icon(Icons.more_horiz,
-                  size: 18, color: scheme.onSurfaceVariant),
-              onSelected: (v) => switch (v) {
-                'fork' => onFork(),
-                'rename' => onRename(),
-                'delete' => onDelete(),
-                _ => null,
+            McInsetRow(
+              icon: McIcons.history1,
+              title: McStrings.forkSessionAction,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                onFork();
               },
-              itemBuilder: (ctx) => [
-                const PopupMenuItem(
-                    value: 'fork', child: Text(McStrings.forkSessionAction)),
-                const PopupMenuItem(
-                    value: 'rename',
-                    child: Text(McStrings.renameSessionAction)),
-                const PopupMenuItem(
-                    value: 'delete', child: Text(McStrings.delete)),
-              ],
+            ),
+            McInsetRow(
+              icon: McIcons.edit2,
+              title: McStrings.renameSessionAction,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                onRename();
+              },
+            ),
+            McInsetRow(
+              icon: McIcons.trash2,
+              title: McStrings.delete,
+              destructive: true,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                onDelete();
+              },
             ),
           ],
         ),
@@ -406,41 +340,63 @@ class _SessionRow extends StatelessWidget {
     );
   }
 
-  /// 长按菜单（对齐鸿蒙左滑/长按）：续接 / 重命名 / 删除。
-  void _showActions(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(McIcons.history1),
-              title: const Text(McStrings.forkSessionAction),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                onFork();
-              },
-            ),
-            ListTile(
-              leading: const Icon(McIcons.edit2),
-              title: const Text(McStrings.renameSessionAction),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                onRename();
-              },
-            ),
-            ListTile(
-              leading:
-                  Icon(McIcons.trash2, color: Theme.of(ctx).colorScheme.error),
-              title: Text(McStrings.delete,
-                  style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                onDelete();
-              },
-            ),
-          ],
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onOpen,
+        onLongPress: () => _showActions(context),
+        highlightColor: McTokens.glassFillActive,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
+          child: Row(
+            children: [
+              const Icon(
+                McIcons.chat,
+                size: 18,
+                color: McTokens.textMuted,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  session.displayTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: McText.ui,
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (session.running)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0x1F7FB0FF),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: const Color(0x4D7FB0FF)),
+                  ),
+                  child: Text(
+                    McStrings.runningBadge,
+                    style: McText.micro.copyWith(color: McTokens.info),
+                  ),
+                )
+              else
+                Text(
+                  ConversationsSection.timeLabel(session, DateTime.now()),
+                  style: McText.caption.faint.tabular,
+                ),
+              const SizedBox(width: 4),
+              McGlassIconButton(
+                icon: McIcons.more,
+                size: 30,
+                iconSize: 15,
+                onTap: () => _showActions(context),
+              ),
+            ],
+          ),
         ),
       ),
     );

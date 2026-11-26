@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/models/format.dart';
 import '../../../core/player/session/playback_session_api.dart';
+import '../../../core/designsystem/theme.dart';
 
-/// 进度条：点按 = 直接跳；拖动 = 跟手预览、松手才跳（Android/iOS 同款）。
-/// 实测参数对齐 Android：左右内距 35、轨 3dp 白 30%、句柄 11dp 白点。
-/// 会话响应带 skipSegments 时，可跳区间在轨上用琥珀色标出（对齐 skip-intro 设计）。
+/// 全屏播放器进度条（对齐 `player.jpg` 银玻璃实机规范）：
+/// - 已播轨迹纯白 `#FFFFFF` + 可跳片头/片尾段琥珀色 `#F5C451` + 底轨半透白；
+/// - 圆形亮白滑块（拖动态跟手微放大）；
+/// - 底部左右展示等宽时间戳（`0:26` / `-0:23`）。
 class PlayerProgressBar extends StatefulWidget {
   const PlayerProgressBar({
     super.key,
@@ -18,10 +21,7 @@ class PlayerProgressBar extends StatefulWidget {
   final Duration position;
   final Duration duration;
   final ValueChanged<Duration> onSeek;
-  /// 拖动中的预览回调（null = 非拖动态）；页面拿去画中央预览浮层。
   final ValueChanged<Duration>? onScrubPreview;
-
-  /// 播放会话下发的可跳区间（片头/片尾；空 = 未识别或旧服务端）。
   final List<PlaybackSkipSegment> skipSegments;
 
   @override
@@ -41,69 +41,82 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
   @override
   Widget build(BuildContext context) {
     final total = widget.duration.inMilliseconds;
+    if (total <= 0) return const SizedBox(height: 24);
+    final shown = _scrub ?? widget.position;
+    final remainSeconds =
+        ((total - shown.inMilliseconds).clamp(0, total) / 1000).floor();
+    final scrubbing = _scrub != null;
+    final thumbSize = scrubbing ? 15.0 : 11.0;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 35),
-      child: SizedBox(
-        height: 14,
-        child: total <= 0
-            ? const SizedBox.shrink()
-            : LayoutBuilder(builder: (context, constraints) {
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            height: 22,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
                 Duration targetOf(double x) => Duration(
-                    milliseconds: ((x / constraints.maxWidth).clamp(0.0, 1.0) * total).round());
+                  milliseconds:
+                      ((x / constraints.maxWidth).clamp(0.0, 1.0) * total)
+                          .round(),
+                );
                 return GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTapUp: (details) => widget.onSeek(targetOf(details.localPosition.dx)),
-                  onHorizontalDragStart: (details) {
-                    final t = targetOf(details.localPosition.dx);
+                  onTapUp: (d) => widget.onSeek(targetOf(d.localPosition.dx)),
+                  onHorizontalDragStart: (d) {
+                    final t = targetOf(d.localPosition.dx);
                     setState(() => _scrub = t);
                     widget.onScrubPreview?.call(t);
                   },
-                  onHorizontalDragUpdate: (details) {
-                    final t = targetOf(details.localPosition.dx);
+                  onHorizontalDragUpdate: (d) {
+                    final t = targetOf(d.localPosition.dx);
                     setState(() => _scrub = t);
                     widget.onScrubPreview?.call(t);
                   },
                   onHorizontalDragEnd: (_) {
                     final t = _scrub;
                     setState(() => _scrub = null);
+                    widget.onScrubPreview?.call(
+                      t ?? widget.position,
+                    );
                     if (t != null) widget.onSeek(t);
                   },
                   onHorizontalDragCancel: () => setState(() => _scrub = null),
                   child: Center(
                     child: Stack(
                       alignment: Alignment.centerLeft,
+                      clipBehavior: Clip.none,
                       children: [
                         Container(
-                          height: 3,
+                          height: scrubbing ? 5 : 3.5,
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(3),
+                            color: const Color(0x47FFFFFF),
+                            borderRadius: BorderRadius.circular(4),
                           ),
                         ),
-                        // 可跳区间：琥珀色块（起止毫秒 → 轨上占比）。
                         for (final seg in widget.skipSegments)
-                          if (total > 0 &&
-                              seg.endMs > seg.startMs &&
-                              seg.startMs < total)
+                          if (seg.endMs > seg.startMs && seg.startMs < total)
                             Align(
                               alignment: Alignment.centerLeft,
                               child: FractionallySizedBox(
-                                widthFactor:
-                                    (seg.endMs / total).clamp(0.0, 1.0),
+                                widthFactor: (seg.endMs / total).clamp(
+                                  0.0,
+                                  1.0,
+                                ),
                                 alignment: Alignment.centerLeft,
                                 child: Align(
                                   alignment: Alignment.centerRight,
                                   child: FractionallySizedBox(
-                                    widthFactor: 1.0 -
-                                        (seg.startMs / total)
-                                            .clamp(0.0, 1.0),
+                                    widthFactor:
+                                        1.0 -
+                                        (seg.startMs / total).clamp(0.0, 1.0),
                                     child: Container(
-                                      height: 5,
+                                      height: scrubbing ? 6 : 4.5,
                                       decoration: BoxDecoration(
-                                        color: Colors.amber
-                                            .withValues(alpha: 0.9),
-                                        borderRadius:
-                                            BorderRadius.circular(3),
+                                        color: McTokens.warning,
+                                        borderRadius: BorderRadius.circular(3),
                                       ),
                                     ),
                                   ),
@@ -113,21 +126,29 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
                         FractionallySizedBox(
                           widthFactor: _fraction,
                           child: Container(
-                            height: 3,
+                            height: scrubbing ? 5 : 3.5,
                             decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary,
-                              borderRadius: BorderRadius.circular(3),
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(4),
                             ),
                           ),
                         ),
                         Align(
                           alignment: Alignment(_fraction * 2 - 1, 0),
-                          child: Container(
-                            width: 11,
-                            height: 11,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 100),
+                            width: thumbSize,
+                            height: thumbSize,
                             decoration: const BoxDecoration(
                               color: Colors.white,
                               shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Color(0x80000000),
+                                  blurRadius: 6,
+                                  offset: Offset(0, 1),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -135,7 +156,33 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
                     ),
                   ),
                 );
-              }),
+              },
+            ),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                mcFormatClock(shown.inSeconds),
+                style: McText.micro
+                    .copyWith(
+                      color: const Color(0xCCF3F5F9),
+                      fontWeight: FontWeight.w500,
+                    )
+                    .tabular,
+              ),
+              Text(
+                '-${mcFormatClock(remainSeconds)}',
+                style: McText.micro
+                    .copyWith(
+                      color: McTokens.textMuted,
+                      fontWeight: FontWeight.w500,
+                    )
+                    .tabular,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

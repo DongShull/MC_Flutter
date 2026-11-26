@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
+import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/theme.dart';
 import '../state/account_state.dart';
 import '../widgets/device_row.dart';
 
@@ -22,65 +27,106 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
     });
   }
 
+  Future<void> _confirmCleanup() async {
+    final ok = await showMcSheet<bool>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('清理其他设备？', style: McText.titleSm),
+            const SizedBox(height: 8),
+            Text('将吊销除本机外的所有登录设备。', style: McText.sub.muted),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: '取消',
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: '清理',
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok == true && mounted) {
+      ref.read(accountProvider.notifier).cleanupDevices();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final ui = ref.watch(accountProvider);
-    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('设备管理')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      backgroundColor: McTokens.bg,
+      body: Column(
         children: [
-          for (final device in ui.devices)
-            DeviceRow(
-              device: device,
-              onRename: (name) {
-                if (name.isNotEmpty) {
-                  ref.read(accountProvider.notifier).renameDevice(device.id, name);
-                }
-              },
-              onRevoke: () =>
-                  ref.read(accountProvider.notifier).revokeDevice(device.id),
-            ),
-          if (ui.devices.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 32),
-              child: Center(
-                child: Text(
-                  '暂时没有其他登录设备',
-                  style: TextStyle(color: scheme.onSurfaceVariant),
-                ),
+          McFloatingDetailBar(
+            onBack: () =>
+                context.canPop() ? context.pop() : context.go('/account'),
+            title: '设备管理',
+            titleVisible: true,
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(
+                McTokens.pagePadding,
+                12,
+                McTokens.pagePadding,
+                36,
               ),
-            ),
-          const SizedBox(height: 12),
-          OutlinedButton(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: scheme.error,
-              side: BorderSide(color: scheme.error.withValues(alpha: 0.4)),
-            ),
-            onPressed: () async {
-              final ok = await showDialog<bool>(
-                context: context,
-                builder: (dialogContext) => AlertDialog(
-                  title: const Text('清理其他设备？'),
-                  content: const Text('将吊销除本机外的所有登录设备。'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(dialogContext).pop(false),
-                      child: const Text('取消'),
+              children: [
+                for (final device in ui.devices)
+                  DeviceRow(
+                    device: device,
+                    onRename: (name) {
+                      if (name.isNotEmpty) {
+                        ref
+                            .read(accountProvider.notifier)
+                            .renameDevice(device.id, name);
+                      }
+                    },
+                    onRevoke: () => ref
+                        .read(accountProvider.notifier)
+                        .revokeDevice(device.id),
+                  ),
+                if (ui.devices.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 36),
+                    child: Center(
+                      child: Text('暂时没有其他登录设备', style: McText.sub.muted),
                     ),
-                    TextButton(
-                      onPressed: () => Navigator.of(dialogContext).pop(true),
-                      child: const Text('清理'),
-                    ),
-                  ],
+                  ),
+                const SizedBox(height: 14),
+                Center(
+                  child: McActionPill(
+                    label: '清理其他设备',
+                    icon: McIcons.eraser,
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    onTap: _confirmCleanup,
+                  ),
                 ),
-              );
-              if (ok == true) {
-                ref.read(accountProvider.notifier).cleanupDevices();
-              }
-            },
-            child: const Text('清理其他设备'),
+              ],
+            ),
           ),
         ],
       ),

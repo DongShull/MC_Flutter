@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/poster_card.dart';
+import '../../../core/designsystem/theme.dart';
 import '../state/detail_controller.dart';
 
-/// 横滚海报行：系列一行 / 相似推荐一行。
+/// 详情页同系列 / 相似推荐海报横滑行（统一 `McSectionHeader` + `McPosterCard` 12dp 圆角）。
 class SimilarRow extends StatelessWidget {
   const SimilarRow({
     super.key,
@@ -22,28 +24,26 @@ class SimilarRow extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Text(title,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold)),
-        ),
+        const SizedBox(height: 22),
+        McSectionHeader(title: title),
+        const SizedBox(height: 12),
         SizedBox(
-          height: 184,
+          height: 218,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(
+              horizontal: McTokens.pagePadding,
+            ),
             itemCount: entries.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
             itemBuilder: (context, i) {
               final e = entries[i];
               return McPosterCard(
                 title: e.title,
+                subtitle: e.year?.toString(),
                 posterUrl: e.posterUrl,
-                width: 104,
-                radius: 10,
+                rating: e.rating,
+                width: 112,
                 onTap: () => onTap(e),
               );
             },

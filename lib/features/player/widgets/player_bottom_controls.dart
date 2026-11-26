@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/designsystem/adaptive.dart';
+import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/theme.dart';
 import '../../../core/player/session/playback_session_api.dart';
 
-/// 进度条上方的工具行（Android PlayerBottomControls）：
-/// 左胶囊 = 音轨 / 字幕（占位菜单），右胶囊 = 下一集 / 选集 / 倍速。
-/// 倍速选中后走 ⋮ 面板；这里保留「下一集」入口（电影没有下一集/选集）。
+/// 播放器底部液态玻璃控制胶囊行（对齐 `player.jpg` 实机控制层）：
+/// - 左侧连体液态玻璃胶囊 `[ 音轨 | 字幕 ]`；
+/// - 右侧液态玻璃胶囊：下一集 / 选集 / 投屏 / 等宽倍速。
 class PlayerBottomControls extends StatelessWidget {
   const PlayerBottomControls({
     super.key,
@@ -35,7 +38,6 @@ class PlayerBottomControls extends StatelessWidget {
   final ValueChanged<double> onPickSpeed;
   final ValueChanged<String> onNotice;
 
-  /// 会话响应里的可选轨道（空 = 服务器未提供轨道信息，菜单给提示）。
   final List<PlaybackAudioTrack> audioTracks;
   final List<PlaybackSubtitleTrack> subtitles;
   final String? selectedAudioTrack;
@@ -43,16 +45,6 @@ class PlayerBottomControls extends StatelessWidget {
   final ValueChanged<String> onPickAudio;
   final ValueChanged<String> onPickSubtitle;
 
-  Widget _pill(Widget child) => Container(
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.45),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
-        ),
-        child: child,
-      );
-
-  /// 菜单条目统一视图（ref / 主文案 / 副文案）。
   List<(String, String, String)> _trackEntries({required bool subtitle}) {
     if (subtitle) {
       return [for (final t in subtitles) (t.trackRef, t.label, t.detail)];
@@ -70,78 +62,77 @@ class PlayerBottomControls extends StatelessWidget {
     ];
   }
 
-  /// 音轨/字幕轨菜单：条目来自播放会话响应；换轨走重开会话（PlayerController.switchTrack）。
   void _showTrackMenu(BuildContext context, {required bool subtitle}) {
     final entries = _trackEntries(subtitle: subtitle);
     final selected = subtitle ? selectedSubtitleTrack : selectedAudioTrack;
-    final primary = Theme.of(context).colorScheme.primary;
-    showModalBottomSheet<void>(
+    showMcSheet<void>(
       context: context,
-      backgroundColor: const Color(0xE610121A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) => SafeArea(
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(6, 4, 6, 12),
               child: Text(
-                subtitle ? '字幕' : '音轨',
-                style: const TextStyle(color: Colors.white),
+                subtitle ? '选择字幕' : '选择音轨',
+                style: McText.titleSm,
               ),
             ),
             if (entries.isEmpty)
-              const ListTile(
-                dense: true,
-                enabled: false,
-                title: Text('服务器未提供轨道信息',
-                    style: TextStyle(color: Colors.white54)),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Center(
+                  child: Text('当前会话未提供可切换轨道', style: McText.caption.muted),
+                ),
               )
-            else ...[
-              if (subtitle)
-                ListTile(
-                  dense: true,
-                  title: Text(
-                    '关闭字幕',
-                    style: TextStyle(
-                      color: (selected ?? '').isEmpty ? primary : Colors.white,
-                    ),
+            else
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 280),
+                child: SingleChildScrollView(
+                  child: McInsetGroup(
+                    margin: EdgeInsets.zero,
+                    children: [
+                      if (subtitle)
+                        McInsetRow(
+                          title: '关闭字幕',
+                          trailing: (selected ?? '').isEmpty
+                              ? const Icon(
+                                  McIcons.check,
+                                  size: 18,
+                                  color: McTokens.accentStrong,
+                                )
+                              : null,
+                          onTap: () {
+                            onPickSubtitle('off');
+                            Navigator.of(ctx).pop();
+                          },
+                        ),
+                      for (final (ref, label, detail) in entries)
+                        McInsetRow(
+                          title: label,
+                          subtitle: detail.isEmpty ? null : detail,
+                          trailing: ref == selected
+                              ? const Icon(
+                                  McIcons.check,
+                                  size: 18,
+                                  color: McTokens.accentStrong,
+                                )
+                              : null,
+                          onTap: () {
+                            if (subtitle) {
+                              onPickSubtitle(ref);
+                            } else {
+                              onPickAudio(ref);
+                            }
+                            Navigator.of(ctx).pop();
+                          },
+                        ),
+                    ],
                   ),
-                  trailing: (selected ?? '').isEmpty
-                      ? Icon(McIcons.check, color: primary)
-                      : null,
-                  onTap: () {
-                    onPickSubtitle('off');
-                    Navigator.of(context).pop();
-                  },
                 ),
-              for (final (ref, label, detail) in entries)
-                ListTile(
-                  dense: true,
-                  title: Text(
-                    label,
-                    style: TextStyle(color: ref == selected ? primary : Colors.white),
-                  ),
-                  subtitle: detail.isEmpty
-                      ? null
-                      : Text(detail,
-                          style: const TextStyle(
-                              fontSize: 12, color: Colors.white54)),
-                  trailing: ref == selected
-                      ? Icon(McIcons.check, color: primary)
-                      : null,
-                  onTap: () {
-                    if (subtitle) {
-                      onPickSubtitle(ref);
-                    } else {
-                      onPickAudio(ref);
-                    }
-                    Navigator.of(context).pop();
-                  },
-                ),
-            ],
+              ),
           ],
         ),
       ),
@@ -150,41 +141,72 @@ class PlayerBottomControls extends StatelessWidget {
 
   void _showSpeedMenu(BuildContext context) {
     const speeds = <double>[0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
-    showModalBottomSheet<void>(
+    showMcSheet<void>(
       context: context,
-      backgroundColor: const Color(0xE610121A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) => SafeArea(
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Padding(
-              padding: EdgeInsets.all(12),
-              child: Text('倍速', style: TextStyle(color: Colors.white)),
+              padding: EdgeInsets.fromLTRB(6, 4, 6, 12),
+              child: Text('播放倍速', style: McText.titleSm),
             ),
-            for (final s in speeds)
-              ListTile(
-                dense: true,
-                title: Text(
-                  s == 1.0 ? '倍速 · 常速' : '$s x',
-                  style: TextStyle(
-                    color: s == speed
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.white,
+            McInsetGroup(
+              margin: EdgeInsets.zero,
+              children: [
+                for (final s in speeds)
+                  McInsetRow(
+                    title: s == 1.0 ? '1.0x（正常）' : '${_label(s)}x',
+                    trailing: s == speed
+                        ? const Icon(
+                            McIcons.check,
+                            size: 18,
+                            color: McTokens.accentStrong,
+                          )
+                        : null,
+                    onTap: () {
+                      onPickSpeed(s);
+                      Navigator.of(ctx).pop();
+                    },
                   ),
-                ),
-                trailing: s == speed
-                    ? Icon(McIcons.check,
-                        color: Theme.of(context).colorScheme.primary)
-                    : null,
-                onTap: () {
-                  onPickSpeed(s);
-                  Navigator.of(context).pop();
-                },
-              ),
+              ],
+            ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _segmentTap({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return McFocusRing(
+      borderRadius: 999,
+      child: McPressable(
+        onTap: onTap,
+        haptic: true,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: McTokens.text),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: McText.caption
+                    .copyWith(
+                      color: McTokens.text,
+                      fontWeight: FontWeight.w500,
+                    )
+                    .tabular,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -193,56 +215,97 @@ class PlayerBottomControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
-          _pill(McFocusRing(child: TextButton.icon(
-            onPressed: () => _showTrackMenu(context, subtitle: false),
-            icon: const Icon(McIcons.equalizer, size: 18, color: Colors.white),
-            label: const Text('音轨', style: TextStyle(color: Colors.white)),
-          ))),
-          const SizedBox(width: 8),
-          _pill(McFocusRing(child: TextButton.icon(
-            onPressed: () => _showTrackMenu(context, subtitle: true),
-            icon: const Icon(McIcons.closedCaptioning, size: 18, color: Colors.white),
-            label: const Text('字幕', style: TextStyle(color: Colors.white)),
-          ))),
+          // 左侧连体液态玻璃胶囊：[ 音轨 | 字幕 ]
+          McLiquidGlass(
+            radius: McTokens.pillRadius,
+            withShadow: false,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _segmentTap(
+                  icon: McIcons.equalizer,
+                  label: '音轨',
+                  onTap: () => _showTrackMenu(context, subtitle: false),
+                ),
+                Container(width: 1, height: 16, color: McTokens.lineStrong),
+                _segmentTap(
+                  icon: McIcons.closedCaptioning,
+                  label: '字幕',
+                  onTap: () => _showTrackMenu(context, subtitle: true),
+                ),
+              ],
+            ),
+          ),
           const Spacer(),
-          if (hasNext)
-            _pill(McFocusRing(child: IconButton(
-              onPressed: onNext,
-              icon: const Icon(McIcons.skipForwardFill, color: Colors.white),
-              tooltip: '下一集',
-            ))),
-          if (isEpisode) ...[
-            const SizedBox(width: 8),
-            _pill(McFocusRing(child: IconButton(
-              onPressed: onEpisodes,
-              icon: const Icon(McIcons.playListAdd, color: Colors.white),
-              tooltip: '选集',
-            ))),
+          if (hasNext) ...[
+            McFocusRing(
+              borderRadius: 20,
+              child: McGlassIconButton(
+                icon: McIcons.skipForwardFill,
+                tooltip: '下一集',
+                onTap: onNext,
+              ),
+            ),
             const SizedBox(width: 8),
           ],
-          _pill(McFocusRing(child: IconButton(
-              onPressed: onCast,
-              icon: const Icon(McIcons.cast, color: Colors.white),
-              tooltip: '投屏',
-            ))),
-          const SizedBox(width: 8),
-          _pill(McFocusRing(child: TextButton(
-            onPressed: () => _showSpeedMenu(context),
-            child: Text(
-              speed == 1.0 ? '倍速' : '${_label(speed)}x',
-              style: const TextStyle(color: Colors.white),
+          if (isEpisode) ...[
+            McLiquidGlass(
+              radius: McTokens.pillRadius,
+              withShadow: false,
+              child: _segmentTap(
+                icon: McIcons.playListAdd,
+                label: '选集',
+                onTap: onEpisodes,
+              ),
             ),
-          ))),
+            const SizedBox(width: 8),
+          ],
+          McFocusRing(
+            borderRadius: 20,
+            child: McGlassIconButton(
+              icon: McIcons.cast,
+              tooltip: '投屏',
+              onTap: onCast,
+            ),
+          ),
+          const SizedBox(width: 8),
+          McLiquidGlass(
+            radius: McTokens.pillRadius,
+            withShadow: false,
+            child: McFocusRing(
+              borderRadius: 999,
+              child: McPressable(
+                onTap: () => _showSpeedMenu(context),
+                haptic: true,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  child: Text(
+                    speed == 1.0 ? '倍速' : '${_label(speed)}x',
+                    style: McText.caption
+                        .copyWith(
+                          color: McTokens.text,
+                          fontWeight: FontWeight.w600,
+                        )
+                        .tabular,
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  static String _label(double speed) =>
-      speed == speed.roundToDouble()
-          ? speed.round().toString()
-          : speed.toStringAsFixed(speed == 0.5 || speed == 1.5 || speed == 2.5 ? 1 : 2);
+  static String _label(double speed) => speed == speed.roundToDouble()
+      ? speed.round().toString()
+      : speed.toStringAsFixed(
+          speed == 0.5 || speed == 1.5 || speed == 2.5 ? 1 : 2,
+        );
 }

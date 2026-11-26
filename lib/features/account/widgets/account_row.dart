@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../state/account_state.dart';
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
+import '../../../core/designsystem/theme.dart';
+import '../state/account_state.dart';
 
-/// 账号行（对齐 Kotlin AccountRow）：渐变圆头像 + 昵称 + @username · 角色 + 当前标记；
+/// 账号行（对齐 Kotlin AccountRow）：银玻璃圆头像 + 昵称 + @username · 角色 + 当前标记；
 /// 过期提示「点一下重新输入密码」；非当前账号给移除按钮。
 class AccountRow extends StatelessWidget {
   const AccountRow({
@@ -25,50 +27,44 @@ class AccountRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final displayName = account.nickname ?? account.username;
-    return InkWell(
-      onTap: (!isCurrent && !busy)
-          ? () {
-              // 过期账号走重新输密码（/onboarding 预填）；这里保持切换语义。
-              onSwitch();
-            }
-          : null,
-      borderRadius: BorderRadius.circular(12),
+    return McPressable(
+      onTap: (!isCurrent && !busy) ? onSwitch : null,
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isCurrent
-              ? scheme.primary.withValues(alpha: 0.12)
-              : scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
+          color: isCurrent ? McTokens.accentSoft : McTokens.surfaceRaised,
+          borderRadius: BorderRadius.circular(McTokens.cardRadius),
           border: Border.all(
-            color: isCurrent
-                ? scheme.primary.withValues(alpha: 0.35)
-                : scheme.outlineVariant,
+            color: isCurrent ? McTokens.lineStrong : McTokens.line,
+            width: 1,
           ),
         ),
         child: Row(
           children: [
             Container(
-              width: 40,
-              height: 40,
+              width: 42,
+              height: 42,
               alignment: Alignment.center,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFF26A5E4), Color(0xFF7C6FF0)],
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF2B3140), Color(0xFF171A24)],
+                ),
+                border: Border.all(
+                  color: isCurrent ? McTokens.accentStrong : McTokens.line,
+                  width: 1,
                 ),
               ),
               child: Text(
                 displayName.isEmpty
                     ? '?'
                     : displayName.characters.first.toUpperCase(),
-                style: TextStyle(
+                style: McText.ui.copyWith(
+                  color: McTokens.accentStrong,
                   fontWeight: FontWeight.w600,
-                  color: scheme.onPrimary,
                 ),
               ),
             ),
@@ -84,39 +80,67 @@ class AccountRow extends StatelessWidget {
                           displayName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                          style: McText.ui.semibold,
                         ),
                       ),
                       if (isCurrent) ...[
-                        const SizedBox(width: 6),
-                        Icon(McIcons.check, size: 14, color: scheme.primary),
-                        Text(
-                          '当前',
-                          style:
-                              TextStyle(fontSize: 12, color: scheme.primary),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: McTokens.ok.withValues(alpha: 0.14),
+                            borderRadius:
+                                BorderRadius.circular(McTokens.pillRadius),
+                            border: Border.all(
+                              color: McTokens.ok.withValues(alpha: 0.35),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                McIcons.check,
+                                size: 11,
+                                color: McTokens.ok,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                '当前',
+                                style: McText.micro.copyWith(
+                                  color: McTokens.ok,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ],
                   ),
+                  const SizedBox(height: 2),
                   Text(
                     "@${account.username} · ${account.role == 'admin' ? '超级管理员' : '成员'}",
-                    style: TextStyle(
-                        fontSize: 12, color: scheme.onSurfaceVariant),
+                    style: McText.caption.muted,
                   ),
-                  if (account.expired)
+                  if (account.expired) ...[
+                    const SizedBox(height: 2),
                     Text(
                       '登录已失效，点一下重新输入密码',
-                      style: TextStyle(fontSize: 11, color: scheme.tertiary),
+                      style: McText.caption.copyWith(color: McTokens.warning),
                     ),
+                  ],
                 ],
               ),
             ),
             if (!isCurrent)
-              IconButton(
+              McGlassIconButton(
+                icon: McIcons.close2,
+                size: 32,
+                iconSize: 15,
                 tooltip: '从本机移除',
-                onPressed: onRemove,
-                icon:
-                    Icon(McIcons.close2, size: 16, color: scheme.onSurfaceVariant),
+                onTap: onRemove,
               ),
           ],
         ),

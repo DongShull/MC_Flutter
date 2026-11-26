@@ -1,17 +1,16 @@
-import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-
-import '../../../core/image/image_urls.dart';
 
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
+import '../../../core/designsystem/theme.dart';
+import '../../../core/image/image_urls.dart';
 
-/// 个人信息卡（1:1 对齐鸿蒙 ProfileCard）：
-/// 左侧 80 圆形渐变头像（首字 fallback）+ 右下铅笔角标 + 昵称 + 身份小字；
-/// 右侧 2×2 按钮格：批准登录 / 切换账号 / 退出账号（红）/ 空占位（虚线框）。
-/// 点头像进个人信息页（/settings/profile），按钮不触发卡片跳转。
+/// 个人中心顶卡（对齐 iOS `ProfileHeaderCard`）：
+/// 居中 `80dp` 圆形大头像（右下嵌 `28dp` 银玻璃编辑圆标）+ 居中昵称与身份摘要 +
+/// 下方三颗等宽液态玻璃胶囊操作键（批准登录 / 切换账号 / 退出登录）。
 class ProfileCard extends StatelessWidget {
   const ProfileCard({
     super.key,
@@ -34,178 +33,156 @@ class ProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final muted = scheme.onSurfaceVariant;
     final identity = username.isNotEmpty && username != nickname
-        ? '@$username · $roleLabel'
+        ? '@$username${roleLabel.isNotEmpty ? ' · $roleLabel' : ''}'
         : roleLabel;
-    final avatarChar =
-        nickname.isEmpty ? '?' : String.fromCharCode(nickname.runes.first);
-    return Card(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: scheme.outlineVariant),
+    final avatarChar = nickname.isEmpty
+        ? 'M'
+        : String.fromCharCode(nickname.runes.first).toUpperCase();
+    final resolvedAvatar = McImageUrls.resolve(avatarUrl, widthPx: 200);
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(
+        McTokens.pagePadding,
+        8,
+        McTokens.pagePadding,
+        0,
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // 左：头像 + 昵称 + 身份（点头像进个人信息页）。
-            Expanded(
-              flex: 0,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () => context.push('/settings/profile'),
-                child: Column(
-                  children: [
-                    SizedBox(
-                      width: 88,
-                      height: 88,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        alignment: Alignment.center,
-                        children: [
-                          Container(
-                            width: 80,
-                            height: 80,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [scheme.primary, scheme.tertiary],
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              avatarChar,
-                              style: TextStyle(
-                                fontSize: 30,
-                                fontWeight: FontWeight.bold,
-                                color:
-                                    scheme.onPrimary.withValues(alpha: 0.75),
-                              ),
-                            ),
-                          ),
-                          if ((avatarUrl ?? '').isNotEmpty)
-                            Positioned.fill(
-                              child: ClipOval(
-                                child: CachedNetworkImage(
-                                  imageUrl: McImageUrls.resolve(avatarUrl,
-                                      widthPx: 160),
-                                  httpHeaders: mcImageHeaders(),
-                                  fit: BoxFit.cover,
-                                  errorWidget: (_, __, ___) =>
-                                      const SizedBox.shrink(),
-                                ),
-                              ),
-                            ),
-                          Positioned(
-                            right: -2,
-                            bottom: -2,
-                            child: Container(
-                              width: 28,
-                              height: 28,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: scheme.surfaceContainerHighest,
-                                border:
-                                    Border.all(color: scheme.surface, width: 2),
-                              ),
-                              child: Icon(McIcons.edit2, size: 14, color: muted),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: 110,
-                      child: Text(
-                        nickname,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    if (identity.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      SizedBox(
-                        width: 110,
-                        child: Text(
-                          identity,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 12, color: muted),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            // 右：2×2 按钮格（批准登录/切换账号/退出账号/空占位）。
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Row(
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+      decoration: BoxDecoration(
+        color: McTokens.surfaceRaised,
+        borderRadius: BorderRadius.circular(McTokens.cardRadius),
+        border: Border.all(color: McTokens.line, width: 1),
+      ),
+      child: Column(
+        children: [
+          McPressable(
+            onTap: () => context.push('/settings/profile'),
+            child: Column(
+              children: [
+                SizedBox(
+                  width: 84,
+                  height: 84,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
                     children: [
-                      Expanded(
-                        child: _CardAction(
-                          icon: McIcons.scan,
-                          label: McStrings.approveLogin,
-                          onTap: onApproveLogin,
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: const LinearGradient(
+                            begin: Alignment.bottomLeft,
+                            end: Alignment.topRight,
+                            colors: [Color(0xFF3E6DA8), Color(0xFF6B53A8)],
+                          ),
+                          border: Border.all(
+                            color: McTokens.lineStrong,
+                            width: 1.2,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          avatarChar,
+                          style: McText.display.copyWith(color: Colors.white),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _CardAction(
-                          icon: McIcons.userSwitch,
-                          label: McStrings.switchAccount,
-                          onTap: onSwitchAccount,
+                      if (resolvedAvatar.isNotEmpty)
+                        Positioned.fill(
+                          child: Padding(
+                            padding: const EdgeInsets.all(2),
+                            child: ClipOval(
+                              child: CachedNetworkImage(
+                                imageUrl: resolvedAvatar,
+                                httpHeaders: mcImageHeaders(),
+                                fit: BoxFit.cover,
+                                errorWidget: (_, __, ___) =>
+                                    const SizedBox.shrink(),
+                              ),
+                            ),
+                          ),
+                        ),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: McTokens.surfaceSolid,
+                            border: Border.all(
+                              color: McTokens.lineStrong,
+                              width: 1,
+                            ),
+                          ),
+                          child: const Icon(
+                            McIcons.edit2,
+                            size: 13,
+                            color: McTokens.text,
+                          ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _CardAction(
-                          icon: McIcons.logout,
-                          label: McStrings.logout,
-                          danger: true,
-                          onTap: onLogout,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      // 空占位（对齐鸿蒙：虚线空格子）。
-                      const Expanded(
-                        child: _EmptySlot(),
-                      ),
-                    ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  nickname,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: McText.titleLg,
+                ),
+                if (identity.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    identity,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: McText.caption.muted,
                   ),
                 ],
-              ),
+              ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: _CardAction(
+                  icon: McIcons.scan,
+                  label: McStrings.approveLogin,
+                  onTap: onApproveLogin,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _CardAction(
+                  icon: McIcons.userSwitch,
+                  label: McStrings.switchAccount,
+                  onTap: onSwitchAccount,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _CardAction(
+                  icon: McIcons.logout,
+                  label: McStrings.logout,
+                  danger: true,
+                  onTap: onLogout,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 }
 
-/// 卡内玻璃小按钮（图标+文字横排，玻璃 secondary；danger=红色文字）。
 class _CardAction extends StatelessWidget {
   const _CardAction({
     required this.icon,
@@ -221,96 +198,40 @@ class _CardAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final color = danger ? const Color(0xFFE5615B) : scheme.onSurface;
-    return Material(
-      color: Colors.transparent,
-      child: Ink(
-        decoration: McGlass.decoration(McGlassTone.secondary, radius: 14),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: onTap,
-          child: Container(
-            height: 52,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            alignment: Alignment.center,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: 16, color: color),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 13, color: color),
-                  ),
-                ),
-              ],
-            ),
+    final fg = danger ? McTokens.danger : McTokens.text;
+    return McPressable(
+      onTap: onTap,
+      haptic: true,
+      child: Container(
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: danger ? const Color(0x14FF6B6B) : McTokens.surfaceInset,
+          borderRadius: BorderRadius.circular(McTokens.pillRadius),
+          border: Border.all(
+            color: danger ? const Color(0x38FF6B6B) : McTokens.line,
+            width: 1,
           ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 15, color: fg),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: McText.caption.copyWith(
+                  color: fg,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
-}
-
-/// 空占位格子（虚线描边，预留扩展）。
-class _EmptySlot extends StatelessWidget {
-  const _EmptySlot();
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return CustomPaint(
-      painter: _DashedBorderPainter(
-        radius: 14,
-        color: scheme.outlineVariant,
-      ),
-      child: const SizedBox(height: 52),
-    );
-  }
-}
-
-class _DashedBorderPainter extends CustomPainter {
-  const _DashedBorderPainter({required this.radius, required this.color});
-
-  final double radius;
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // 四条边分别画虚线（沿外框直线段近似）。
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    const dash = 4.0;
-    const gap = 3.0;
-    // 四条边分别画虚线（路径沿 rrect 外框近似直线段）。
-    final edges = [
-      [Offset(radius, 0), Offset(size.width - radius, 0)],
-      [Offset(size.width, radius), Offset(size.width, size.height - radius)],
-      [Offset(size.width - radius, size.height),
-        Offset(radius, size.height)],
-      [Offset(0, size.height - radius), Offset(0, radius)],
-    ];
-    for (final e in edges) {
-      final a = e[0];
-      final b = e[1];
-      final len = (b - a).distance;
-      final dir = (b - a) / len;
-      var d = 0.0;
-      while (d < len) {
-        final end = (d + dash).clamp(0.0, len);
-        canvas.drawLine(a + dir * d, a + dir * end, paint);
-        d += dash + gap;
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _DashedBorderPainter old) =>
-      old.color != color || old.radius != radius;
 }
