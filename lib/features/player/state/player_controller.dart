@@ -1,15 +1,17 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
+import '../../../core/image/image_urls.dart';
+import '../../../core/network/server_routes.dart';
 import '../../../core/player/player_page_args.dart';
 import '../../../core/player/player_service.dart';
 import '../../../core/player/session/playback_session_api.dart';
 
-// PlayerPageArgs / EpisodeItem 已下沉 core（detail 等入口可构造，禁跨 feature import）。
 export '../../../core/player/player_page_args.dart';
 
 enum PlayerStatus { idle, opening, ready, failed }
@@ -17,7 +19,74 @@ enum PlayerStatus { idle, opening, ready, failed }
 /// 服务器协商结果（decision != plan 时挂在状态上等 UI 弹窗）。
 enum SessionDecision { plan, consent, rejected }
 
-/// 播放页可观察状态（对应 Android PlaybackSessionHolder.State + 引擎 state 的 UI 子集）。
+/// 解析后的外挂 / AI 字幕时间轴条目（支持 WebVTT 与 SRT）。
+class SubtitleCue {
+  const SubtitleCue({
+    required this.startMs,
+    required this.endMs,
+    required this.text,
+  });
+
+  final int startMs;
+  final int endMs;
+  final String text;
+}
+
+/// 轻量级 WebVTT / SRT 字幕解析器。
+List<SubtitleCue> parseSubtitleText(String raw) {
+  final lines = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+  final cues = <SubtitleCue>[];
+  final timeRe = RegExp(
+    r'(?:(\d{1,2}):)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(?:(\d{1,2}):)?(\d{2}):(\d{2})[.,](\d{3})',
+  );
+  int toMs(String? h, String m, String s, String ms) {
+    final hh = int.tryParse(h ?? '0') ?? 0;
+    final mm = int.tryParse(m) ?? 0;
+    final ss = int.tryParse(s) ?? 0;
+    final mmm = int.tryParse(ms) ?? 0;
+    return (((hh * 60 + mm) * 60) + ss) * 1000 + mmm;
+  }
+
+  var i = 0;
+  while (i < lines.length) {
+    final line = lines[i].trim();
+    final match = timeRe.firstMatch(line);
+    if (match != null) {
+      final start = toMs(
+        match.group(1),
+        match.group(2)!,
+        match.group(3)!,
+        match.group(4)!,
+      );
+      final end = toMs(
+        match.group(5),
+        match.group(6)!,
+        match.group(7)!,
+        match.group(8)!,
+      );
+      i++;
+      final buf = <String>[];
+      while (i < lines.length && lines[i].trim().isNotEmpty) {
+        final cleaned = lines[i]
+            .replaceAll(RegExp(r'<[^>]+>'), '')
+            .replaceAll(RegExp(r'\{\\[^}]+\}'), '')
+            .trim();
+        if (cleaned.isNotEmpty) buf.add(cleaned);
+        i++;
+      }
+      if (buf.isNotEmpty && end > start) {
+        cues.add(
+          SubtitleCue(startMs: start, endMs: end, text: buf.join('\n')),
+        );
+      }
+    } else {
+      i++;
+    }
+  }
+  return cues;
+}
+
+/// 播放页可观察状态。
 @immutable
 class PlayerPlayback {
   const PlayerPlayback({
@@ -27,6 +96,11 @@ class PlayerPlayback {
     this.position = Duration.zero,
     this.duration,
     this.speed = 1.0,
+    this.qualityTier = 'original',
+    this.subtitleScale = 1.0,
+    this.subtitleOffsetMs = 0,
+    this.activeSubtitleText,
+    this.completed = false,
     this.pendingDecision,
     this.skipSegments = const [],
   });
@@ -37,11 +111,12 @@ class PlayerPlayback {
   final Duration position;
   final Duration? duration;
   final double speed;
-
-  /// consent：需用户确认转码；rejected：服务器拒绝。null = 无待处理协商结果。
+  final String qualityTier;
+  final double subtitleScale;
+  final int subtitleOffsetMs;
+  final String? activeSubtitleText;
+  final bool completed;
   final SessionDecision? pendingDecision;
-
-  /// 服务器会话下发的可跳区间（片头/片尾；进度条琥珀色标出）。
   final List<PlaybackSkipSegment> skipSegments;
 
   PlayerPlayback copyWith({
@@ -51,6 +126,12 @@ class PlayerPlayback {
     Duration? position,
     Duration? duration,
     double? speed,
+    String? qualityTier,
+    double? subtitleScale,
+    int? subtitleOffsetMs,
+    String? activeSubtitleText,
+    bool clearActiveSubtitle = false,
+    bool? completed,
     SessionDecision? pendingDecision,
     bool clearError = false,
     bool clearDecision = false,
@@ -64,33 +145,45 @@ class PlayerPlayback {
       position: position ?? this.position,
       duration: duration ?? this.duration,
       speed: speed ?? this.speed,
-      pendingDecision: clearDecision ? null : (pendingDecision ?? this.pendingDecision),
-      skipSegments: clearSkipSegments ? const [] : (skipSegments ?? this.skipSegments),
+      qualityTier: qualityTier ?? this.qualityTier,
+      subtitleScale: subtitleScale ?? this.subtitleScale,
+      subtitleOffsetMs: subtitleOffsetMs ?? this.subtitleOffsetMs,
+      activeSubtitleText: clearActiveSubtitle
+          ? null
+          : (activeSubtitleText ?? this.activeSubtitleText),
+      completed: completed ?? this.completed,
+      pendingDecision:
+          clearDecision ? null : (pendingDecision ?? this.pendingDecision),
+      skipSegments:
+          clearSkipSegments ? const [] : (skipSegments ?? this.skipSegments),
     );
   }
 }
 
-/// 全 App 唯一播放器实例（docs/design/03 §2.1：provider 挂全局单例）。
+/// 全 App 唯一播放器实例。
 final playerServiceProvider = Provider<PlayerService>((ref) {
   final service = VideoPlayerService();
   ref.onDispose(service.close);
   return service;
 });
 
-/// 播放页控制器：只做「服务调用 + 状态搬运」，UI 全在 widgets/。
-/// 对应 Android PlayerViewModel / PlaybackSessionHolder 的播放控制部分。
+/// 影院级播放控制器：会话协商、画质切换、外挂/AI 字幕时间轴同步、软解授权重连、完播上报与实时技术诊断。
 class PlayerController extends Notifier<PlayerPlayback> {
   static const speeds = <double>[0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
   PlayerService get _service => ref.read(playerServiceProvider);
 
   PlaybackSessionApi? _sessionApi;
+  PlaybackSession? _lastSession;
   String? _serverSessionId;
   Timer? _pingTimer;
   DateTime _lastProgressReport = DateTime.fromMillisecondsSinceEpoch(0);
   PlayerPageArgs? _currentArgs;
+  double _speedBeforeHold = 1.0;
+  bool _allowSoftwareTranscode = false;
+  bool _reportedFinished = false;
+  List<SubtitleCue> _subtitleCues = const [];
 
-  /// 服务器会话给出的可选轨道（open 时刷新；空 = 服务器未提供轨道信息）。
   List<PlaybackAudioTrack> _audioTracks = const [];
   List<PlaybackSubtitleTrack> _subtitles = const [];
   String? _selectedAudioTrack;
@@ -100,8 +193,8 @@ class PlayerController extends Notifier<PlayerPlayback> {
   List<PlaybackSubtitleTrack> get subtitles => _subtitles;
   String? get selectedAudioTrack => _selectedAudioTrack;
   String? get selectedSubtitleTrack => _selectedSubtitleTrack;
+  PlaybackSession? get sessionInfo => _lastSession;
 
-  /// 30s 心跳（服务器口径；本地协调器心跳独立 5s）。
   void _startPing() {
     _pingTimer?.cancel();
     final id = _serverSessionId;
@@ -124,71 +217,107 @@ class PlayerController extends Notifier<PlayerPlayback> {
   @override
   PlayerPlayback build() => const PlayerPlayback(status: PlayerStatus.idle);
 
-  /// 当前/最近一次播放的流地址（cast 投屏复用；DLNA 直连不走会话）。
   String? get lastStreamUrl => _lastUrl;
   String? _lastUrl;
 
+  String _resolveHttpUrl(String raw) {
+    if (raw.startsWith('/')) {
+      final base = ServerRoutes.instance.currentOrigin(
+        ref.read(sessionStoreProvider).baseUrl ?? '',
+      );
+      if (base.isNotEmpty) return '$base$raw';
+    }
+    return raw;
+  }
+
   Future<void> open(PlayerPageArgs args) async {
-    _lastUrl = args.url;
-    // 切集/重开时清掉上一集的可跳区间（新会话响应再刷新）。
+    _currentArgs = args;
+    _reportedFinished = false;
+    _subtitleCues = const [];
     state = state.copyWith(
       status: PlayerStatus.opening,
+      completed: false,
       clearError: true,
+      clearActiveSubtitle: true,
       clearSkipSegments: true,
     );
     try {
-      // 服务器会话协商（正式路径）：mediaItemId/fileId 在才走；演示路径直连 url。
       var url = args.url;
       var startPosition = args.startPosition;
-      if (args.mediaItemId != null || args.fileId != null) {
-        _currentArgs = args;
-        _sessionApi = PlaybackSessionApi(McClient(session: ref.read(sessionStoreProvider)));
+      final isLocalFile = url.startsWith('file://') ||
+          (url.startsWith('/') &&
+              !url.startsWith('/api/') &&
+              !url.startsWith('/s/'));
+
+      if (!isLocalFile && (args.mediaItemId != null || args.fileId != null)) {
+        _sessionApi = PlaybackSessionApi(
+          McClient(session: ref.read(sessionStoreProvider)),
+        );
         final session = await _sessionApi!.start(
           fileId: args.fileId,
           mediaItemId: args.mediaItemId,
           seasonNumber: args.seasonNumber,
           episodeNumber: args.episodeNumber,
           startMs: args.startPosition?.inMilliseconds,
+          maxTier: state.qualityTier,
+          allowSoftwareTranscode: _allowSoftwareTranscode,
           audioTrack: _selectedAudioTrack,
           subtitleTrack: _selectedSubtitleTrack,
         );
+        _lastSession = session;
         if (session.playable) {
           _serverSessionId = session.sessionId;
-          url = session.streamUrl!;
+          url = _resolveHttpUrl(session.streamUrl!);
           _audioTracks = session.audioTracks;
           _subtitles = session.subtitles;
           state = state.copyWith(skipSegments: session.skipSegments);
-          _selectedAudioTrack ??= _firstDefault(
-              [for (final t in session.audioTracks) if (t.isDefault) t.ref]);
+          _selectedAudioTrack ??= _firstDefault([
+            for (final t in session.audioTracks)
+              if (t.isDefault) t.ref,
+          ]);
           _selectedSubtitleTrack ??= _subtitles.isEmpty
               ? null
-              : (_firstDefault(
-                    [for (final t in _subtitles) if (t.isDefault) t.trackRef],
-                  ) ??
+              : (_firstDefault([
+                    for (final t in _subtitles)
+                      if (t.isDefault) t.trackRef,
+                  ]) ??
                   _subtitles.first.trackRef);
           if (args.startPosition == null && session.startMs > 0) {
             startPosition = Duration(milliseconds: session.startMs);
           }
           _startPing();
+          unawaited(_loadSelectedSubtitleCues(session));
         } else {
-          // consent = 需用户确认转码；rejected = 服务器拒绝。挂状态给 UI 弹窗，
-          // 同时先按原 url 兜底直播（不因协商失败黑屏）。
-          debugPrint('playback session decision=${session.decision}');
           state = state.copyWith(
             pendingDecision: session.decision == 'rejected'
                 ? SessionDecision.rejected
                 : SessionDecision.consent,
           );
+          if (url.isEmpty) {
+            state = state.copyWith(
+              status: PlayerStatus.failed,
+              error: session.transcodeReason ??
+                  (session.decision == 'rejected'
+                      ? '服务器策略拒绝此次转码会话'
+                      : '当前片源需要开启软件转码后才能播放'),
+            );
+            return;
+          }
         }
       }
-      await _service.open(PlayerRequest(
-        url: url,
-        title: args.title,
-        startPosition: startPosition,
-        headers: args.headers,
-      ));
+      _lastUrl = _resolveHttpUrl(url);
+      await _service.open(
+        PlayerRequest(
+          url: url,
+          title: args.title,
+          startPosition: startPosition,
+          headers: args.headers,
+        ),
+      );
+      if (state.speed != 1.0) {
+        await _service.setSpeed(state.speed);
+      }
       state = state.copyWith(status: PlayerStatus.ready);
-      // 位置/时长/播放态直接消费服务的稳定通知器（UI 不轮询引擎）。
       _service.position.addListener(_onPosition);
       _service.playing.addListener(_onPlaying);
       _service.duration.addListener(_onDuration);
@@ -203,10 +332,91 @@ class PlayerController extends Notifier<PlayerPlayback> {
     }
   }
 
+  Future<void> _loadSelectedSubtitleCues(PlaybackSession session) async {
+    final sel = _selectedSubtitleTrack;
+    if (sel == null || sel.isEmpty) {
+      _subtitleCues = const [];
+      state = state.copyWith(clearActiveSubtitle: true);
+      return;
+    }
+    String? subUrl;
+    for (final t in session.subtitles) {
+      if (t.trackRef == sel && t.url != null && t.url!.isNotEmpty) {
+        subUrl = t.url;
+        break;
+      }
+    }
+    subUrl ??=
+        session.subtitleUrls.isNotEmpty ? session.subtitleUrls.first : null;
+    if (subUrl == null || subUrl.isEmpty) return;
+    try {
+      final full = _resolveHttpUrl(subUrl);
+      final resp = await Dio().get<String>(
+        full,
+        options: Options(
+          headers: mcImageHeaders(),
+          responseType: ResponseType.plain,
+        ),
+      );
+      final body = resp.data;
+      if ((resp.statusCode ?? 0) >= 200 &&
+          (resp.statusCode ?? 0) < 300 &&
+          body != null) {
+        _subtitleCues = parseSubtitleText(body);
+        _syncSubtitleAt(state.position);
+      }
+    } catch (_) {}
+  }
+
+  void _syncSubtitleAt(Duration pos) {
+    if (_subtitleCues.isEmpty) {
+      if (state.activeSubtitleText != null) {
+        state = state.copyWith(clearActiveSubtitle: true);
+      }
+      return;
+    }
+    final adjustedMs = pos.inMilliseconds - state.subtitleOffsetMs;
+    String? matched;
+    for (final cue in _subtitleCues) {
+      if (adjustedMs >= cue.startMs && adjustedMs <= cue.endMs) {
+        matched = cue.text;
+        break;
+      }
+    }
+    if (matched != state.activeSubtitleText) {
+      state = matched == null
+          ? state.copyWith(clearActiveSubtitle: true)
+          : state.copyWith(activeSubtitleText: matched);
+    }
+  }
+
   void _onPosition() {
-    state = state.copyWith(position: _service.position.value);
-    // 观看进度上报：15s 节流（POST /playback/progress）。
+    final pos = _service.position.value;
+    final dur = state.duration;
+    final nearEnd = dur != null &&
+        dur.inSeconds > 10 &&
+        pos.inMilliseconds >= dur.inMilliseconds - 1500;
+    state = state.copyWith(
+      position: pos,
+      completed: nearEnd ? true : state.completed,
+    );
+    _syncSubtitleAt(pos);
+
     final args = _currentArgs;
+    if (nearEnd && !_reportedFinished && args?.mediaItemId != null) {
+      _reportedFinished = true;
+      _sessionApi
+          ?.reportProgress(
+            mediaItemId: args!.mediaItemId!,
+            seasonNumber: args.seasonNumber,
+            episodeNumber: args.episodeNumber,
+            event: 'finished',
+            positionMs: pos.inMilliseconds,
+            paused: true,
+          )
+          .catchError((_) {});
+    }
+
     final now = DateTime.now();
     if (args?.mediaItemId != null &&
         state.status == PlayerStatus.ready &&
@@ -218,12 +428,13 @@ class PlayerController extends Notifier<PlayerPlayback> {
             seasonNumber: args.seasonNumber,
             episodeNumber: args.episodeNumber,
             event: 'progress',
-            positionMs: state.position.inMilliseconds,
+            positionMs: pos.inMilliseconds,
             paused: !state.playing,
           )
           .catchError((_) {});
     }
   }
+
   void _onPlaying() => state = state.copyWith(playing: _service.playing.value);
   void _onDuration() =>
       state = state.copyWith(duration: _service.duration.value);
@@ -235,12 +446,8 @@ class PlayerController extends Notifier<PlayerPlayback> {
     _service.duration.removeListener(_onDuration);
   }
 
-  /// 取第一个默认轨引用（不引 collection 包，手写 firstOrNull 口径）。
-  String? _firstDefault(List<String> refs) =>
-      refs.isEmpty ? null : refs.first;
+  String? _firstDefault(List<String> refs) => refs.isEmpty ? null : refs.first;
 
-  /// 换音轨/字幕轨：对齐切集路径（detach → 带轨参数重开会话 → 续播当前进度）。
-  /// subtitleTrack 传 '' 表示关闭字幕；null 表示保持不变。
   Future<void> switchTrack({String? audioTrack, String? subtitleTrack}) async {
     final args = _currentArgs;
     if (args == null || _sessionApi == null) return;
@@ -251,7 +458,58 @@ class PlayerController extends Notifier<PlayerPlayback> {
     await open(_copyArgsAt(args, pos));
   }
 
-  /// 以当前进度续播复制 args（换轨/换集共用口径：startPosition = 当前进度）。
+  Future<void> setQualityTier(String tier) async {
+    if (tier == state.qualityTier) return;
+    state = state.copyWith(qualityTier: tier);
+    final args = _currentArgs;
+    if (args == null || _sessionApi == null) return;
+    final pos = _service.position.value;
+    detach();
+    await open(_copyArgsAt(args, pos));
+  }
+
+  void setSubtitleScale(double scale) {
+    state = state.copyWith(subtitleScale: scale.clamp(0.75, 1.6));
+  }
+
+  void adjustSubtitleOffset(int deltaMs) {
+    final next = deltaMs == 0 ? 0 : state.subtitleOffsetMs + deltaMs;
+    state = state.copyWith(subtitleOffsetMs: next);
+    _syncSubtitleAt(state.position);
+  }
+
+  /// 用户确认允许软件转码后重新协商会话。
+  Future<void> acceptTranscodeConsent() async {
+    _allowSoftwareTranscode = true;
+    state = state.copyWith(clearDecision: true);
+    final args = _currentArgs;
+    if (args != null) {
+      detach();
+      await open(args);
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchDiagnostics() async {
+    final s = _lastSession;
+    Map<String, dynamic> remote = const {};
+    if (_serverSessionId != null && _sessionApi != null) {
+      try {
+        remote = await _sessionApi!.diagnostics(_serverSessionId!);
+      } catch (_) {}
+    }
+    return {
+      'delivery': s?.deliveryMode ?? remote['mode'] ?? 'Direct / Local',
+      'container': s?.container ?? remote['container'] ?? '-',
+      'video_codec': s?.videoCodec ?? remote['video_codec'] ?? '-',
+      'audio_codec': s?.audioCodec ?? remote['audio_codec'] ?? '-',
+      'resolution': s?.resolution ?? remote['resolution'] ?? '-',
+      'hw_backend': s?.hwBackend ?? remote['hw_backend'] ?? 'None',
+      'quality_tier': state.qualityTier,
+      if (remote['fps'] != null) 'fps': remote['fps'],
+      if (remote['speed'] != null) 'transcode_speed': remote['speed'],
+    };
+  }
+
   PlayerPageArgs _copyArgsAt(PlayerPageArgs args, Duration position) {
     return PlayerPageArgs(
       url: args.url,
@@ -269,7 +527,6 @@ class PlayerController extends Notifier<PlayerPlayback> {
     );
   }
 
-  /// 用户在协商弹窗点了「继续播放」（consent 确认，或 rejected 仍要看）。
   Future<void> acknowledgeDecision() async {
     state = state.copyWith(clearDecision: true);
   }
@@ -282,7 +539,6 @@ class PlayerController extends Notifier<PlayerPlayback> {
     }
   }
 
-  /// 拖动条点按 / 拖动松手 / 章节跳播统一入口（钳制在 [0, duration]）。
   Future<void> seekTo(Duration target) async {
     final duration = state.duration;
     final clamped = duration == null
@@ -291,23 +547,31 @@ class PlayerController extends Notifier<PlayerPlayback> {
             ? Duration.zero
             : (target > duration ? duration : target);
     await _service.seekTo(clamped);
-    state = state.copyWith(position: clamped);
+    state = state.copyWith(position: clamped, completed: false);
+    _syncSubtitleAt(clamped);
   }
 
-  /// 手势横向滑动：满屏一划 = 90 秒（Android PlayerGestureMath）。
   Future<void> seekByRelative(int deltaMs) async {
     final base = _service.position.value;
     await seekTo(base + Duration(milliseconds: deltaMs));
   }
 
   Future<void> setSpeed(double speed) async {
+    _speedBeforeHold = speed;
     await _service.setSpeed(speed);
     state = state.copyWith(speed: speed);
   }
 
-  /// 长按 2× 变速（Android HOLD_SPEED = 2f）：按住升到 2×，松手回原速。
+  /// 长按 2× 倍速，松手恢复长按前的倍速（而非硬编码回 1.0x）。
   Future<void> setHoldSpeed(bool holding) async {
-    await setSpeed(holding ? 2.0 : 1.0);
+    if (holding) {
+      _speedBeforeHold = state.speed;
+      await _service.setSpeed(2.0);
+      state = state.copyWith(speed: 2.0);
+    } else {
+      await _service.setSpeed(_speedBeforeHold);
+      state = state.copyWith(speed: _speedBeforeHold);
+    }
   }
 
   Future<void> exit() async {

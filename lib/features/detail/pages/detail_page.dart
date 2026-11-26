@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/mc_ambient.dart';
@@ -18,6 +17,7 @@ import '../../offline/state/models.dart';
 import '../state/detail_controller.dart';
 import '../widgets/air_schedule.dart';
 import '../widgets/cast_row.dart';
+import '../widgets/detail_admin_sheets.dart';
 import '../widgets/detail_header.dart';
 import '../widgets/episode_list.dart';
 import '../widgets/episode_ranges.dart';
@@ -158,15 +158,30 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   void _showActionMenu(DetailController controller) async {
     final action = await showItemActionsMenu(context);
     if (action == null || !mounted) return;
+    final entry = ref.read(detailControllerProvider(_key)).entry;
     switch (action) {
       case ItemAction.subscribe:
         _subscribe();
       case ItemAction.download:
         _download();
+      case ItemAction.addToCollection:
+        showAddToCollectionSheet(context: context, controller: controller);
       case ItemAction.share:
-        _share(controller);
+        showConfigurableShareSheet(
+          context: context,
+          controller: controller,
+          itemTitle: entry?.title ?? '影片',
+        );
       case ItemAction.subtitleGen:
-        _subtitleGen(controller);
+        showSubtitleGenSheet(context: context, controller: controller);
+      case ItemAction.artwork:
+        showArtworkPickerSheet(context: context, controller: controller);
+      case ItemAction.reidentify:
+        showReidentifySheet(
+          context: context,
+          controller: controller,
+          initialTitle: entry?.title ?? '',
+        );
       case ItemAction.refreshMetadata:
         final err = await controller.refreshMetadata();
         if (!mounted) return;
@@ -198,15 +213,21 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     }
   }
 
-  void _download() {
+  void _download({int? specificFileId, String? episodeSubtitle}) {
     final state = ref.read(detailControllerProvider(_key));
     final entry = state.entry;
     if (entry == null) return;
-    final fileId = ref.read(detailControllerProvider(_key).notifier).leadFileId;
+    final fileId = specificFileId ??
+        ref.read(detailControllerProvider(_key).notifier).leadFileId;
     if (fileId == null) {
       McToast.error('没有在位文件，无法缓存');
       return;
     }
+    final seasonList = state.episodes[state.selectedSeason] ?? const <EpisodeEntry>[];
+    final seasonFileIds = [
+      for (final e in seasonList)
+        if (e.playFileId != null) e.playFileId.toString(),
+    ];
     const profiles = [
       DownloadProfile(id: 'original', label: '原画', isOriginal: true),
       DownloadProfile(
@@ -232,74 +253,24 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       context,
       candidate: DownloadCandidate(
         fileId: fileId.toString(),
-        title: entry.title,
-        scopes: entry.isTv ? const ['本片', '全季'] : const ['本片'],
+        title: episodeSubtitle != null
+            ? '${entry.title} · $episodeSubtitle'
+            : entry.title,
+        scopes: entry.isTv && specificFileId == null && seasonFileIds.length > 1
+            ? const ['当前集', '本季全部']
+            : const ['本片'],
         profiles: profiles,
+        seasonFileIds: seasonFileIds,
       ),
     );
   }
 
-  Future<void> _share(DetailController controller) async {
-    final entry = ref.read(detailControllerProvider(_key)).entry;
-    final err = StringBuffer();
-    final url = await controller.createShareLink(err: err);
-    if (!mounted) return;
-    if (url == null || url.isEmpty) {
-      McToast.error('生成分享链接失败：${err.isEmpty ? '未知错误' : err}');
-      return;
-    }
-    await Share.share(url, subject: entry?.title);
-  }
-
-  Future<void> _subtitleGen(DetailController controller) async {
-    McToast.info('正在预检音视频文件…');
-    final message = await controller.startSubtitleGen();
-    if (mounted) McToast.info(message);
-  }
-
   Future<void> _delete(DetailController controller) async {
     final entry = ref.read(detailControllerProvider(_key)).entry;
-    final ok = await showMcSheet<bool>(
+    final ok = await showDeletePreviewSheet(
       context: context,
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('确认删除此条目？', style: McText.title),
-            const SizedBox(height: 8),
-            Text(
-              '即将从媒体库移除「${entry?.title ?? ''}」，该操作不可撤销。',
-              style: McText.caption.muted,
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: McActionPill(
-                    label: '取消',
-                    primary: false,
-                    expanded: true,
-                    onTap: () => Navigator.of(ctx).pop(false),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: McActionPill(
-                    label: '确认删除',
-                    icon: McIcons.trash2,
-                    primary: false,
-                    tone: McGlassTone.danger,
-                    expanded: true,
-                    onTap: () => Navigator.of(ctx).pop(true),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+      controller: controller,
+      title: entry?.title ?? '',
     );
     if (ok != true || !mounted) return;
     final err = await controller.deleteItem();
@@ -318,7 +289,9 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       McToast.info('暂无「${member.name}」的人物档案');
       return;
     }
-    context.push('/discover/person?id=$id');
+    context.push(
+      '/library/person/$id?name=${Uri.encodeComponent(member.name)}',
+    );
   }
 
   void _back() {
@@ -470,6 +443,39 @@ class _DetailPageState extends ConsumerState<DetailPage> {
         EpisodeList(
           episodes: episodes,
           onEpisodeTap: _playEpisode,
+          onTogglePlayed: (ep) async {
+            final err = await controller.toggleEpisodePlayed(ep);
+            if (!mounted) return;
+            if (err != null) {
+              McToast.error(err);
+            } else {
+              McToast.success(ep.played ? '已标为未看' : '已标为看完');
+            }
+          },
+          onDownloadEpisode: (ep) {
+            if (ep.playFileId == null) {
+              McToast.error('该集无在位文件');
+              return;
+            }
+            _download(
+              specificFileId: ep.playFileId,
+              episodeSubtitle:
+                  'S${ep.seasonNumber.toString().padLeft(2, '0')}E${ep.episodeNumber.toString().padLeft(2, '0')}',
+            );
+          },
+          onSubtitleEpisode: (ep) {
+            if (ep.playFileId == null) {
+              McToast.error('该集无在位文件');
+              return;
+            }
+            showSubtitleGenSheet(
+              context: context,
+              controller: controller,
+              fileId: ep.playFileId,
+              label:
+                  'S${ep.seasonNumber.toString().padLeft(2, '0')}E${ep.episodeNumber.toString().padLeft(2, '0')}',
+            );
+          },
         ),
       ],
     );
@@ -561,6 +567,8 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                             entry: entry,
                             onSeriesTap: (id) =>
                                 context.push('/library/collection/$id'),
+                            onCollectionTap: (_) =>
+                                context.push('/library/collections'),
                           ),
                         ],
                       ),
@@ -634,6 +642,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                 child: MetaLinks(
                   entry: entry,
                   onSeriesTap: (id) => context.push('/library/collection/$id'),
+                  onCollectionTap: (_) => context.push('/library/collections'),
                 ),
               ),
               if (entry.overview != null && entry.overview!.isNotEmpty)

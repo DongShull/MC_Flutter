@@ -165,10 +165,15 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
         itemCount: items.length,
         itemBuilder: (context, i) => McFocusRing(
           borderRadius: McTokens.posterRadius,
-          child: _PosterTile(
-            title: items[i].title,
-            posterUrl: items[i].posterUrl,
-            subtitle: items[i].kind,
+          child: GestureDetector(
+            onTap: () => context.push(
+              '/search?q=${Uri.encodeComponent(items[i].title)}&tab=library',
+            ),
+            child: _PosterTile(
+              title: items[i].title,
+              posterUrl: items[i].posterUrl,
+              subtitle: items[i].kind,
+            ),
           ),
         ),
       );

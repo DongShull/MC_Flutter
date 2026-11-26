@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
@@ -28,18 +29,77 @@ class _LibraryCustomizePageState extends ConsumerState<LibraryCustomizePage> {
     Future.microtask(() => ref.read(libraryCustomizeProvider.notifier).load());
   }
 
+  Future<void> _handleBack(CustomizeState state) async {
+    if (!state.dirty) {
+      context.canPop() ? context.pop() : context.go('/home');
+      return;
+    }
+    final action = await showMcSheet<String>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('有未保存的首页排版修改', style: McText.titleSm),
+            const SizedBox(height: 8),
+            Text(
+              '离开前是否保存刚才调整的栏目顺序与显示开关？',
+              style: McText.sub.muted,
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: '放弃修改',
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop('discard'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: '保存并退出',
+                    primary: true,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop('save'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'save') {
+      final ok = await ref.read(libraryCustomizeProvider.notifier).save();
+      if (!ok || !mounted) return;
+      McToast.success('已保存');
+    }
+    if (mounted) {
+      context.canPop() ? context.pop() : context.go('/home');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(libraryCustomizeProvider);
     return PopScope(
       canPop: !state.dirty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _handleBack(state);
+      },
       child: Scaffold(
         backgroundColor: McTokens.bg,
         body: Column(
           children: [
             McFloatingDetailBar(
-              onBack: () =>
-                  context.canPop() ? context.pop() : context.go('/home'),
+              onBack: () => _handleBack(state),
               title: '自定义首页',
               titleVisible: true,
               trailing: [

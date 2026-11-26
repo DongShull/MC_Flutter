@@ -13,6 +13,7 @@ class ReelPage extends StatelessWidget {
   const ReelPage({
     super.key,
     required this.item,
+    this.active = false,
     required this.favorite,
     required this.played,
     required this.onToggleFavorite,
@@ -20,9 +21,11 @@ class ReelPage extends StatelessWidget {
     required this.onOpenDetail,
     required this.onShare,
     required this.onPlay,
+    this.onWatchFull,
   });
 
   final ReelItemView item;
+  final bool active;
   final bool favorite;
   final bool played;
   final VoidCallback onToggleFavorite;
@@ -30,6 +33,7 @@ class ReelPage extends StatelessWidget {
   final VoidCallback onOpenDetail;
   final VoidCallback onShare;
   final VoidCallback onPlay;
+  final VoidCallback? onWatchFull;
 
   @override
   Widget build(BuildContext context) {
@@ -104,7 +108,7 @@ class ReelPage extends StatelessWidget {
                   _GlassCapsule(
                     label: '看全片',
                     icon: McIcons.fullscreen1,
-                    onTap: onPlay,
+                    onTap: onWatchFull ?? onPlay,
                   ),
                 ],
               ),

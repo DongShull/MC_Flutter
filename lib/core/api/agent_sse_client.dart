@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../network/server_routes.dart';
 import '../session/session_store.dart';
 
 /// 服务器推来的一条 SSE 事件（对齐 Kotlin core/network/EventStream.kt 的 SseEvent）。
@@ -41,7 +42,15 @@ class AgentSseClient {
   final String? _baseUrlOverride;
   final String? _tokenOverride;
 
-  String get _base => _baseUrlOverride ?? _session.baseUrl ?? '';
+  String get _base {
+    final override = _baseUrlOverride;
+    if (override != null && override.isNotEmpty) {
+      return override;
+    }
+    final routed = ServerRoutes.instance.currentOrigin();
+    if (routed.isNotEmpty) return routed;
+    return _session.baseUrl ?? '';
+  }
   String? get _token => _tokenOverride ?? _session.token;
 
   static const _maxAttempts = 5;

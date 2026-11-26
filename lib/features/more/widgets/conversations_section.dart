@@ -39,6 +39,12 @@ class ConversationsSection extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const QuickInputCard(),
+        const SizedBox(height: 12),
+        McSectionHeader(
+          title: 'AI 会话历史',
+          trailingText: '打开完整双栏工作台',
+          onTap: () => context.push('/agent'),
+        ),
         for (final group in groups) ...[
           const SizedBox(height: 16),
           McInsetGroup(

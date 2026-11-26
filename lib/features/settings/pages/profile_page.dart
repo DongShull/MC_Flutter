@@ -8,6 +8,7 @@ import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
+import '../../../core/image/image_urls.dart';
 import '../state/controllers.dart';
 import '../state/mc_api.dart';
 import '../widgets/settings_ui.dart';
@@ -70,7 +71,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     await ref.read(profileProvider.notifier).logout();
     if (!mounted) return;
     showSettingsToast(context, '已退出登录');
-    context.go('/');
+    context.go('/onboarding');
   }
 
   Future<void> _uploadAvatar() async {
@@ -126,7 +127,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                       alignment: Alignment.center,
                       child: avatarUrl != null && avatarUrl.isNotEmpty
                           ? CachedNetworkImage(
-                              imageUrl: avatarUrl,
+                              imageUrl: McImageUrls.resolve(
+                                avatarUrl,
+                                widthPx: 160,
+                              ),
+                              httpHeaders: mcImageHeaders(),
                               width: 76,
                               height: 76,
                               fit: BoxFit.cover,

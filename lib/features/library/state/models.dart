@@ -113,6 +113,7 @@ class LibraryView {
     required this.id,
     this.name = '',
     this.kind = 'movie',
+    this.paths = const [],
     this.excludeFromHome = false,
     this.viewerAccess = true,
     this.isDefault = false,
@@ -130,6 +131,7 @@ class LibraryView {
   final int id;
   final String name;
   final String kind;
+  final List<String> paths;
   final bool excludeFromHome;
   final bool viewerAccess;
   final bool isDefault;
@@ -159,6 +161,12 @@ class LibraryView {
         id: _asInt(j['id']),
         name: _asStr(j['name']),
         kind: j['kind']?.toString() ?? 'movie',
+        paths: [
+          for (final p in (j['paths'] as List<dynamic>? ??
+              j['root_paths'] as List<dynamic>? ??
+              const []))
+            if (p is Map) _asStr(p['path']) else _asStr(p),
+        ].where((s) => s.isNotEmpty).toList(),
         excludeFromHome: _asBool(j['exclude_from_home']),
         viewerAccess: j['viewer_access'] == null ? true : _asBool(j['viewer_access']),
         isDefault: _asBool(j['is_default']),
@@ -178,6 +186,29 @@ class LibraryView {
             ? LibraryCapabilitiesView.fromJson(j['capabilities'] as Map<String, dynamic>)
             : const LibraryCapabilitiesView(),
       );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'kind': kind,
+        'paths': paths,
+        'exclude_from_home': excludeFromHome,
+        'viewer_access': viewerAccess,
+        'is_default': isDefault,
+        'custom_cover': customCover,
+        'stats': {
+          'item_count': stats.itemCount,
+          'file_count': stats.fileCount,
+          'total_size_bytes': stats.totalSizeBytes,
+          'unidentified_count': stats.unidentifiedCount,
+          'missing_count': stats.missingCount,
+          'ignored_count': stats.ignoredCount,
+        },
+        'capabilities': {
+          'scraped': capabilities.scraped,
+          'playable': capabilities.playable,
+        },
+      };
 }
 
 /// 最近一次入库批次的剧集摘要（LibraryRecentAdditionView）。
@@ -290,6 +321,24 @@ class LibraryItemView {
             ? null
             : _asInt(j['favorite_episode_number']),
       );
+
+  Map<String, dynamic> toJson() => {
+        'media_item_id': mediaItemId,
+        'kind': kind,
+        if (libraryId != null) 'library_id': libraryId,
+        'title': title,
+        if (year != null) 'year': year,
+        if (posterUrl != null) 'poster_url': posterUrl,
+        if (backdropUrl != null) 'backdrop_url': backdropUrl,
+        'primary_aspect': primaryAspect,
+        if (rating != null) 'rating': rating,
+        'file_count': fileCount,
+        'total_size_bytes': totalSizeBytes,
+        'seasons': seasons,
+        'resolutions': resolutions,
+        'is_favorite': isFavorite,
+        if (addedAt != null) 'added_at': addedAt,
+      };
 }
 
 /// `GET /playback/favorites` 的结果（FavoritesView）。
@@ -374,6 +423,26 @@ class UpNextItem {
         advanced: _asBool(j['advanced']),
         lastPlayedAt: j['last_played_at']?.toString(),
       );
+
+  Map<String, dynamic> toJson() => {
+        'media_item_id': mediaItemId,
+        'library_id': libraryId,
+        'kind': kind,
+        'title': title,
+        if (year != null) 'year': year,
+        if (posterUrl != null) 'poster_url': posterUrl,
+        'poster_aspect': posterAspect,
+        if (backdropUrl != null) 'backdrop_url': backdropUrl,
+        if (episodeStillUrl != null) 'episode_still_url': episodeStillUrl,
+        'season_number': seasonNumber,
+        'episode_number': episodeNumber,
+        if (episodeTitle != null) 'episode_title': episodeTitle,
+        'unwatched_ahead_count': unwatchedAheadCount,
+        'position_ms': positionMs,
+        if (durationMs != null) 'duration_ms': durationMs,
+        if (progressPercent != null) 'progress_percent': progressPercent,
+        if (lastPlayedAt != null) 'last_played_at': lastPlayedAt,
+      };
 }
 
 /// 合集卡片的一张封面图（CollectionCover）。
@@ -436,6 +505,23 @@ class CollectionView {
         covers: _list(j['covers'], CollectionCover.fromJson),
         position: _asInt(j['position']),
       );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        if (libraryId != null) 'library_id': libraryId,
+        'sort': sort,
+        'visibility': visibility,
+        if (builtin != null) 'builtin': builtin,
+        'kind': kind,
+        'editable': editable,
+        'rule_driven': ruleDriven,
+        'item_count': itemCount,
+        'covers': [
+          for (final c in covers) {'url': c.url, if (c.blur != null) 'blur': c.blur},
+        ],
+        'position': position,
+      };
 }
 
 /// 筛选面板里的一个候选值（FacetValue）：count 已按「排除本维自身条件」算好。

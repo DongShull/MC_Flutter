@@ -8,47 +8,54 @@ import '../session/session_store.dart';
 import 'api_exception.dart';
 import 'retry_interceptor.dart';
 
-/// 三通道网络层（对齐 iOS 三 URLSession / 原 General|Live|Playback 三通道设计）：
-/// - general：常规业务请求
-/// - live：低延迟实时请求
-/// - playback：播放链路专用（与播放会话共享连接语义）
+/// 三通道网络层（对齐 iOS 三 URLSession / 原 General|Live|Playback 三通道设计）。
 enum Channel { general, live, playback }
 
-/// compute() 包装：jsonDecode 签名带可选参数，不能直接当 ComputeCallback 用。
-Map<String, dynamic> _decodeJson(String raw) => jsonDecode(raw) as Map<String, dynamic>;
+Map<String, dynamic> _decodeJson(String raw) =>
+    jsonDecode(raw) as Map<String, dynamic>;
 
 class McClient {
-  McClient({required SessionStore session, this.ua = 'MovieClaw-Flutter/0.1.0', String? baseUrlOverride})
-      : _session = session,
+  McClient({
+    required SessionStore session,
+    this.ua = 'MovieClaw-Flutter/1.0.0',
+    String? baseUrlOverride,
+  })  : _session = session,
         _baseUrlOverride = baseUrlOverride {
     for (final c in Channel.values) {
-      _dio[c] = Dio(BaseOptions(
-        connectTimeout: const Duration(seconds: 8),
-        receiveTimeout: c == Channel.general
-            ? const Duration(seconds: 20)
-            : const Duration(seconds: 10),
-        headers: {'User-Agent': ua},
-        validateStatus: (_) => true,
-      ));
+      _dio[c] = Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 8),
+          receiveTimeout: c == Channel.general
+              ? const Duration(seconds: 25)
+              : const Duration(seconds: 12),
+          headers: {'User-Agent': ua},
+          validateStatus: (_) => true,
+        ),
+      );
       _dio[c]!.interceptors.add(RetryInterceptor(_dio[c]!));
     }
   }
 
   final SessionStore _session;
   final String ua;
-  /// 登录前 session 尚无 baseUrl，用输入框地址显式覆盖（首次登录必需）。
   final String? _baseUrlOverride;
   final Map<Channel, Dio> _dio = {};
 
-
-  /// 当前服务器基址（含 /api/v1 前缀的完整 URL 拼接由调用方给 path）。
-  /// 已配置选路时走 ServerRoutes 胜者（同令牌换 origin，鸿蒙 onRouteChange 对应）；
-  /// 登录地址覆盖（登录页）与未配置场景不受影响。
   String get baseUrl {
     final base = _baseUrlOverride ?? _session.baseUrl ?? '';
     if (_baseUrlOverride != null || base.isEmpty) return base;
     final routed = ServerRoutes.instance.currentOrigin();
     return routed.isEmpty ? base : routed;
+  }
+
+  Map<String, String> _authHeaders() {
+    final token = _session.token;
+    final routeKind = ServerRoutes.instance.kind;
+    return <String, String>{
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      if (routeKind == 'lan' || routeKind == 'wan')
+        'X-MovieClaw-Route': routeKind,
+    };
   }
 
   Future<Response<Map<String, dynamic>>> get(
@@ -70,14 +77,25 @@ class McClient {
     Channel channel,
     String path, {
     Object? body,
+    Map<String, dynamic>? query,
   }) async =>
-      _send(channel, 'PUT', path, body: body);
+      _send(channel, 'PUT', path, body: body, query: query);
+
+  Future<Response<Map<String, dynamic>>> patch(
+    Channel channel,
+    String path, {
+    Object? body,
+    Map<String, dynamic>? query,
+  }) async =>
+      _send(channel, 'PATCH', path, body: body, query: query);
 
   Future<Response<Map<String, dynamic>>> delete(
     Channel channel,
-    String path,
-  ) async =>
-      _send(channel, 'DELETE', path);
+    String path, {
+    Object? body,
+    Map<String, dynamic>? query,
+  }) async =>
+      _send(channel, 'DELETE', path, body: body, query: query);
 
   Future<Response<Map<String, dynamic>>> _send(
     Channel channel,
@@ -87,23 +105,36 @@ class McClient {
     Map<String, dynamic>? query,
   }) async {
     final dio = _dio[channel]!;
-    final token = _session.token;
-    final res = await dio.request<Map<String, dynamic>>(
-      '$baseUrl$path',
+    final url = path.startsWith('http://') || path.startsWith('https://')
+        ? path
+        : '$baseUrl$path';
+    final res = await dio.request<dynamic>(
+      url,
       data: body,
       queryParameters: query,
-      options: Options(
-        method: method,
-        headers: {
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-      ),
+      options: Options(method: method, headers: _authHeaders()),
     );
-    return res;
+    Map<String, dynamic>? parsed;
+    if (res.data is Map<String, dynamic>) {
+      parsed = res.data as Map<String, dynamic>;
+    } else if (res.data is Map) {
+      parsed = (res.data as Map).cast<String, dynamic>();
+    } else if (res.data is String && (res.data as String).trim().isNotEmpty) {
+      parsed = await compute(_decodeJson, res.data as String);
+    }
+    return Response<Map<String, dynamic>>(
+      data: parsed,
+      requestOptions: res.requestOptions,
+      statusCode: res.statusCode,
+      statusMessage: res.statusMessage,
+      isRedirect: res.isRedirect,
+      redirects: res.redirects,
+      extra: res.extra,
+      headers: res.headers,
+    );
   }
 
-  /// 信封解包：非 ok 抛 ApiException，ok 返回 data。
-  /// multipart 上传（头像等；对应 Kotlin @Multipart）。返回解包后的 data。
+  /// Multipart 上传（头像、封面、插件包等）：自动拼 `$baseUrl` 并附带 Bearer 凭证。
   Future<T> postMultipart<T>(
     Channel channel,
     String path, {
@@ -112,17 +143,45 @@ class McClient {
     String fileName = 'avatar.jpg',
     String contentType = 'image/jpeg',
     Map<String, dynamic>? query,
+    Map<String, dynamic>? extraFields,
   }) async {
     final dio = _dio[channel]!;
+    final parts = contentType.split('/');
     final form = FormData.fromMap({
-      fileField: await MultipartFile.fromFile(filePath,
-          filename: fileName, contentType: DioMediaType(contentType.split('/')[0], contentType.split('/')[1])),
+      if (extraFields != null) ...extraFields,
+      fileField: await MultipartFile.fromFile(
+        filePath,
+        filename: fileName,
+        contentType: DioMediaType(
+          parts.first,
+          parts.length > 1 ? parts[1] : 'octet-stream',
+        ),
+      ),
     });
-    final res = await dio.post<Map<String, dynamic>>(path,
-        data: form, queryParameters: query);
-    final data = res.data;
+    final url = path.startsWith('http://') || path.startsWith('https://')
+        ? path
+        : '$baseUrl$path';
+    final res = await dio.post<dynamic>(
+      url,
+      data: form,
+      queryParameters: query,
+      options: Options(headers: _authHeaders()),
+    );
+    Map<String, dynamic>? data;
+    if (res.data is Map<String, dynamic>) {
+      data = res.data as Map<String, dynamic>;
+    } else if (res.data is Map) {
+      data = (res.data as Map).cast<String, dynamic>();
+    } else if (res.data is String && (res.data as String).trim().isNotEmpty) {
+      data = await compute(_decodeJson, res.data as String);
+    }
     if (data == null) {
-      throw ApiException('network.empty', '服务器返回为空', httpStatus: res.statusCode);
+      if (res.statusCode == 204 && null is T) return null as T;
+      throw ApiException(
+        'network.empty',
+        '服务器返回为空',
+        httpStatus: res.statusCode,
+      );
     }
     return unwrapEnvelope<T>(data);
   }
@@ -135,14 +194,17 @@ class McClient {
     Map<String, dynamic>? query,
   }) async {
     final res = await _send(channel, method, path, body: body, query: query);
-    // 服务器 content-type 不规范时 dio 不反序列化（data 是 String）：
-    // 大响应丢 compute() 在 isolate 里解析，主线程不卡（飞牛 Go 传输层的 Dart 侧对应物）。
-    if (res.data is String) {
-      res.data = await compute(_decodeJson, res.data as String);
-    }
     final data = res.data;
     if (data == null) {
-      throw ApiException('network.empty', '服务器返回为空', httpStatus: res.statusCode);
+      if (res.statusCode == 204) {
+        if (<String, dynamic>{} is T) return <String, dynamic>{} as T;
+        if (null is T) return null as T;
+      }
+      throw ApiException(
+        'network.empty',
+        '服务器返回为空 (HTTP ${res.statusCode})',
+        httpStatus: res.statusCode,
+      );
     }
     return unwrapEnvelope<T>(data);
   }

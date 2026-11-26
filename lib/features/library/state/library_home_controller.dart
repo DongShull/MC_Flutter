@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/api/session_providers.dart';
 import 'home_rows.dart';
@@ -141,8 +143,8 @@ class LibraryHomeController extends Notifier<LibraryHomeState> {
     return 30;
   }
 
-  /// 以当前账号身份使用：换了账号就清空旧账号的数据。
-  void _adopt() {
+  /// 以当前账号身份使用：换了账号就清空旧账号的数据，并尝试 0ms 读冷启动快照。
+  Future<void> _adopt() async {
     final session = ref.read(sessionStoreProvider);
     final key = '${session.baseUrl ?? ''}|${session.username}';
     if (key == _owner) return;
@@ -150,10 +152,85 @@ class LibraryHomeController extends Notifier<LibraryHomeState> {
     _rowsFingerprint = null;
     _roleLoaded = false;
     state = const LibraryHomeState();
+    if ((session.baseUrl ?? '').isEmpty) return;
+    await _hydrateSnapshot(key);
+  }
+
+  String _snapKey(String owner) => 'mc_lib_home_snap_v1_$owner';
+
+  Future<void> _hydrateSnapshot(String owner) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final raw = sp.getString(_snapKey(owner));
+      if (raw == null || raw.isEmpty || owner != _owner) return;
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final libs = (map['libraries'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map((m) => LibraryView.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+      if (libs.isEmpty) return;
+      final cols = (map['collections'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map((m) => CollectionView.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+      final upNext = (map['up_next'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map((m) => UpNextItem.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+      final favItems = (map['favorites'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map((m) => LibraryItemView.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+      final itemsMapRaw = map['items_by_key'];
+      final itemsByKey = <String, List<LibraryItemView>>{};
+      if (itemsMapRaw is Map) {
+        for (final e in itemsMapRaw.entries) {
+          if (e.value is List) {
+            itemsByKey[e.key.toString()] = (e.value as List)
+                .whereType<Map>()
+                .map((m) => LibraryItemView.fromJson(Map<String, dynamic>.from(m)))
+                .toList();
+          }
+        }
+      }
+      if (state.libraries == null && owner == _owner) {
+        state = state.copyWith(
+          libraries: libs,
+          collections: cols,
+          upNext: upNext,
+          favorites: FavoritesResult(
+            items: favItems,
+            total: (map['favorites_total'] as num?)?.toInt() ?? favItems.length,
+          ),
+          itemsByKey: itemsByKey,
+          isAdmin: map['is_admin'] == true,
+        );
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _persistSnapshot(String? owner) async {
+    if (owner == null || owner.isEmpty || state.libraries == null) return;
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final payload = jsonEncode({
+        'libraries': [for (final l in state.libraries!) l.toJson()],
+        'collections': [for (final c in state.collections) c.toJson()],
+        'up_next': [for (final u in state.upNext) u.toJson()],
+        'favorites': [for (final f in state.favorites.items) f.toJson()],
+        'favorites_total': state.favorites.total,
+        'items_by_key': {
+          for (final e in state.itemsByKey.entries)
+            e.key: [for (final it in e.value.take(12)) it.toJson()],
+        },
+        'is_admin': state.isAdmin,
+      });
+      await sp.setString(_snapKey(owner), payload);
+    } catch (_) {}
   }
 
   Future<void> _load() async {
-    _adopt();
+    await _adopt();
     final owner = _owner;
     try {
       // 偏好：拉到为止（失败保持 null，下一轮再拉；写成 [] 会覆盖用户自定义的行）。
@@ -222,9 +299,21 @@ class LibraryHomeController extends Notifier<LibraryHomeState> {
       final favorites = await favTask;
       if (owner != _owner) return;
       state = state.copyWith(upNext: upNext, favorites: favorites);
+      unawaited(_persistSnapshot(owner));
     } catch (_) {
       if (owner == _owner) state = state.copyWith(failed: true);
     }
+  }
+
+  /// 首页卡片快捷标记收藏或已看并立即刷新。
+  Future<void> toggleItemMark(
+    int mediaItemId, {
+    bool? favorite,
+    bool? played,
+  }) async {
+    await _api.setItemMark(mediaItemId, favorite: favorite, played: played);
+    _rowsFingerprint = null;
+    await reload();
   }
 
   Future<FavoritesResult?> _fetchFavorites(FavoritesRowKind k) async {

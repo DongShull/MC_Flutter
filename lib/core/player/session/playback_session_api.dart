@@ -1,16 +1,17 @@
 import '../../api/mc_client.dart';
 
-/// 服务器侧播放会话协商（1:1 对齐 MovieClaw McApi.kt：
-/// POST /playback/sessions → POST /playback/sessions/{id}/ping → DELETE /playback/sessions/{id}，
-/// 续播点 GET /playback/resume）。飞牛对应协议见 docs/design/08。
-///
-/// 协商三态：decision = plan（真起会话，streamUrl 可播）/ consent（需用户确认）/ rejected。
+/// 服务器侧播放会话协商（全路径严格对齐 `/api/v1/playback/*`）：
+/// - `POST /api/v1/playback/sessions`（支持清晰度档位上限 `max_tier` 与软解确认 `allow_software_transcode`）
+/// - `POST /api/v1/playback/sessions/{id}/ping`
+/// - `DELETE /api/v1/playback/sessions/{id}`
+/// - `GET /api/v1/playback/sessions/{id}/diagnostics`（实时技术 HUD）
+/// - `POST /api/v1/playback/progress`
+/// - `GET /api/v1/playback/resume`
 class PlaybackSessionApi {
   PlaybackSessionApi(this._client);
 
   final McClient _client;
 
-  /// 开会话（PlaybackSessionRequest）。
   Future<PlaybackSession> start({
     int? fileId,
     int? mediaItemId,
@@ -21,13 +22,15 @@ class PlaybackSessionApi {
     String? client = 'MovieClaw-Flutter',
     int? startMs,
     List<int>? failedTiers,
+    String? maxTier,
+    bool allowSoftwareTranscode = false,
     String? audioTrack,
     String? subtitleTrack,
   }) async {
     final body = await _client.unwrap<Map<String, dynamic>>(
       Channel.playback,
       'POST',
-      '/playback/sessions',
+      '/api/v1/playback/sessions',
       body: {
         if (fileId != null) 'file_id': fileId,
         if (mediaItemId != null) 'media_item_id': mediaItemId,
@@ -40,6 +43,8 @@ class PlaybackSessionApi {
               'universal': true,
             },
         if (failedTiers != null) 'failed_tiers': failedTiers,
+        if (maxTier != null && maxTier != 'original') 'max_tier': maxTier,
+        if (allowSoftwareTranscode) 'allow_software_transcode': true,
         if (audioTrack != null) 'audio_track': audioTrack,
         if (subtitleTrack != null) 'subtitle_track': subtitleTrack,
         if (deviceId != null) 'device_id': deviceId,
@@ -50,26 +55,30 @@ class PlaybackSessionApi {
     return PlaybackSession.fromJson(body);
   }
 
-  /// 播放心跳（保活会话；服务器可据此判定僵尸会话）。
   Future<void> ping(String sessionId) async {
     await _client.unwrap<Map<String, dynamic>>(
       Channel.playback,
       'POST',
-      '/playback/sessions/$sessionId/ping',
+      '/api/v1/playback/sessions/$sessionId/ping',
     );
   }
 
-  /// 结束播放。
   Future<void> stop(String sessionId) async {
     await _client.unwrap<Map<String, dynamic>>(
       Channel.playback,
       'DELETE',
-      '/playback/sessions/$sessionId',
+      '/api/v1/playback/sessions/$sessionId',
     );
   }
 
-  /// 上报观看进度（POST /playback/progress，PlaybackProgressRequest 口径）。
-  /// event: started | progress | paused | resumed | finished 等（服务器宽松）。
+  Future<Map<String, dynamic>> diagnostics(String sessionId) async {
+    return _client.unwrap<Map<String, dynamic>>(
+      Channel.playback,
+      'GET',
+      '/api/v1/playback/sessions/$sessionId/diagnostics',
+    );
+  }
+
   Future<void> reportProgress({
     required int mediaItemId,
     int? seasonNumber,
@@ -85,7 +94,7 @@ class PlaybackSessionApi {
     await _client.unwrap<Map<String, dynamic>>(
       Channel.playback,
       'POST',
-      '/playback/progress',
+      '/api/v1/playback/progress',
       body: {
         'media_item_id': mediaItemId,
         if (seasonNumber != null) 'season_number': seasonNumber,
@@ -101,7 +110,6 @@ class PlaybackSessionApi {
     );
   }
 
-  /// 续播点与记忆轨（PlaybackStateView）。
   Future<Map<String, dynamic>> resume({
     required int mediaItemId,
     int? seasonNumber,
@@ -110,7 +118,7 @@ class PlaybackSessionApi {
     return _client.unwrap<Map<String, dynamic>>(
       Channel.playback,
       'GET',
-      '/playback/resume',
+      '/api/v1/playback/resume',
       query: {
         'media_item_id': mediaItemId,
         if (seasonNumber != null) 'season_number': seasonNumber,
@@ -120,7 +128,6 @@ class PlaybackSessionApi {
   }
 }
 
-/// 一条可选音轨（AudioTrackView 的 Flutter 侧子集）：菜单展示 + 换轨用。
 class PlaybackAudioTrack {
   const PlaybackAudioTrack({
     required this.ref,
@@ -140,21 +147,33 @@ class PlaybackAudioTrack {
     );
   }
 
-  /// 中性轨引用（embedded:N），换轨时作为 audio_track 回传服务器。
   final String ref;
   final String? codec;
   final int? channels;
   final String? language;
   final bool isDefault;
 
-  /// 菜单展示文案（同 Android PlayerTracks.LanguageLabel 的精简口径）。
   String get label {
     const labels = <String, String>{
-      'chs': '简体中文', 'cht': '繁体中文', 'chi': '中文', 'zho': '中文',
-      'cmn': '中文', 'yue': '粤语', 'eng': '英语', 'jpn': '日语', 'kor': '韩语',
-      'fre': '法语', 'fra': '法语', 'ger': '德语', 'deu': '德语',
-      'spa': '西班牙语', 'rus': '俄语', 'ita': '意大利语', 'por': '葡萄牙语',
-      'tha': '泰语', 'hin': '印地语',
+      'chs': '简体中文',
+      'cht': '繁体中文',
+      'chi': '中文',
+      'zho': '中文',
+      'cmn': '中文',
+      'yue': '粤语',
+      'eng': '英语',
+      'jpn': '日语',
+      'kor': '韩语',
+      'fre': '法语',
+      'fra': '法语',
+      'ger': '德语',
+      'deu': '德语',
+      'spa': '西班牙语',
+      'rus': '俄语',
+      'ita': '意大利语',
+      'por': '葡萄牙语',
+      'tha': '泰语',
+      'hin': '印地语',
     };
     final lang = language;
     final langLabel = (lang == null || lang.isEmpty || lang == 'und')
@@ -167,7 +186,6 @@ class PlaybackAudioTrack {
   }
 }
 
-/// 一条可选字幕（SubtitlePlanView 的 Flutter 侧子集）。
 class PlaybackSubtitleTrack {
   const PlaybackSubtitleTrack({
     required this.trackRef,
@@ -177,6 +195,7 @@ class PlaybackSubtitleTrack {
     this.isAi = false,
     this.title,
     this.isForced = false,
+    this.url,
   });
 
   factory PlaybackSubtitleTrack.fromJson(Map<String, dynamic> json) {
@@ -188,22 +207,19 @@ class PlaybackSubtitleTrack {
       isAi: json['is_ai'] as bool? ?? false,
       title: json['title']?.toString(),
       isForced: json['is_forced'] as bool? ?? false,
+      url: json['url']?.toString(),
     );
   }
 
-
-  /// 中性轨引用（embedded:N / external:文件名），换轨时作为 subtitle_track 回传。
   final String trackRef;
-
-  /// vtt（文本）/ ass（特效）/ pgs（图形）。
   final String kind;
   final String? language;
   final bool isDefault;
   final bool isAi;
   final String? title;
   final bool isForced;
+  final String? url;
 
-  /// 菜单展示文案（标题 > 外挂文件名 > ref）。
   String get label {
     final t = title?.trim();
     if (t != null && t.isNotEmpty) return t;
@@ -214,12 +230,14 @@ class PlaybackSubtitleTrack {
     return trackRef;
   }
 
-
-  /// 补充说明（格式 + AI/强制/默认标记）。
   String get detail {
     const kindLabels = {
-      'vtt': 'WebVTT', 'ass': 'ASS 特效', 'ssa': 'SSA 特效',
-      'pgs': 'PGS 图形', 'srt': 'SRT 文本', 'text': '文本',
+      'vtt': 'WebVTT',
+      'ass': 'ASS 特效',
+      'ssa': 'SSA 特效',
+      'pgs': 'PGS 图形',
+      'srt': 'SRT 文本',
+      'text': '文本',
     };
     final parts = <String>[if (kind.isNotEmpty) kindLabels[kind] ?? kind];
     if (isAi) parts.add('AI 生成');
@@ -229,8 +247,6 @@ class PlaybackSubtitleTrack {
   }
 }
 
-/// 一个可跳过区间（PlaybackSegmentView 的 Flutter 侧子集，docs/design/skip-intro.md）。
-/// start/end 毫秒；type：intro 片头 / outro 片尾 / ad 广告 / preview 预告 / other。
 class PlaybackSkipSegment {
   const PlaybackSkipSegment({
     required this.type,
@@ -251,7 +267,6 @@ class PlaybackSkipSegment {
   final int endMs;
 }
 
-/// 开会话结果（PlaybackSessionView 的 Flutter 侧子集）。
 class PlaybackSession {
   const PlaybackSession({
     required this.decision,
@@ -261,6 +276,12 @@ class PlaybackSession {
     this.subtitleUrls = const [],
     this.masterUrl,
     this.hwBackend,
+    this.deliveryMode,
+    this.transcodeReason,
+    this.videoCodec,
+    this.audioCodec,
+    this.resolution,
+    this.container,
     this.audioTracks = const [],
     this.subtitles = const [],
     this.skipSegments = const [],
@@ -273,31 +294,43 @@ class PlaybackSession {
   final List<String> subtitleUrls;
   final String? masterUrl;
   final String? hwBackend;
-
-  /// 服务器 decision 内给出的可选音轨/字幕轨（空 = 服务器未提供轨道信息）。
+  final String? deliveryMode;
+  final String? transcodeReason;
+  final String? videoCodec;
+  final String? audioCodec;
+  final String? resolution;
+  final String? container;
   final List<PlaybackAudioTrack> audioTracks;
   final List<PlaybackSubtitleTrack> subtitles;
-
-  /// 片头/片尾等可跳区间（旧服务端无此字段时为空表，解码不炸）。
   final List<PlaybackSkipSegment> skipSegments;
 
   bool get playable => decision == 'plan' && streamUrl != null;
 
   factory PlaybackSession.fromJson(Map<String, dynamic> json) {
     final d = json['decision'];
-    final dMap = d is Map<String, dynamic> ? d : null;
-    final segList = json['segments'] as List? ??
-        dMap?['segments'] as List? ??
-        const [];
+    final dMap = d is Map<String, dynamic>
+        ? d
+        : (d is Map ? d.cast<String, dynamic>() : null);
+    final segList =
+        json['segments'] as List? ?? dMap?['segments'] as List? ?? const [];
     return PlaybackSession(
       decision: (dMap?['outcome'] ?? json['decision'] ?? '').toString(),
+      deliveryMode:
+          (dMap?['mode'] ?? dMap?['delivery'] ?? json['mode'])?.toString(),
+      transcodeReason:
+          (dMap?['reason'] ?? dMap?['transcode_reason'])?.toString(),
+      videoCodec: (dMap?['video_codec'] ?? json['video_codec'])?.toString(),
+      audioCodec: (dMap?['audio_codec'] ?? json['audio_codec'])?.toString(),
+      resolution: (dMap?['resolution'] ?? json['resolution'])?.toString(),
+      container: (dMap?['container'] ?? json['container'])?.toString(),
       audioTracks: [
         for (final t in (dMap?['audio_tracks'] as List? ?? []))
-          if (t is Map<String, dynamic>) PlaybackAudioTrack.fromJson(t),
+          if (t is Map) PlaybackAudioTrack.fromJson(t.cast<String, dynamic>()),
       ],
       subtitles: [
         for (final t in (dMap?['subtitles'] as List? ?? []))
-          if (t is Map<String, dynamic>) PlaybackSubtitleTrack.fromJson(t),
+          if (t is Map)
+            PlaybackSubtitleTrack.fromJson(t.cast<String, dynamic>()),
       ],
       sessionId: json['session_id']?.toString(),
       streamUrl: json['stream_url']?.toString(),
@@ -308,9 +341,8 @@ class PlaybackSession {
       masterUrl: json['master_url']?.toString(),
       hwBackend: json['hw_backend']?.toString(),
       skipSegments: [
-        // 服务器把 segments 挂在 PlaybackSessionView 顶层；decision 内兜底一份。
         for (final s in segList)
-          if (s is Map<String, dynamic>) PlaybackSkipSegment.fromJson(s),
+          if (s is Map) PlaybackSkipSegment.fromJson(s.cast<String, dynamic>()),
       ],
     );
   }

@@ -80,15 +80,38 @@ abstract final class McDownloadPaths {
       final dir = await _channel.invokeMethod<String>('getDownloadDirectory');
       if (dir != null && dir.isNotEmpty) return Directory(dir);
     } catch (_) {
-      // 原生未实现：走纯 Dart 兜底。
+      // 原生未实现：走跨平台可写目录兜底。
     }
     final env = Platform.environment['MC_OFFLINE_DIR'];
     if (env != null && env.isNotEmpty) return Directory(env);
-    try {
-      return Directory('${Directory.current.path}/offline_downloads');
-    } catch (_) {
-      return Directory('${Directory.systemTemp.path}/offline_downloads');
+
+    // 优先使用各平台用户数据目录，避免 iOS/macOS 沙盒下 Directory.current == '/' 只读报错。
+    final home = Platform.environment['HOME'];
+    final localAppData = Platform.environment['LOCALAPPDATA'];
+    final xdgData = Platform.environment['XDG_DATA_HOME'];
+    if (Platform.isWindows && localAppData != null && localAppData.isNotEmpty) {
+      return Directory('$localAppData/MovieClaw/offline_downloads');
     }
+    if ((Platform.isIOS || Platform.isMacOS) &&
+        home != null &&
+        home.isNotEmpty) {
+      return Directory('$home/Documents/offline_downloads');
+    }
+    if (Platform.isLinux) {
+      if (xdgData != null && xdgData.isNotEmpty) {
+        return Directory('$xdgData/movieclaw/offline_downloads');
+      }
+      if (home != null && home.isNotEmpty) {
+        return Directory('$home/.local/share/movieclaw/offline_downloads');
+      }
+    }
+    try {
+      final cwd = Directory.current.path;
+      if (cwd != '/' && cwd.isNotEmpty) {
+        return Directory('$cwd/offline_downloads');
+      }
+    } catch (_) {}
+    return Directory('${Directory.systemTemp.path}/movieclaw_offline');
   }
 }
 
@@ -440,7 +463,9 @@ class _FallbackTask {
       } else if (total == null && contentLength > 0) {
         total = received + contentLength;
       }
-      final sink = await part.open(mode: FileMode.append);
+      final sink = await part.open(
+        mode: received > 0 ? FileMode.append : FileMode.writeOnly,
+      );
       try {
         await for (final chunk in res) {
           if (_stop) break;

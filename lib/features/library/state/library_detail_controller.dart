@@ -126,10 +126,12 @@ class LibraryDetailState {
     this.error,
     this.library,
     this.items = const [],
+    this.collections = const [],
     this.facets,
     this.index = const [],
     this.filter = const LibraryFilter(),
     this.total = 0,
+    this.baseOffset = 0,
     this.viewMode = 'items',
     this.endReached = false,
   });
@@ -139,12 +141,14 @@ class LibraryDetailState {
   final String? error;
   final LibraryView? library;
   final List<LibraryItemView> items;
+  final List<CollectionView> collections;
   final LibraryFacets? facets;
   final List<LibraryIndexEntry> index;
   final LibraryFilter filter;
   final int total;
+  final int baseOffset;
 
-  /// items / collections 分段开关（集合视图在本页「⋯」之外的分段里）。
+  /// items / collections 分段开关。
   final String viewMode;
   final bool endReached;
 
@@ -154,10 +158,12 @@ class LibraryDetailState {
     String? error,
     LibraryView? library,
     List<LibraryItemView>? items,
+    List<CollectionView>? collections,
     LibraryFacets? facets,
     List<LibraryIndexEntry>? index,
     LibraryFilter? filter,
     int? total,
+    int? baseOffset,
     String? viewMode,
     bool? endReached,
   }) =>
@@ -167,10 +173,12 @@ class LibraryDetailState {
         error: error,
         library: library ?? this.library,
         items: items ?? this.items,
+        collections: collections ?? this.collections,
         facets: facets ?? this.facets,
         index: index ?? this.index,
         filter: filter ?? this.filter,
         total: total ?? this.total,
+        baseOffset: baseOffset ?? this.baseOffset,
         viewMode: viewMode ?? this.viewMode,
         endReached: endReached ?? this.endReached,
       );
@@ -225,11 +233,11 @@ class LibraryDetailController extends AutoDisposeFamilyNotifier<LibraryDetailSta
     }
   }
 
-  /// 重新拉墙 + facets + 索引（筛选 / 排序变化后）。
+  /// 重新拉墙 + 合集 + facets + 索引（筛选 / 排序变化后）。
   Future<void> reload() async {
     final id = arg.libraryId;
     final q = state.filter.toQuery();
-    state = state.copyWith(loading: true, endReached: false);
+    state = state.copyWith(loading: true, endReached: false, baseOffset: 0);
     try {
       final items = await _api.libraryItems(id, filterQuery: q);
       state = state.copyWith(
@@ -242,9 +250,16 @@ class LibraryDetailController extends AutoDisposeFamilyNotifier<LibraryDetailSta
       state = state.copyWith(loading: false, error: '加载失败，请下拉重试');
       return;
     }
-    // facets 与索引失败不影响主墙。
     try {
-      state = state.copyWith(facets: await _api.libraryFacets(id, filterQuery: q));
+      final cols = await _api.collections(libraryId: id);
+      state = state.copyWith(collections: cols);
+    } catch (_) {}
+    try {
+      final facets = await _api.libraryFacets(id, filterQuery: q);
+      state = state.copyWith(
+        facets: facets,
+        total: facets.total > 0 ? facets.total : state.items.length,
+      );
     } catch (_) {}
     if (state.filter.sort == 'title') {
       try {
@@ -262,7 +277,7 @@ class LibraryDetailController extends AutoDisposeFamilyNotifier<LibraryDetailSta
     try {
       final more = await _api.libraryItems(
         arg.libraryId,
-        offset: state.items.length,
+        offset: state.baseOffset + state.items.length,
         filterQuery: state.filter.toQuery(),
       );
       state = state.copyWith(
@@ -273,6 +288,50 @@ class LibraryDetailController extends AutoDisposeFamilyNotifier<LibraryDetailSta
     } catch (_) {
       state = state.copyWith(loadingMore: false);
     }
+  }
+
+  /// A–Z 字母索引跳转：若目标 offset 超出当前已载入范围，直接按该 offset 拉取窗口。
+  Future<int?> jumpToIndexOffset(int offset) async {
+    final loadedEnd = state.baseOffset + state.items.length;
+    if (offset >= state.baseOffset && offset < loadedEnd) {
+      return offset - state.baseOffset;
+    }
+    state = state.copyWith(loading: true, endReached: false);
+    try {
+      final window = await _api.libraryItems(
+        arg.libraryId,
+        offset: offset,
+        limit: 90,
+        filterQuery: state.filter.toQuery(),
+      );
+      state = state.copyWith(
+        loading: false,
+        baseOffset: offset,
+        items: window,
+        endReached: window.length < 90,
+      );
+      return 0;
+    } catch (_) {
+      state = state.copyWith(loading: false);
+      return null;
+    }
+  }
+
+  /// 将当前已选十维筛选条件保存为动态智能合集（POST /api/v1/collections）。
+  Future<CollectionView> saveAsSmartCollection(String name) async {
+    final rules = <String, dynamic>{
+      for (final e in state.filter.toQuery().entries)
+        if (e.key != 'sort' && e.key != 'order' && e.value != null)
+          e.key: e.value,
+    };
+    final created = await _api.createCollection(
+      name: name,
+      libraryId: arg.libraryId,
+      rules: rules,
+      sort: state.filter.sort,
+    );
+    await reload();
+    return created;
   }
 
   /// 筛选即时生效（铁律：点一下就变）。sort / order 持久化在本地偏好，筛选不落本地。

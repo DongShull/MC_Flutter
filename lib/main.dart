@@ -1,39 +1,70 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
+import 'core/api/mc_client.dart';
+import 'core/api/server_addresses_api.dart';
 import 'core/bootstrap/app_bootstrap.dart';
+import 'core/designsystem/theme.dart';
+import 'core/network/server_routes.dart';
 import 'core/session/session_store.dart';
 
+AppLifecycleListener? _lifecycleListener;
+
 Future<void> main() async {
-  // release 模式默认构建异常=灰屏，改成可读红字（远程排障用）
+  // Release 模式构建异常兜底：统一采用纯黑银玻璃可读面板。
   ErrorWidget.builder = (details) => Directionality(
         textDirection: TextDirection.ltr,
-        child: Container(
-          color: const Color(0xFFFFF3F3),
-          padding: const EdgeInsets.all(24),
-          alignment: Alignment.topLeft,
-          child: Text(
-            '页面出错了，请截图反馈：\n\n(details.exception: ${details.exception})',
-            style: const TextStyle(color: Color(0xFFB3261E), fontSize: 14),
+        child: ColoredBox(
+          color: McTokens.bg,
+          child: Center(
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 460),
+              margin: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: McTokens.surfaceRaised,
+                borderRadius: BorderRadius.circular(McTokens.cardRadius),
+                border: Border.all(color: McTokens.lineStrong),
+              ),
+              child: Text(
+                '组件渲染异常：\n\n${details.exception}',
+                style: McText.caption.copyWith(color: McTokens.danger),
+              ),
+            ),
           ),
         ),
       );
-  // 分阶段启动（docs/design/09）：首帧前只做最小集，压白屏时间。
+
   await AppBootstrap.ensureMinimum();
-  // 启动即恢复会话（决定首屏是否跳过 onboarding，属首帧前最小集）。
-  await appSession.restore();
-  // 未捕获异步异常兜底：用 PlatformDispatcher.onError（官方推荐），不再套 runZonedGuarded——
-  // 绑定已在根 Zone 初始化，再进子 Zone 调 runApp 会触发 "Zone mismatch"。
+  await Future.wait([
+    appSession.restore(),
+    ServerRoutes.instance.init(),
+  ]);
+
   PlatformDispatcher.instance.onError = (error, stack) {
-    debugPrint('uncaught zone error: $error\n$stack');
+    debugPrint('uncaught platform error: $error\n$stack');
     return true;
   };
+
   runApp(const ProviderScope(child: McApp()));
-  // 首帧真正栅格化后，再跑非首屏任务（会话恢复/预热钩子）。
+
   AppBootstrap.runAfterFirstFrame(() {
-    debugPrint('mc_flutter: first frame rasterized, post-frame tasks done');
+    _lifecycleListener ??= AppLifecycleListener(
+      onResume: () => ServerRoutes.instance.reevaluate(),
+    );
+    final origin = appSession.baseUrl;
+    if (appSession.isReady && origin != null && origin.isNotEmpty) {
+      final bootClient = McClient(session: appSession, baseUrlOverride: origin);
+      unawaited(
+        ServerRoutes.instance.configure(
+          origin,
+          () => fetchServerAddresses(bootClient),
+        ),
+      );
+    }
   });
 }

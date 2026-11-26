@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'mc_api.dart';
 import 'models.dart';
 
-/// 合集详情状态（对齐 Kotlin LibraryCollectionScreen.kt）。
+/// 合集详情状态（支持排序、重命名、可见性切换、移除条目与删除合集）。
 class CollectionDetailState {
   const CollectionDetailState({
     this.loading = false,
@@ -61,8 +61,8 @@ class CollectionDetailArg {
   int get hashCode => collectionId;
 }
 
-class CollectionDetailController
-    extends AutoDisposeFamilyNotifier<CollectionDetailState, CollectionDetailArg> {
+class CollectionDetailController extends AutoDisposeFamilyNotifier<
+    CollectionDetailState, CollectionDetailArg> {
   @override
   CollectionDetailState build(CollectionDetailArg arg) {
     Future.microtask(() => load());
@@ -76,7 +76,11 @@ class CollectionDetailController
     try {
       final collection = await _api.collection(arg.collectionId);
       final sort = state.sort == 'added_at' ? collection.sort : state.sort;
-      state = state.copyWith(loading: false, collection: collection, sort: sort);
+      state = state.copyWith(
+        loading: false,
+        collection: collection,
+        sort: sort,
+      );
       await reload();
     } catch (e) {
       state = state.copyWith(loading: false, error: '加载失败，请下拉重试');
@@ -121,20 +125,51 @@ class CollectionDetailController
     }
   }
 
-  /// 排序即时生效（本地视图状态，不回写合集定义）。
   void setSort(String sort) {
     state = state.copyWith(sort: sort, clearOrder: true);
     reload();
   }
+
+  Future<void> rename(String newName) async {
+    final updated = await _api.updateCollection(
+      arg.collectionId,
+      name: newName,
+    );
+    state = state.copyWith(collection: updated);
+  }
+
+  Future<void> toggleVisibility() async {
+    final cur = state.collection?.visibility ?? 'household';
+    final next = cur == 'private' ? 'household' : 'private';
+    final updated = await _api.updateCollection(
+      arg.collectionId,
+      visibility: next,
+    );
+    state = state.copyWith(collection: updated);
+  }
+
+  Future<void> removeItem(int mediaItemId) async {
+    await _api.removeCollectionItem(arg.collectionId, mediaItemId);
+    state = state.copyWith(
+      items: state.items.where((i) => i.mediaItemId != mediaItemId).toList(),
+    );
+  }
+
+  Future<void> deleteSelf() => _api.deleteCollection(arg.collectionId);
 }
 
-final collectionDetailProvider = NotifierProvider.autoDispose
-    .family<CollectionDetailController, CollectionDetailState, CollectionDetailArg>(
-        CollectionDetailController.new);
+final collectionDetailProvider = NotifierProvider.autoDispose.family<
+    CollectionDetailController,
+    CollectionDetailState,
+    CollectionDetailArg>(CollectionDetailController.new);
 
-/// 「合集」入口页状态：合集清单（对齐单库页 collections 分段的列表）。
+/// 「合集」入口页状态：合集清单 + 新建 / 重命名 / 删除。
 class CollectionsState {
-  const CollectionsState({this.loading = false, this.collections = const [], this.error});
+  const CollectionsState({
+    this.loading = false,
+    this.collections = const [],
+    this.error,
+  });
 
   final bool loading;
   final List<CollectionView> collections;
@@ -156,16 +191,34 @@ class CollectionsController extends Notifier<CollectionsState> {
   @override
   CollectionsState build() => const CollectionsState();
 
+  LibraryApi get _api => ref.read(libraryApiProvider);
+
   Future<void> load() async {
     state = state.copyWith(loading: true, error: null);
     try {
-      final collections = await ref.read(libraryApiProvider).collections();
+      final collections = await _api.collections(includeEmpty: true);
       state = state.copyWith(loading: false, collections: collections);
     } catch (e) {
       state = state.copyWith(loading: false, error: '加载失败，请下拉重试');
     }
   }
+
+  Future<CollectionView> create({
+    required String name,
+    String visibility = 'household',
+  }) async {
+    final c = await _api.createCollection(name: name, visibility: visibility);
+    await load();
+    return c;
+  }
+
+  Future<void> delete(int id) async {
+    await _api.deleteCollection(id);
+    await load();
+  }
 }
 
-final collectionsProvider = NotifierProvider<CollectionsController, CollectionsState>(
-    CollectionsController.new);
+final collectionsProvider =
+    NotifierProvider<CollectionsController, CollectionsState>(
+      CollectionsController.new,
+    );

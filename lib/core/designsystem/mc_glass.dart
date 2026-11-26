@@ -97,7 +97,9 @@ class McPressable extends StatefulWidget {
     super.key,
     required this.onTap,
     this.onLongPress,
+    this.onSecondaryTapUp,
     this.scaleDown = 0.96,
+    this.hoverScale = 1.0,
     this.haptic = false,
     this.behavior = HitTestBehavior.opaque,
     required this.child,
@@ -105,7 +107,9 @@ class McPressable extends StatefulWidget {
 
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
+  final GestureTapUpCallback? onSecondaryTapUp;
   final double scaleDown;
+  final double hoverScale;
   final bool haptic;
   final HitTestBehavior behavior;
   final Widget child;
@@ -116,8 +120,12 @@ class McPressable extends StatefulWidget {
 
 class _McPressableState extends State<McPressable> {
   bool _pressed = false;
+  bool _hovered = false;
 
-  bool get _enabled => widget.onTap != null || widget.onLongPress != null;
+  bool get _enabled =>
+      widget.onTap != null ||
+      widget.onLongPress != null ||
+      widget.onSecondaryTapUp != null;
 
   void _setPressed(bool value) {
     if (_pressed != value && mounted) {
@@ -125,33 +133,49 @@ class _McPressableState extends State<McPressable> {
     }
   }
 
+  void _setHovered(bool value) {
+    if (_hovered != value && mounted) {
+      setState(() => _hovered = value);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_enabled) return widget.child;
-    return GestureDetector(
-      behavior: widget.behavior,
-      onTapDown: (_) => _setPressed(true),
-      onTapUp: (_) => _setPressed(false),
-      onTapCancel: () => _setPressed(false),
-      onTap: () {
-        if (widget.haptic) HapticFeedback.selectionClick();
-        widget.onTap?.call();
-      },
-      onLongPress: widget.onLongPress == null
-          ? null
-          : () {
-              HapticFeedback.mediumImpact();
-              _setPressed(false);
-              widget.onLongPress?.call();
-            },
-      child: AnimatedScale(
-        scale: _pressed ? widget.scaleDown : 1.0,
-        duration: Duration(milliseconds: _pressed ? 90 : 220),
-        curve: _pressed ? Curves.easeOut : Curves.easeOutBack,
-        child: AnimatedOpacity(
-          opacity: _pressed ? 0.88 : 1.0,
-          duration: const Duration(milliseconds: 90),
-          child: widget.child,
+    final targetScale =
+        _pressed ? widget.scaleDown : (_hovered ? widget.hoverScale : 1.0);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => _setHovered(true),
+      onExit: (_) => _setHovered(false),
+      child: GestureDetector(
+        behavior: widget.behavior,
+        onTapDown: (_) => _setPressed(true),
+        onTapUp: (_) => _setPressed(false),
+        onTapCancel: () => _setPressed(false),
+        onSecondaryTapUp: widget.onSecondaryTapUp,
+        onTap: widget.onTap == null
+            ? null
+            : () {
+                if (widget.haptic) HapticFeedback.selectionClick();
+                widget.onTap?.call();
+              },
+        onLongPress: widget.onLongPress == null
+            ? null
+            : () {
+                HapticFeedback.mediumImpact();
+                _setPressed(false);
+                widget.onLongPress?.call();
+              },
+        child: AnimatedScale(
+          scale: targetScale,
+          duration: Duration(milliseconds: _pressed ? 90 : 200),
+          curve: _pressed ? Curves.easeOut : Curves.easeOutCubic,
+          child: AnimatedOpacity(
+            opacity: _pressed ? 0.88 : 1.0,
+            duration: const Duration(milliseconds: 90),
+            child: widget.child,
+          ),
         ),
       ),
     );

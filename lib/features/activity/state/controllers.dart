@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
 import '../../../core/api/agent_sse_client.dart';
+import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
 import 'activity_api.dart';
 import 'models.dart';
@@ -295,6 +296,27 @@ class ActivityController extends Notifier<ActivitySnapshot> {
   Future<void> revokePlaybackDevice(String deviceId) async {
     await _api.revokePlaybackDevice(deviceId);
     await _poll(_loadPlayback());
+  }
+
+  /// 将失败任务一键移交 AI 助手自动诊断排障（POST /api/v1/agent-handoff）。
+  Future<String?> handoffJobToAi(JobView job) async {
+    try {
+      final res = await ref.read(mcClientProvider).unwrap<Map<String, dynamic>>(
+            Channel.general,
+            'POST',
+            '/api/v1/agent-handoff',
+            body: {
+              'kind': 'job',
+              'job_id': job.id,
+              'id': job.id,
+              'title': job.jobTypeLabel ?? job.jobType,
+              'detail': job.progress.message,
+            },
+          );
+      return (res['session_id'] ?? res['sessionId'])?.toString();
+    } catch (_) {
+      return null;
+    }
   }
 }
 

@@ -4,15 +4,23 @@ import '../network/server_routes.dart';
 import 'mc_client.dart';
 import 'session_providers.dart';
 
-/// GET /server/addresses 地址簿（鸿蒙 api.serverAddresses() 对应）：
-/// 登录后由 ServerRoutes.configure 拉一次；旧服务器 404 时静默降级。
+/// GET /api/v1/server/addresses 地址簿：
+/// 登录后与冷启动后由 `ServerRoutes.configure` 拉取；旧服务器 404 时静默降级为 null。
 Future<ServerAddressesView?> fetchServerAddresses(McClient client) async {
-  final res = await client.get(Channel.general, '/server/addresses');
-  if (res.statusCode != 200 || res.data == null) return null;
-  return ServerAddressesView.fromJson(res.data!);
+  try {
+    final data = await client.unwrap<Map<String, dynamic>>(
+      Channel.general,
+      'GET',
+      '/api/v1/server/addresses',
+    );
+    return ServerAddressesView.fromJson(data);
+  } catch (_) {
+    return null;
+  }
 }
 
-final serverAddressesApiProvider = Provider<Future<ServerAddressesView?> Function()>((ref) {
+final serverAddressesApiProvider =
+    Provider<Future<ServerAddressesView?> Function()>((ref) {
   final client = ref.watch(mcClientProvider);
   return () => fetchServerAddresses(client);
 });

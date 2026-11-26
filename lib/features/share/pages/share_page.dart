@@ -58,8 +58,9 @@ class _SharePageState extends ConsumerState<SharePage> {
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: contentWidth),
               child: McFloatingDetailBar(
-                onBack: () =>
-                    context.canPop() ? context.pop() : context.go('/'),
+                onBack: () => context.canPop()
+                    ? context.pop()
+                    : context.go('/onboarding'),
                 title: '分享',
                 titleVisible: true,
                 trailing: [

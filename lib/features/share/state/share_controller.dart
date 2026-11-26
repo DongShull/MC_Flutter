@@ -61,16 +61,28 @@ class ShareUiState {
 }
 
 class ShareController extends FamilyNotifier<ShareUiState, String> {
+  GuestShareApi? _cachedApi;
+  String? _cachedOrigin;
+
   @override
   ShareUiState build(String slug) {
-    // arg 不能在 build 内同步访问：探针挪到微任务里（首个状态固定为 loading）。
     Future.microtask(probe);
     return const ShareUiState();
   }
 
-  GuestShareApi get _api => GuestShareApi(ref.read(shareOriginProvider));
+  GuestShareApi get _api {
+    final origin = ref.read(shareOriginProvider);
+    if (_cachedApi == null || _cachedOrigin != origin) {
+      _cachedOrigin = origin;
+      _cachedApi = GuestShareApi(origin);
+    }
+    return _cachedApi!;
+  }
 
-  GuestPlaybackApi get _playback => GuestPlaybackApi(ref.read(shareOriginProvider));
+  GuestPlaybackApi get _playback => GuestPlaybackApi(
+        ref.read(shareOriginProvider),
+        cookieHeader: _api.cookieHeader,
+      );
 
   void onPassword(String value) {
     state = state.copyWith(password: value);

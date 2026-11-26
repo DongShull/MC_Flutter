@@ -1,7 +1,7 @@
+import '../network/server_routes.dart';
 import '../session/session_store.dart';
 
-/// 图片地址解析（对齐 android-core ImageUrls.kt）：远程图走服务端代理
-/// /api/v1/images/proxy?url=…，本地图补 /api/v1 前缀，可按宽度阶梯取档。
+/// 图片地址解析（对齐 android-core ImageUrls.kt，并优先走 `ServerRoutes` 当前最优内外网地址）。
 class McImageUrls {
   McImageUrls._();
 
@@ -18,14 +18,22 @@ class McImageUrls {
     3840,
   ];
 
-  /// 向上取到阶梯里的一档；超过最大档用最大档。
-  static int snap(int widthPx) => widthLadder.firstWhere((e) => e >= widthPx,
-      orElse: () => widthLadder.last);
+  static int snap(int widthPx) => widthLadder.firstWhere(
+        (e) => e >= widthPx,
+        orElse: () => widthLadder.last,
+      );
 
-  /// raw 支持：绝对 http(s)（走代理）/ /api/…（原样拼 base）/ 相对路径（补 /api/v1/）。
-  /// 解析失败（无服务器或空串）返回 null，由调用方落回占位图。
+  static String _effectiveOrigin(String? explicitBase) {
+    if (explicitBase != null && explicitBase.trim().isNotEmpty) {
+      return explicitBase.trim();
+    }
+    final routed = ServerRoutes.instance.currentOrigin().trim();
+    if (routed.isNotEmpty) return routed;
+    return appSession.baseUrl?.trim() ?? '';
+  }
+
   static String? build(String? raw, {int? widthPx, String? baseUrl}) {
-    final base = (baseUrl ?? appSession.baseUrl)?.trim() ?? '';
+    final base = _effectiveOrigin(baseUrl);
     if (base.isEmpty) return null;
     final p = (raw ?? '').trim().replaceAll('\\', '/');
     if (p.isEmpty) return null;
@@ -43,12 +51,11 @@ class McImageUrls {
     return url;
   }
 
-  /// 便捷封装：解析失败返回空串（CachedNetworkImage 走 errorWidget 占位）。
-  static String resolve(String? raw, {int? widthPx}) =>
-      build(raw, widthPx: widthPx) ?? '';
+  static String resolve(String? raw, {int? widthPx, String? baseUrl}) =>
+      build(raw, widthPx: widthPx, baseUrl: baseUrl) ?? '';
 }
 
-/// 图片请求统一附带登录令牌（服务端图片通道是默认拒绝边界，无凭据一律 401）。
+/// 图片请求统一附带登录令牌。
 Map<String, String> mcImageHeaders() {
   final t = appSession.token;
   return t == null || t.isEmpty

@@ -1,20 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/designsystem/mc_chrome.dart';
 import '../../core/designsystem/mc_glass.dart';
+import '../../core/designsystem/mc_icons.dart';
 import '../../core/designsystem/theme.dart';
 import '../../core/models/format.dart';
+import '../../core/player/player_page_args.dart';
 import 'state/models.dart';
 import 'state/offline_state.dart';
 import 'widgets/downloading_row.dart';
 
 export 'state/offline_state.dart' show offlineProvider;
 
-/// 「我的」页下载段的五个内嵌分区（1:1 对照鸿蒙 OfflineStoragePage.ets）。
+/// 「我的」页下载段的五个内嵌分区（支持真离线点按直播、已看完一键清理与多账号存储隔离）。
 /// more 域只允许 import 本文件这一个入口（模块化铁律）。
 
-/// 容量卡片：标题「本机储存空间」+「可用 X」、三段式银玻璃容量条 + 图例点。
 class CapacityCard extends ConsumerStatefulWidget {
   const CapacityCard({super.key});
 
@@ -59,7 +61,8 @@ class _CapacityCardState extends ConsumerState<CapacityCard> {
     final mcBytes = _doneBytes.clamp(0, usedTotal);
     final otherBytes = (usedTotal - mcBytes).clamp(0, total);
 
-    final mcFlex = mcBytes > 0 ? ((mcBytes * 1000) ~/ total).clamp(15, 1000) : 0;
+    final mcFlex =
+        mcBytes > 0 ? ((mcBytes * 1000) ~/ total).clamp(15, 1000) : 0;
     final otherFlex =
         otherBytes > 0 ? ((otherBytes * 1000) ~/ total).clamp(15, 1000) : 0;
     final freeFlex = ((avail * 1000) ~/ total).clamp(10, 1000);
@@ -144,7 +147,6 @@ class _CapacityCardState extends ConsumerState<CapacityCard> {
   }
 }
 
-/// 下载中分区：有任务才出现。
 class DownloadingSection extends ConsumerWidget {
   const DownloadingSection({super.key});
 
@@ -175,17 +177,50 @@ class DownloadingSection extends ConsumerWidget {
   }
 }
 
-/// 清理建议卡（已看完的下载）：恒为空，整段隐藏。
+/// 清理建议卡（已看完的离线副本一键清理释放空间）。
 class WatchedCard extends ConsumerWidget {
   const WatchedCard({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return const SizedBox.shrink();
+    final watched = ref.watch(offlineProvider).watchedUnits;
+    if (watched.isEmpty) return const SizedBox.shrink();
+    return _sectionCard(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          const Icon(McIcons.eraser, size: 19, color: McTokens.accentStrong),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('已看完 ${watched.length} 项离线缓存', style: McText.sub.semibold),
+                const SizedBox(height: 2),
+                Text('清理本机文件不会影响服务端观看进度', style: McText.micro.muted),
+              ],
+            ),
+          ),
+          McChip(
+            label: '一键清理',
+            selected: true,
+            compact: true,
+            onTap: () async {
+              final count = await ref
+                  .read(offlineProvider.notifier)
+                  .clearWatchedDownloads();
+              if (context.mounted) {
+                McToast.success('已清理 $count 项已看完的离线副本');
+              }
+            },
+          ),
+        ],
+      ),
+    );
   }
 }
 
-/// 已下载分区：始终出现，空时按「有没有在下载」给不同引导文案。
+/// 已下载分区：点击直接本机零流量离线起播，长按标记已看或删除。
 class DownloadedSection extends ConsumerStatefulWidget {
   const DownloadedSection({super.key});
 
@@ -273,7 +308,7 @@ class _DownloadedSectionState extends ConsumerState<DownloadedSection> {
   }
 }
 
-class _DownloadedRow extends StatelessWidget {
+class _DownloadedRow extends ConsumerWidget {
   const _DownloadedRow({required this.units, required this.totalBytes});
 
   final List<DownloadUnit> units;
@@ -282,51 +317,104 @@ class _DownloadedRow extends StatelessWidget {
   String get _title => units.first.title;
 
   String get _detail {
-    if (units.length > 1) return '已下载 ${units.length} 集';
+    if (units.length > 1) return '已下载 ${units.length} 集 · 点击离线播放';
     final u = units.first;
-    return [if (u.seasonEpisode != null) u.seasonEpisode!, u.profileLabel]
-        .join(' · ');
+    return [
+      if (u.seasonEpisode != null) u.seasonEpisode!,
+      u.profileLabel,
+      if (u.watched) '已看完',
+    ].join(' · ');
   }
 
-  void _confirmDelete(BuildContext context, OfflineController controller) {
+  void _playOffline(BuildContext context, OfflineController controller) {
+    if (units.length == 1) {
+      final uri = controller.localPlayUri(units.first);
+      if (uri == null) {
+        McToast.error('本地文件不存在');
+        return;
+      }
+      context.push(
+        '/player',
+        extra: PlayerPageArgs(
+          url: uri,
+          title: units.first.title,
+          subtitle: units.first.seasonEpisode ?? '本机离线播放',
+        ),
+      );
+      return;
+    }
     showMcSheet<void>(
       context: context,
       builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+        child: McInsetGroup(
+          header: '选择离线剧集播放',
+          margin: EdgeInsets.zero,
           children: [
-            Text('删除「$_title」的下载？', style: McText.titleSm),
-            const SizedBox(height: 8),
-            Text('只删本机上的副本，观看进度会保留。', style: McText.sub.muted),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: McActionPill(
-                    label: '取消',
-                    primary: false,
-                    expanded: true,
-                    onTap: () => Navigator.of(ctx).pop(),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: McActionPill(
-                    label: '删除（${mcFormatBytes(totalBytes)}）',
-                    primary: false,
-                    tone: McGlassTone.danger,
-                    expanded: true,
-                    onTap: () {
-                      Navigator.of(ctx).pop();
-                      for (final u in units) {
-                        controller.deleteDownloaded(u);
-                      }
-                    },
-                  ),
-                ),
-              ],
+            for (final u in units)
+              McInsetRow(
+                icon: McIcons.play2Fill,
+                title: u.seasonEpisode ?? u.title,
+                subtitle: u.profileLabel,
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  final uri = controller.localPlayUri(u);
+                  if (uri != null) {
+                    context.push(
+                      '/player',
+                      extra: PlayerPageArgs(
+                        url: uri,
+                        title: u.title,
+                        subtitle: u.seasonEpisode,
+                      ),
+                    );
+                  }
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openActions(BuildContext context, OfflineController controller) {
+    showMcSheet<void>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+        child: McInsetGroup(
+          header: _title,
+          margin: EdgeInsets.zero,
+          children: [
+            McInsetRow(
+              icon: McIcons.play2Fill,
+              title: '本机离线播放',
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _playOffline(context, controller);
+              },
+            ),
+            McInsetRow(
+              icon: McIcons.checkCircle,
+              title: units.first.watched ? '标为未看' : '标为已看完（纳入清理建议）',
+              onTap: () {
+                Navigator.of(ctx).pop();
+                final target = !units.first.watched;
+                for (final u in units) {
+                  controller.markUnitWatched(u, watched: target);
+                }
+              },
+            ),
+            McInsetRow(
+              icon: McIcons.trash2,
+              title: '删除本机下载（${mcFormatBytes(totalBytes)}）',
+              destructive: true,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                for (final u in units) {
+                  controller.deleteDownloaded(u);
+                }
+              },
             ),
           ],
         ),
@@ -335,48 +423,90 @@ class _DownloadedRow extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Consumer(
-      builder: (context, ref, _) => McPressable(
-        onTap: null,
-        onLongPress: () =>
-            _confirmDelete(context, ref.read(offlineProvider.notifier)),
-        child: SizedBox(
-          width: double.infinity,
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: McText.ui,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(_detail, style: McText.caption.muted),
-                  ],
-                ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(offlineProvider.notifier);
+    return McPressable(
+      onTap: () => _playOffline(context, controller),
+      onLongPress: () => _openActions(context, controller),
+      child: SizedBox(
+        width: double.infinity,
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: McTokens.surfaceInset,
+                shape: BoxShape.circle,
+                border: Border.all(color: McTokens.line),
               ),
-              const SizedBox(width: 12),
-              Text(mcFormatBytes(totalBytes), style: McText.caption.muted),
-            ],
-          ),
+              child: const Icon(
+                McIcons.play2Fill,
+                size: 15,
+                color: McTokens.accentStrong,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: McText.ui,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(_detail, style: McText.caption.muted),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              mcFormatBytes(totalBytes),
+              style: McText.caption.muted.tabular,
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// 其他账号分区：恒为空，整段隐藏。
+/// 其他账号离线占用分区：本机其他账号存在已下载副本时才展示，支持一键清理释放空间。
 class OtherOwnersSection extends ConsumerWidget {
   const OtherOwnersSection({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return const SizedBox.shrink();
+    final s = ref.watch(offlineProvider);
+    if (s.otherOwnersCount <= 0) return const SizedBox.shrink();
+    return _sectionCard(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          const Icon(McIcons.userSwitch, size: 19, color: McTokens.textMuted),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '本机其他账号缓存 ${s.otherOwnersCount} 项（${mcFormatBytes(s.otherOwnersBytes)}）',
+              style: McText.caption.muted,
+            ),
+          ),
+          McChip(
+            label: '清理释放',
+            compact: true,
+            onTap: () async {
+              await ref
+                  .read(offlineProvider.notifier)
+                  .clearOtherOwnersDownloads();
+              if (context.mounted) McToast.success('已清理其他账号的离线缓存');
+            },
+          ),
+        ],
+      ),
+    );
   }
 }
 

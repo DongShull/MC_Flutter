@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
@@ -10,6 +11,7 @@ import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/effects/mc_stretch.dart';
+import '../../../core/network/server_routes.dart';
 import '../../../core/player/player_page_args.dart';
 import '../state/controllers.dart';
 import '../state/models.dart';
@@ -103,13 +105,15 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
                   final item = state.items[index];
                   return ReelPage(
                     item: item,
+                    active: index == _currentIndex,
                     favorite: controller.isFavorite(item),
                     played: controller.isPlayed(item),
                     onToggleFavorite: () => controller.toggleFavorite(item),
                     onTogglePlayed: () => controller.togglePlayed(item),
                     onOpenDetail: () => _openDetail(item),
                     onShare: () => _share(item),
-                    onPlay: () => _play(item),
+                    onPlay: () => _play(item, fullMovie: false),
+                    onWatchFull: () => _play(item, fullMovie: true),
                   );
                 },
               ),
@@ -251,8 +255,10 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
     context.push('/detail/${item.title.libraryId}/${item.title.mediaItemId}');
   }
 
-  void _play(ReelItemView item) {
-    ref.read(reelsControllerProvider.notifier).event(item, 'open');
+  void _play(ReelItemView item, {required bool fullMovie}) {
+    ref
+        .read(reelsControllerProvider.notifier)
+        .event(item, fullMovie ? 'fullscreen' : 'open');
     final ep = item.title.episode;
     context.push(
       '/player',
@@ -263,7 +269,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
         episodeNumber: ep?.episode,
         title: item.title.name,
         isEpisode: ep != null,
-        startPosition: item.segment.startMs > 0
+        startPosition: !fullMovie && item.segment.startMs > 0
             ? Duration(milliseconds: item.segment.startMs)
             : null,
       ),
@@ -272,6 +278,12 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
 
   void _share(ReelItemView item) {
     final t = item.title;
-    Share.share('MovieClaw · ${t.name} /detail/${t.libraryId}/${t.mediaItemId}');
+    final origin = ServerRoutes.instance.currentOrigin(
+      ref.read(sessionStoreProvider).baseUrl ?? '',
+    );
+    final link = origin.isNotEmpty
+        ? '$origin/detail/${t.libraryId}/${t.mediaItemId}'
+        : '/detail/${t.libraryId}/${t.mediaItemId}';
+    Share.share('MovieClaw · 《${t.name}》 $link');
   }
 }

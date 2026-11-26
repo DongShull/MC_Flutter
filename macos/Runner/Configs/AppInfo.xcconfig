@@ -1,0 +1,3 @@
+PRODUCT_NAME = MovieClaw
+PRODUCT_BUNDLE_IDENTIFIER = io.movieclaw.mcFlutter
+PRODUCT_COPYRIGHT = Copyright © 2026 MovieClaw. All rights reserved.

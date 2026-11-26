@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/mc_client.dart';
+import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/state_views.dart';
@@ -127,6 +130,53 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
     }
   }
 
+  Future<void> _approveDevicePairing() async {
+    final code = await textInputDialog(
+      context,
+      title: '批准电视 / 新终端配对码登录',
+      hint: '输入电视或桌面端屏幕显示的配对码',
+    );
+    if (code == null || code.isEmpty || !mounted) return;
+    try {
+      await ref.read(mcClientProvider).unwrap<dynamic>(
+            Channel.general,
+            'POST',
+            '/api/v1/auth/device/approve',
+            body: {'user_code': code.toUpperCase(), 'code': code.toUpperCase()},
+          );
+      if (!mounted) return;
+      McToast.success('已批准该终端免密登录');
+      await ref.read(devicesProvider.notifier).load();
+    } catch (e) {
+      if (mounted) McToast.error('配对批准失败：$e');
+    }
+  }
+
+  Future<void> _createApiToken() async {
+    final name = await textInputDialog(
+      context,
+      title: '创建手动 API 访问令牌',
+      hint: '用途说明，例如 Infuse / 脚本接入',
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+    try {
+      final res = await ref.read(mcClientProvider).unwrap<Map<String, dynamic>>(
+            Channel.general,
+            'POST',
+            '/api/v1/auth/tokens',
+            body: {'name': name},
+          );
+      final token = (res['token'] ?? res['access_token'] ?? '').toString();
+      if (token.isNotEmpty) {
+        await Clipboard.setData(ClipboardData(text: token));
+        if (mounted) McToast.success('API 令牌已生成并复制到剪贴板');
+      }
+      await ref.read(devicesProvider.notifier).load();
+    } catch (e) {
+      if (mounted) McToast.error('创建令牌失败：$e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(devicesProvider);
@@ -135,6 +185,15 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
 
     return SettingsScaffold(
       title: '我的设备',
+      actions: [
+        McChip(
+          icon: McIcons.qrCodeFill,
+          label: '批准配对码',
+          selected: true,
+          compact: true,
+          onTap: _approveDevicePairing,
+        ),
+      ],
       body: state.isLoading && items.isEmpty
           ? const McLoadingView()
           : state.hasError
@@ -147,6 +206,18 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
                   children: [
                     McInsetGroup(
                       children: [
+                        McInsetRow(
+                          icon: McIcons.qrCodeFill,
+                          title: '输入配对码批准电视 / 桌面端登录',
+                          subtitle: '免输入密码快速授权家庭大屏终端',
+                          onTap: _approveDevicePairing,
+                        ),
+                        McInsetRow(
+                          icon: McIcons.key,
+                          title: '创建手动 API 令牌',
+                          subtitle: '供第三方自动化工具安全调用',
+                          onTap: _createApiToken,
+                        ),
                         McInsetRow(
                           icon: McIcons.checkDouble,
                           title: '显示全部用户的设备',

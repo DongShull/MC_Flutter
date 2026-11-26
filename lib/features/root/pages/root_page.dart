@@ -9,6 +9,7 @@ import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/image/image_urls.dart';
 import '../../../core/session/session_store.dart';
+import '../../../core/shell/command_palette.dart';
 import '../../../core/shell/tab_collapse.dart';
 import '../state/shell_badges.dart';
 
@@ -127,6 +128,7 @@ class RootShell extends ConsumerWidget {
         ],
         currentIndex: index,
         onSelect: onSelect,
+        onOpenCommandPalette: McCommandPaletteController.instance.open,
         body: body,
         footerAccount: _SidebarAccountFooter(
           selected: index == 4,

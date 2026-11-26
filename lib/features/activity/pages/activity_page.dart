@@ -129,6 +129,17 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
                                 for (final group in activity.attentionGroups)
                                   _ActiveDownloadRow(
                                     group: group,
+                                    onReplace:
+                                        group.tasks.length == 1 &&
+                                            group.tasks.first.downloaderId !=
+                                                null
+                                        ? () => _guard(
+                                            () => _controller
+                                                .replaceDownloadTask(
+                                                  group.tasks.first,
+                                                ),
+                                          )
+                                        : null,
                                     onDelete:
                                         group.tasks.length == 1 &&
                                             group.tasks.first.downloaderId !=
@@ -144,6 +155,16 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
                                 for (final job in activity.attentionJobs)
                                   _ActiveJobRow(
                                     job: job,
+                                    onAskAi: () async {
+                                      final sid = await _controller
+                                          .handoffJobToAi(job);
+                                      if (!context.mounted) return;
+                                      if (sid != null && sid.isNotEmpty) {
+                                        context.push('/agent/session/$sid');
+                                      } else {
+                                        context.push('/agent/new');
+                                      }
+                                    },
                                     onCancel: () => _guard(
                                       () => _controller.cancelJob(job.id),
                                     ),
@@ -646,9 +667,14 @@ class _SessionRow extends StatelessWidget {
 }
 
 class _ActiveDownloadRow extends StatelessWidget {
-  const _ActiveDownloadRow({required this.group, this.onDelete});
+  const _ActiveDownloadRow({
+    required this.group,
+    this.onReplace,
+    this.onDelete,
+  });
 
   final DownloadGroup group;
+  final Future<void> Function()? onReplace;
   final Future<void> Function()? onDelete;
 
   @override
@@ -736,6 +762,14 @@ class _ActiveDownloadRow extends StatelessWidget {
               ],
             ),
           ),
+          if (onReplace != null && isError) ...[
+            const SizedBox(width: 8),
+            McChip(
+              label: '换源重抓',
+              compact: true,
+              onTap: onReplace,
+            ),
+          ],
           if (onDelete != null) ...[
             const SizedBox(width: 8),
             McGlassIconButton(
@@ -754,9 +788,15 @@ class _ActiveDownloadRow extends StatelessWidget {
 }
 
 class _ActiveJobRow extends StatelessWidget {
-  const _ActiveJobRow({required this.job, this.onCancel, this.onDismiss});
+  const _ActiveJobRow({
+    required this.job,
+    this.onAskAi,
+    this.onCancel,
+    this.onDismiss,
+  });
 
   final JobView job;
+  final VoidCallback? onAskAi;
   final Future<void> Function()? onCancel;
   final Future<void> Function()? onDismiss;
 
@@ -823,6 +863,15 @@ class _ActiveJobRow extends StatelessWidget {
               ],
             ),
           ),
+          if (onAskAi != null && needsAttention) ...[
+            const SizedBox(width: 6),
+            McChip(
+              icon: McIcons.aiStarFill,
+              label: 'AI 排查',
+              compact: true,
+              onTap: onAskAi,
+            ),
+          ],
           if (onCancel != null) ...[
             const SizedBox(width: 6),
             McGlassIconButton(

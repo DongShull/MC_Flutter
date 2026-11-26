@@ -283,7 +283,7 @@ class ProfileActions {
         aOptions: AndroidOptions(encryptedSharedPreferences: true),
       );
       final raw = await storage.read(key: 'mc_servers');
-      if (raw == null || raw.isNotEmpty) return;
+      if (raw == null || raw.isEmpty) return;
       final servers = (jsonDecode(raw) as List<dynamic>)
           .whereType<Map<String, dynamic>>()
           .map((s) => Map<String, dynamic>.from(s))

@@ -36,6 +36,8 @@ class DiscTitle {
     this.posterUrl,
     this.genres = const [],
     this.owned = false,
+    this.libraryId,
+    this.mediaItemId,
   });
 
   final String ref;
@@ -45,11 +47,14 @@ class DiscTitle {
   final String? posterUrl;
   final List<String> genres;
   final bool owned;
+  final int? libraryId;
+  final int? mediaItemId;
 
   static DiscTitle? fromJson(Map<String, dynamic> o) {
     final ref = o['title_ref']?.toString();
     if (ref == null || ref.isEmpty) return null;
     final lib = o['library_status'];
+    final libMap = lib is Map ? Map<String, dynamic>.from(lib) : null;
     return DiscTitle(
       ref: ref,
       title: o['title']?.toString() ?? '',
@@ -60,7 +65,10 @@ class DiscTitle {
         for (final g in (o['genres'] as List<dynamic>? ?? const [])) g.toString(),
       ],
       // library_status 是对象（MediaLibraryStatus），不是字符串（原 Kotlin 踩过的坑）。
-      owned: lib is Map && ((lib['file_count'] as num? ?? 0).toInt() > 0),
+      owned: libMap != null && ((libMap['file_count'] as num? ?? 0).toInt() > 0),
+      libraryId: (libMap?['library_id'] as num?)?.toInt(),
+      mediaItemId: (libMap?['media_item_id'] as num?)?.toInt() ??
+          (libMap?['item_id'] as num?)?.toInt(),
     );
   }
 }
@@ -314,9 +322,16 @@ class DiscoverController extends Notifier<DiscoverState> {
       if (!_filteredSeqGuard.isCurrent(seq)) return; // 只允许最后一次请求写回
       final titles = _parseTitles(body)
           .fold<List<DiscTitle>>([], (acc, t) => acc.any((e) => e.ref == t.ref) ? acc : [...acc, t]);
+      final merged = page == 1
+          ? titles
+          : [
+              ...s.filtered,
+              for (final t in titles)
+                if (!s.filtered.any((e) => e.ref == t.ref)) t,
+            ];
       state = state.copyWith(
         filteredLoading: false,
-        filtered: titles,
+        filtered: merged,
         filteredPage: page,
         filteredTotalPages: ((body['total_pages'] as num?) ?? 1).toInt(),
         filteredTotal: ((body['total_results'] as num?) ?? 0).toInt(),

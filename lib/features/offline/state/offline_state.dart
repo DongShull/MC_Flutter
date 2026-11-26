@@ -7,29 +7,36 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
-import '../../../core/player/session/playback_session_api.dart';
+import '../../../core/image/image_urls.dart';
+import '../../../core/network/server_routes.dart';
 import '../../../core/platform/download_channel.dart';
+import '../../../core/player/session/playback_session_api.dart';
 import 'models.dart';
 
-/// offline 域复用全局 McClient 单例（统一走 McClient，对应 Kotlin McApi.kt offline 段）。
 final offlineClientProvider = mcClientProvider;
 
 /// 离线下载页 UI 状态。
 class OfflineState {
   const OfflineState({
     this.units = const <DownloadUnit>[],
+    this.otherOwnersBytes = 0,
+    this.otherOwnersCount = 0,
     this.allowCellular = false,
     this.storage,
     this.error,
   });
 
   final List<DownloadUnit> units;
+  final int otherOwnersBytes;
+  final int otherOwnersCount;
   final bool allowCellular;
   final StorageInfo? storage;
   final String? error;
 
   OfflineState copyWith({
     List<DownloadUnit>? units,
+    int? otherOwnersBytes,
+    int? otherOwnersCount,
     bool? allowCellular,
     StorageInfo? storage,
     String? error,
@@ -37,82 +44,102 @@ class OfflineState {
   }) =>
       OfflineState(
         units: units ?? this.units,
+        otherOwnersBytes: otherOwnersBytes ?? this.otherOwnersBytes,
+        otherOwnersCount: otherOwnersCount ?? this.otherOwnersCount,
         allowCellular: allowCellular ?? this.allowCellular,
         storage: storage ?? this.storage,
         error: clearError ? null : (error ?? this.error),
       );
 
-  /// 下载中的单元（含排队 / 等 Wi-Fi），按优先级排序。
   List<DownloadUnit> get activeUnits {
     final active = units.where((u) => u.isActive).toList()
       ..sort((a, b) => b.priority.compareTo(a.priority));
     return active;
   }
 
-  /// 已完成的单元。
   List<DownloadUnit> get doneUnits =>
       units.where((u) => u.status == OfflineUnitStatus.done).toList();
 
-  /// 首页提示条口径：总速度。
+  List<DownloadUnit> get watchedUnits =>
+      doneUnits.where((u) => u.watched).toList();
+
   int get activeSpeedTotal => units.fold(
-      0, (sum, u) => sum + (u.status == OfflineUnitStatus.running ? u.speedBps : 0));
+        0,
+        (sum, u) =>
+            sum + (u.status == OfflineUnitStatus.running ? u.speedBps : 0),
+      );
 }
 
-/// 一条持久化下载任务（断点续传跨重启的关键：url + savePath 稳定，
-/// 保底实现靠 <savePath>.part / .part.meta 从已收字节处继续）。
 class _StoredTask {
   _StoredTask({
     required this.id,
+    required this.ownerKey,
+    required this.fileId,
     required this.title,
     required this.url,
     required this.savePath,
     this.seasonEpisode,
     required this.profileLabel,
     this.priority = 0,
+    this.watched = false,
   });
 
   final String id;
+  final String ownerKey;
+  final String fileId;
   final String title;
   final String url;
   final String savePath;
   final String? seasonEpisode;
   final String profileLabel;
   int priority;
+  bool watched;
 
   Map<String, dynamic> toJson() => {
         'id': id,
+        'ownerKey': ownerKey,
+        'fileId': fileId,
         'title': title,
         'url': url,
         'savePath': savePath,
         if (seasonEpisode != null) 'seasonEpisode': seasonEpisode,
         'profileLabel': profileLabel,
         'priority': priority,
+        'watched': watched,
       };
 
   factory _StoredTask.fromJson(Map<String, dynamic> json) => _StoredTask(
         id: json['id'].toString(),
+        ownerKey: (json['ownerKey'] ?? '').toString(),
+        fileId: (json['fileId'] ?? '').toString(),
         title: json['title'].toString(),
         url: json['url'].toString(),
         savePath: json['savePath'].toString(),
         seasonEpisode: json['seasonEpisode']?.toString(),
         profileLabel: json['profileLabel'].toString(),
         priority: ((json['priority'] ?? 0) as num).toInt(),
+        watched: json['watched'] == true,
       );
 }
 
-/// 离线下载控制器：本机状态机 1:1（排队/下载中/暂停/等 Wi-Fi/完成/失败 + 优先级）。
-/// 字节搬运走 core/platform/download_channel.dart（原生 mc/native/download 通道，
-/// 原生未实现时纯 Dart 分块下载保底，Range 断点续传跨重启）。
+/// 真离线下载与本地播放状态机：
+/// - 跨重启断点续传 + 鉴权 Header 透传；
+/// - 本地 `file://` URI 零网络起播；
+/// - 已看完离线副本标记与一键清理释放空间 + 联网补传观看记录（`POST /api/v1/playback/viewings`）；
+/// - 账号隔离与跨账号离线占用清理。
 class OfflineController extends Notifier<OfflineState> {
   static const _cellularKey = 'offline_allow_cellular';
   static const _tasksKey = 'offline_tasks_v2';
-
-  /// 磁盘预留（对齐 Kotlin OFFLINE_RESERVE_BYTES ≈ 2GB）。
   static const reserveBytes = 2 * 1024 * 1024 * 1024;
 
-  final Map<String, _StoredTask> _tasks = {};
+  final Map<String, _StoredTask> _allTasks = {};
   final Map<String, StreamSubscription<McDownloadProgress>> _subs = {};
   final Map<String, ({int bytes, DateTime at})> _lastTick = {};
+
+  String get _currentOwner {
+    final s = ref.read(sessionStoreProvider);
+    return '${s.baseUrl ?? ''}|${s.username}';
+  }
 
   @override
   OfflineState build() {
@@ -126,60 +153,141 @@ class OfflineController extends Notifier<OfflineState> {
       allowCellular: prefs.getBool(_cellularKey) ?? false,
     );
     await _restoreTasks();
-    // 容量走原生通道（拿不到就保持占位）。
     unawaited(refreshStorage());
   }
 
-  /// 重启恢复：已落盘的副本 → done；没下完的 → 排队并自动续传（
-  /// 通道保底实现带 Range，从 .part 已收字节处继续）。
   Future<void> _restoreTasks() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_tasksKey);
     if (raw == null || raw.isEmpty) return;
     try {
       final list = (jsonDecode(raw) as List<dynamic>)
-          .map((e) => _StoredTask.fromJson(e as Map<String, dynamic>))
+          .whereType<Map>()
+          .map((e) => _StoredTask.fromJson(Map<String, dynamic>.from(e)))
           .toList();
       if (list.isEmpty) return;
+      final owner = _currentOwner;
       final restored = <DownloadUnit>[];
       final pending = <_StoredTask>[];
+      var otherBytes = 0;
+      var otherCount = 0;
+
       for (final t in list) {
+        _allTasks[t.id] = t;
         final file = File(t.savePath);
         final finished = await file.exists();
-        restored.add(DownloadUnit(
-          id: t.id,
-          title: t.title,
-          seasonEpisode: t.seasonEpisode,
-          profileLabel: t.profileLabel,
-          status: finished ? OfflineUnitStatus.done : OfflineUnitStatus.queued,
-          priority: t.priority,
-        ));
-        _tasks[t.id] = t;
+        final belongsToCurrent =
+            t.ownerKey.isEmpty || t.ownerKey == owner || owner == '|';
+        if (!belongsToCurrent) {
+          if (finished) {
+            otherCount++;
+            otherBytes += await file.length();
+          }
+          continue;
+        }
+        restored.add(
+          DownloadUnit(
+            id: t.id,
+            title: t.title,
+            seasonEpisode: t.seasonEpisode,
+            profileLabel: t.profileLabel,
+            status: finished ? OfflineUnitStatus.done : OfflineUnitStatus.queued,
+            priority: t.priority,
+            savePath: t.savePath,
+            watched: t.watched,
+          ),
+        );
         if (!finished) pending.add(t);
       }
-      state = state.copyWith(units: [...restored, ...state.units]);
+      state = state.copyWith(
+        units: restored,
+        otherOwnersBytes: otherBytes,
+        otherOwnersCount: otherCount,
+      );
       for (final t in pending) {
         await _launch(t);
       }
-    } catch (_) {
-      // 恢复失败不阻塞页面：当作没有历史任务。
-    }
+    } catch (_) {}
   }
 
   Future<void> _persistTasks() async {
     final prefs = await SharedPreferences.getInstance();
     final encoded = jsonEncode([
-      for (final t in _tasks.values) t.toJson(),
+      for (final t in _allTasks.values) t.toJson(),
     ]);
     await prefs.setString(_tasksKey, encoded);
   }
 
-  /// 「使用蜂窝网络下载」开关（设置菜单 + waitingForWiFi 提示条共用）。
+  String? localPlayUri(DownloadUnit unit) {
+    final p = unit.savePath ?? _allTasks[unit.id]?.savePath;
+    if (p == null || p.isEmpty) return null;
+    return File(p).uri.toString();
+  }
+
+  /// 标记离线副本已看完，并在在线时同步一条观看记录到服务端。
+  Future<void> markUnitWatched(DownloadUnit unit, {bool watched = true}) async {
+    final task = _allTasks[unit.id];
+    if (task != null) {
+      task.watched = watched;
+      await _persistTasks();
+      final fid = int.tryParse(task.fileId);
+      if (watched && fid != null) {
+        unawaited(
+          ref
+              .read(offlineClientProvider)
+              .unwrap<dynamic>(
+                Channel.general,
+                'POST',
+                '/api/v1/playback/viewings',
+                body: {
+                  'items': [
+                    {
+                      'file_id': fid,
+                      'completed': true,
+                      'watched_at': DateTime.now().toUtc().toIso8601String(),
+                    },
+                  ],
+                },
+              )
+              .catchError((_) => null),
+        );
+      }
+    }
+    _patch(unit.id, (u) => u.copyWith(watched: watched));
+  }
+
+  /// 一键清理所有已看完的离线副本。
+  Future<int> clearWatchedDownloads() async {
+    final watched = state.watchedUnits;
+    for (final u in watched) {
+      await deleteDownloaded(u);
+    }
+    return watched.length;
+  }
+
+  /// 一键清理本机其他账号遗留的离线下载文件。
+  Future<void> clearOtherOwnersDownloads() async {
+    final owner = _currentOwner;
+    final toRemove = _allTasks.values
+        .where((t) => t.ownerKey.isNotEmpty && t.ownerKey != owner)
+        .toList();
+    for (final t in toRemove) {
+      _allTasks.remove(t.id);
+      final f = File(t.savePath);
+      if (await f.exists()) {
+        try {
+          await f.delete();
+        } catch (_) {}
+      }
+    }
+    await _persistTasks();
+    state = state.copyWith(otherOwnersBytes: 0, otherOwnersCount: 0);
+  }
+
   Future<void> setAllowCellular(bool value) async {
     state = state.copyWith(allowCellular: value);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_cellularKey, value);
-    // 打开后，等待 Wi-Fi 的单元恢复排队；关闭则排队中的转回等 Wi-Fi。
     if (value) {
       _patchAll(OfflineUnitStatus.waitingWifi, OfflineUnitStatus.queued);
     } else {
@@ -195,9 +303,10 @@ class OfflineController extends Notifier<OfflineState> {
     );
   }
 
-  /// GET /api/v1/offline/manifest?file_id=：取某文件的离线清单。
   Future<OfflineManifest> manifest(String fileId) async {
-    final body = await ref.read(offlineClientProvider).unwrap<Map<String, dynamic>>(
+    final body = await ref
+        .read(offlineClientProvider)
+        .unwrap<Map<String, dynamic>>(
           Channel.general,
           'GET',
           '/api/v1/offline/manifest',
@@ -206,7 +315,6 @@ class OfflineController extends Notifier<OfflineState> {
     return OfflineManifest.fromJson(body);
   }
 
-  /// POST /api/v1/offline/profiles：按 500 一批提交所选档位（对齐 Kotlin 分 chunk）。
   Future<int> requestProfiles(
     String fileId,
     List<String> profileIds, {
@@ -227,40 +335,56 @@ class OfflineController extends Notifier<OfflineState> {
     return accepted;
   }
 
-  /// 开始下载：lead 文件 manifest -> 逐集开会话拿 streamUrl -> 走下载通道搬运字节。
-  /// 反馈口径对齐 Kotlin：「已开始下载 N 集」/「…，M 集没能开始」。
   Future<String> startDownload(DownloadCandidate candidate) async {
     try {
-      final data = await manifest(candidate.fileId);
-      final fileIds = _resolveFileIds(candidate.fileId, data.episodes);
+      List<String> fileIds;
+      if (candidate.fullSeasonSelected && candidate.seasonFileIds.isNotEmpty) {
+        fileIds = candidate.seasonFileIds;
+      } else {
+        try {
+          final data = await manifest(candidate.fileId);
+          fileIds = candidate.fullSeasonSelected
+              ? _resolveFileIds(candidate.fileId, data.episodes)
+              : <String>[candidate.fileId];
+        } catch (_) {
+          fileIds = <String>[candidate.fileId];
+        }
+      }
       final dir = await McDownloadPaths.resolve();
       final now = DateTime.now().microsecondsSinceEpoch;
+      final owner = _currentOwner;
       var started = 0;
       var failedCount = 0;
       final newUnits = <DownloadUnit>[];
       for (var i = 0; i < fileIds.length; i++) {
         final id = 'dl-${fileIds[i]}-$now-$i';
-        final label = data.episodes.isEmpty ? null : '第 ${i + 1} 集';
+        final label = fileIds.length > 1 ? '第 ${i + 1} 集' : candidate.subtitle;
         final url = await _resolveStreamUrl(fileIds[i], candidate.profiles);
         if (url == null) {
           failedCount++;
           continue;
         }
+        final savePath = '${dir.path}/$id.mp4';
         final task = _StoredTask(
           id: id,
+          ownerKey: owner,
+          fileId: fileIds[i],
           title: candidate.title,
           url: url,
-          savePath: '${dir.path}/$id.mp4',
+          savePath: savePath,
           seasonEpisode: label,
           profileLabel: candidate.profiles.first.label,
         );
-        _tasks[id] = task;
-        newUnits.add(DownloadUnit(
-          id: id,
-          title: candidate.title,
-          seasonEpisode: label,
-          profileLabel: task.profileLabel,
-        ));
+        _allTasks[id] = task;
+        newUnits.add(
+          DownloadUnit(
+            id: id,
+            title: candidate.title,
+            seasonEpisode: label,
+            profileLabel: task.profileLabel,
+            savePath: savePath,
+          ),
+        );
         started++;
       }
       if (newUnits.isNotEmpty) {
@@ -270,24 +394,23 @@ class OfflineController extends Notifier<OfflineState> {
         );
         await _persistTasks();
         for (final u in newUnits) {
-          final task = _tasks[u.id];
+          final task = _allTasks[u.id];
           if (task != null) await _launch(task);
         }
       }
       if (failedCount > 0) {
         state = state.copyWith(
-          error: '已开始下载 $started 集，$failedCount 集没能开始',
+          error: '已开始下载 $started 项，$failedCount 项没能开始',
         );
-        return '已开始下载 $started 集，$failedCount 集没能开始';
+        return '已开始下载 $started 项，$failedCount 项没能开始';
       }
-      return '已开始下载 $started 集';
+      return '已加入离线缓存队列（$started 项）';
     } catch (e) {
       state = state.copyWith(error: e.toString());
-      return '下载没能开始';
+      return '下载没能开始：$e';
     }
   }
 
-  /// manifest 的 episodes 是 file id 列表；解析不出就用 lead 文件本身。
   List<String> _resolveFileIds(String leadId, List<String> episodes) {
     final ids = <String>[];
     for (final e in episodes) {
@@ -297,7 +420,6 @@ class OfflineController extends Notifier<OfflineState> {
     return ids.isEmpty ? <String>[leadId] : ids;
   }
 
-  /// 开播放会话（download capability）换直链 streamUrl；拿不到返回 null。
   Future<String?> _resolveStreamUrl(
     String fileId,
     List<DownloadProfile> profiles,
@@ -305,9 +427,11 @@ class OfflineController extends Notifier<OfflineState> {
     try {
       final id = int.tryParse(fileId);
       if (id == null) return null;
-      final api = PlaybackSessionApi(ref.read(offlineClientProvider));
+      final client = ref.read(offlineClientProvider);
+      final api = PlaybackSessionApi(client);
       final session = await api.start(
         fileId: id,
+        maxTier: profiles.first.id,
         capability: {
           'is_mobile': true,
           'native_hls': false,
@@ -316,13 +440,18 @@ class OfflineController extends Notifier<OfflineState> {
           'tier': profiles.first.id,
         },
       );
-      return session.playable ? session.streamUrl : null;
+      if (!session.playable || session.streamUrl == null) return null;
+      final raw = session.streamUrl!;
+      if (raw.startsWith('/')) {
+        final origin = ServerRoutes.instance.currentOrigin(client.baseUrl);
+        return '$origin$raw';
+      }
+      return raw;
     } catch (_) {
       return null;
     }
   }
 
-  /// 启动一个任务：订阅进度流 + 调通道 start（保底实现自动从 .part 续传）。
   Future<void> _launch(_StoredTask task) async {
     if (_subs.containsKey(task.id)) return;
     _lastTick[task.id] = (bytes: 0, at: DateTime.now());
@@ -331,12 +460,14 @@ class OfflineController extends Notifier<OfflineState> {
       onError: (Object e) => _onFailed(task, e.toString()),
     );
     _patch(task.id, (u) => u.copyWith(status: OfflineUnitStatus.running));
-    await McDownloadChannel.start(McDownloadRequest(
-      id: task.id,
-      url: task.url,
-      savePath: task.savePath,
-      headers: const {},
-    ));
+    await McDownloadChannel.start(
+      McDownloadRequest(
+        id: task.id,
+        url: task.url,
+        savePath: task.savePath,
+        headers: mcImageHeaders(),
+      ),
+    );
   }
 
   void _onProgress(_StoredTask task, McDownloadProgress p) {
@@ -361,28 +492,37 @@ class OfflineController extends Notifier<OfflineState> {
     if (p.done) {
       _subs.remove(task.id)?.cancel();
       _lastTick.remove(task.id);
-      _patch(task.id, (u) => u.copyWith(
-            status: OfflineUnitStatus.done,
-            progress: 1,
-            speedBps: 0,
-          ));
+      _patch(
+        task.id,
+        (u) => u.copyWith(
+          status: OfflineUnitStatus.done,
+          progress: 1,
+          speedBps: 0,
+        ),
+      );
       return;
     }
     final ratio = p.ratio;
-    _patch(task.id, (u) => u.copyWith(
-          status: OfflineUnitStatus.running,
-          progress: ratio ?? u.progress,
-          speedBps: speed < 0 ? 0 : speed,
-        ));
+    _patch(
+      task.id,
+      (u) => u.copyWith(
+        status: OfflineUnitStatus.running,
+        progress: ratio ?? u.progress,
+        speedBps: speed < 0 ? 0 : speed,
+      ),
+    );
   }
 
   void _onFailed(_StoredTask task, String message) {
     _subs.remove(task.id)?.cancel();
     _lastTick.remove(task.id);
-    _patch(task.id, (u) => u.copyWith(
-          status: OfflineUnitStatus.failed,
-          speedBps: 0,
-        ));
+    _patch(
+      task.id,
+      (u) => u.copyWith(
+        status: OfflineUnitStatus.failed,
+        speedBps: 0,
+      ),
+    );
     state = state.copyWith(error: message);
   }
 
@@ -393,42 +533,43 @@ class OfflineController extends Notifier<OfflineState> {
     return null;
   }
 
-  /// 暂停 | 继续（对齐长按菜单）。继续 = 再 start，通道保底实现自动断点续传。
   Future<void> toggle(DownloadUnit unit) async {
-    final task = _tasks[unit.id];
+    final task = _allTasks[unit.id];
     if (unit.status == OfflineUnitStatus.running) {
       await McDownloadChannel.pause(unit.id);
-      _patch(unit.id, (u) => u.copyWith(status: OfflineUnitStatus.paused, speedBps: 0));
+      _patch(
+        unit.id,
+        (u) => u.copyWith(status: OfflineUnitStatus.paused, speedBps: 0),
+      );
       return;
     }
     if (task != null) {
       if (await File(task.savePath).exists()) {
-        // 已完成的副本不重复下。
         _patch(unit.id, (u) => u.copyWith(status: OfflineUnitStatus.done));
         return;
       }
       _patch(unit.id, (u) => u.copyWith(status: OfflineUnitStatus.queued));
       await _launch(task);
     } else {
-      _patch(unit.id, (u) => u.copyWith(status: OfflineUnitStatus.queued, speedBps: 0));
+      _patch(
+        unit.id,
+        (u) => u.copyWith(status: OfflineUnitStatus.queued, speedBps: 0),
+      );
     }
   }
 
-  /// 取消下载：停任务 + 删半成品 + 移除条目。
   Future<void> cancel(DownloadUnit unit) async {
     await McDownloadChannel.cancel(unit.id);
     _subs.remove(unit.id)?.cancel();
     _lastTick.remove(unit.id);
-    final task = _tasks.remove(unit.id);
+    final task = _allTasks.remove(unit.id);
     if (task != null) {
       await McDownloadChannel.removePartial(task.savePath);
       final file = File(task.savePath);
       if (await file.exists()) {
         try {
           await file.delete();
-        } catch (_) {
-          // 删不掉（被占用等）先留着，列表已移除。
-        }
+        } catch (_) {}
       }
       await _persistTasks();
     }
@@ -437,21 +578,19 @@ class OfflineController extends Notifier<OfflineState> {
     );
   }
 
-  /// 优先下载（提到最前 = 最高优先级）。
   void prioritize(DownloadUnit unit) {
     var top = 0;
     for (final u in state.units) {
       if (u.priority > top) top = u.priority;
     }
     _patch(unit.id, (u) => u.copyWith(priority: top + 1));
-    final task = _tasks[unit.id];
+    final task = _allTasks[unit.id];
     if (task != null) {
       task.priority = top + 1;
       unawaited(_persistTasks());
     }
   }
 
-  /// 拖动排序（对齐 Kotlin 拖动 -> 优先级）。
   void reorder(int oldIndex, int newIndex) {
     final active = state.activeUnits;
     if (oldIndex >= active.length) return;
@@ -466,15 +605,16 @@ class OfflineController extends Notifier<OfflineState> {
     };
     state = state.copyWith(
       units: state.units
-          .map((u) =>
-              priorities.containsKey(u.id) && u.isActive
-                  ? u.copyWith(priority: priorities[u.id]!)
-                  : u)
+          .map(
+            (u) => priorities.containsKey(u.id) && u.isActive
+                ? u.copyWith(priority: priorities[u.id]!)
+                : u,
+          )
           .toList(),
     );
     var dirty = false;
     for (final entry in priorities.entries) {
-      final task = _tasks[entry.key];
+      final task = _allTasks[entry.key];
       if (task != null && task.priority != entry.value) {
         task.priority = entry.value;
         dirty = true;
@@ -483,17 +623,14 @@ class OfflineController extends Notifier<OfflineState> {
     if (dirty) unawaited(_persistTasks());
   }
 
-  /// 删除一个已下载副本（长按 / 建议卡）。只删本机副本，不动观看进度。
   Future<void> deleteDownloaded(DownloadUnit unit) async {
-    final task = _tasks.remove(unit.id);
+    final task = _allTasks.remove(unit.id);
     if (task != null) {
       final file = File(task.savePath);
       if (await file.exists()) {
         try {
           await file.delete();
-        } catch (_) {
-          // 留给下次清理。
-        }
+        } catch (_) {}
       }
       await _persistTasks();
     }
@@ -502,14 +639,12 @@ class OfflineController extends Notifier<OfflineState> {
     );
   }
 
-  /// 已下载副本的字节数（按任务 id），供容量卡与已下载行取「占用」
-  /// （对应鸿蒙 store.doneBytes / bytesOfItem 的数据来源：落盘文件大小）。
   Future<Map<String, int>> downloadedFileBytes() async {
     final out = <String, int>{};
     for (final u in state.doneUnits) {
-      final task = _tasks[u.id];
-      if (task == null) continue;
-      final file = File(task.savePath);
+      final path = u.savePath ?? _allTasks[u.id]?.savePath;
+      if (path == null) continue;
+      final file = File(path);
       if (await file.exists()) {
         out[u.id] = await file.length();
       }
@@ -517,14 +652,10 @@ class OfflineController extends Notifier<OfflineState> {
     return out;
   }
 
-  /// 更新容量（实际数字由平台通道返回，先占位 TODO）。
   void updateStorage(StorageInfo info) {
     state = state.copyWith(storage: info);
   }
 
-  /// 从原生通道（mc/native/download 的 capacity）刷新本机容量展示。
-  /// 原生未实现（MissingPluginException / 非 Android 平台）时保持占位：
-  /// storage 维持 null，页面继续显示占位文案。
   Future<void> refreshStorage() async {
     try {
       final cap = await McDownloadChannel.capacity();
@@ -535,9 +666,7 @@ class OfflineController extends Notifier<OfflineState> {
           totalBytes: cap.totalBytes,
         ),
       );
-    } catch (_) {
-      // 拿不到真实容量就走占位，不阻塞页面。
-    }
+    } catch (_) {}
   }
 
   void _patch(String id, DownloadUnit Function(DownloadUnit) fn) {

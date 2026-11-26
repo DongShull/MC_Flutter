@@ -66,8 +66,13 @@ class _SubscriptionDetailPageState
               onTap: () => Navigator.of(ctx).pop(_DetailAction.follow),
             ),
             McInsetRow(
+              icon: McIcons.fileSeed,
+              title: '手动搜种抓源入库…',
+              onTap: () => Navigator.of(ctx).pop(_DetailAction.manualSearch),
+            ),
+            McInsetRow(
               icon: McIcons.listSettings2,
-              title: '规则组',
+              title: '切换或管理规则组',
               onTap: () => Navigator.of(ctx).pop(_DetailAction.ruleSet),
             ),
             McInsetRow(
@@ -87,6 +92,13 @@ class _SubscriptionDetailPageState
         await controller.upgradeRun();
       case _DetailAction.follow:
         await controller.setFollowFuture(!sub.followFuture);
+      case _DetailAction.manualSearch:
+        if (mounted) {
+          context.push(
+            '/search?q=${Uri.encodeComponent(sub.media.title)}&tab=torrent&for_sub=${sub.id}',
+          );
+        }
+        return;
       case _DetailAction.ruleSet:
         await _pickRuleSet(controller);
       case _DetailAction.pause:
@@ -341,6 +353,26 @@ class _SubscriptionDetailPageState
                                       ),
                                     ),
                                   ),
+                                  Expanded(
+                                    child: McGlassButton(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 10,
+                                        horizontal: 8,
+                                      ),
+                                      onTap: () => context.push(
+                                        '/search?q=${Uri.encodeComponent(sub.media.title)}&tab=torrent&for_sub=${sub.id}',
+                                      ),
+                                      child: const Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(McIcons.fileSeed, size: 15),
+                                          SizedBox(width: 5),
+                                          Text('手动搜种'),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: McGlassButton(
@@ -358,6 +390,26 @@ class _SubscriptionDetailPageState
                                           Icon(McIcons.gridFill, size: 15),
                                           SizedBox(width: 5),
                                           Text('资源墙'),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: McGlassButton(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 10,
+                                        horizontal: 8,
+                                      ),
+                                      onTap: () => context.push(
+                                        '/search?q=${Uri.encodeComponent(sub.media.title)}&tab=torrent&for_sub=${sub.id}',
+                                      ),
+                                      child: const Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(McIcons.fileSeed, size: 15),
+                                          SizedBox(width: 5),
+                                          Text('手动搜种'),
                                         ],
                                       ),
                                     ),
@@ -404,7 +456,7 @@ class _SubscriptionDetailPageState
   }
 }
 
-enum _DetailAction { seasons, upgrade, follow, ruleSet, pause }
+enum _DetailAction { seasons, upgrade, follow, manualSearch, ruleSet, pause }
 
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({required this.sub});

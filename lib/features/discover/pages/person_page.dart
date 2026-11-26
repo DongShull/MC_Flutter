@@ -7,8 +7,10 @@ import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/state_views.dart';
+import '../../../core/designsystem/subscribe_sheet.dart';
 import '../../../core/designsystem/theme.dart';
 import '../routes.dart' as feat_discover;
 import '../state/discover_controller.dart' show DiscTitle;
@@ -43,15 +45,19 @@ class PersonState {
   static const _sentinel = Object();
 }
 
-class PersonController extends Notifier<PersonState> {
+class PersonController extends AutoDisposeFamilyNotifier<PersonState, int> {
   McClient? _client;
   McClient get _mc =>
       _client ??= McClient(session: ref.read(sessionStoreProvider));
 
   @override
-  PersonState build() => const PersonState();
+  PersonState build(int personId) {
+    Future.microtask(() => load(personId));
+    return const PersonState();
+  }
 
-  Future<void> load(int personId) async {
+  Future<void> load([int? overrideId]) async {
+    final personId = overrideId ?? arg;
     if (personId <= 0) {
       state = state.copyWith(loading: false, error: '缺少人物 id');
       return;
@@ -83,8 +89,8 @@ class PersonController extends Notifier<PersonState> {
   }
 }
 
-final personProvider =
-    NotifierProvider<PersonController, PersonState>(PersonController.new);
+final personProvider = NotifierProvider.autoDispose
+    .family<PersonController, PersonState, int>(PersonController.new);
 
 /// 发现侧影人作品墙（纯黑底 + 浮动返回顶栏 + 独立大字标题头 + 自适应海报墙）。
 class PersonPage extends ConsumerStatefulWidget {
@@ -99,14 +105,6 @@ class PersonPage extends ConsumerStatefulWidget {
 class _PersonPageState extends ConsumerState<PersonPage> {
   double _scrollOffset = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    Future.microtask(
-      () => ref.read(personProvider.notifier).load(widget.personId),
-    );
-  }
-
   void _back() {
     if (context.canPop()) {
       context.pop();
@@ -117,7 +115,7 @@ class _PersonPageState extends ConsumerState<PersonPage> {
 
   @override
   Widget build(BuildContext context) {
-    final s = ref.watch(personProvider);
+    final s = ref.watch(personProvider(widget.personId));
     final topPad = MediaQuery.paddingOf(context).top;
     final form = McFormWatch.of(context);
     final pad = form == McDeviceForm.phone
@@ -135,7 +133,7 @@ class _PersonPageState extends ConsumerState<PersonPage> {
             McErrorView(
               text: s.error!,
               onRetry: () =>
-                  ref.read(personProvider.notifier).load(widget.personId),
+                  ref.read(personProvider(widget.personId).notifier).load(),
             )
           else
             LayoutBuilder(
@@ -205,8 +203,29 @@ class _PersonPageState extends ConsumerState<PersonPage> {
                                     rating: (t.rating ?? 0) > 0
                                         ? t.rating
                                         : null,
+                                    badge: t.owned ? '在库' : null,
+                                    badgeDotColor: t.owned ? McTokens.ok : null,
                                     onTap: () =>
                                         feat_discover.pushTitle(context, t.ref),
+                                    contextActions: [
+                                      McPosterMenuAction(
+                                        icon: McIcons.film,
+                                        label: '查看详情',
+                                        onTap: () => feat_discover.pushTitle(
+                                          context,
+                                          t.ref,
+                                        ),
+                                      ),
+                                      McPosterMenuAction(
+                                        icon: McIcons.bookmarkFill,
+                                        label: '订阅影片',
+                                        onTap: () => showSubscribeSheet(
+                                          context,
+                                          ref,
+                                          titleRef: t.ref,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 );
                               },

@@ -252,9 +252,11 @@ class AccountController extends Notifier<AccountUiState> {
   /// DELETE /auth/devices/{id}：吊销一台设备。
   Future<void> revokeDevice(String id) async {
     try {
-      await ref
-          .read(accountClientProvider)
-          .delete(Channel.general, '/api/v1/auth/devices/$id');
+      await ref.read(accountClientProvider).unwrap<Map<String, dynamic>?>(
+            Channel.general,
+            'DELETE',
+            '/api/v1/auth/devices/$id',
+          );
       await loadDevices();
     } catch (e) {
       state = state.copyWith(error: e.toString());
@@ -264,9 +266,12 @@ class AccountController extends Notifier<AccountUiState> {
   /// POST /auth/devices/cleanup：清理其他所有设备。
   Future<void> cleanupDevices() async {
     try {
-      await ref
-          .read(accountClientProvider)
-          .post(Channel.general, '/api/v1/auth/devices/cleanup');
+      await ref.read(accountClientProvider).unwrap<Map<String, dynamic>>(
+            Channel.general,
+            'POST',
+            '/api/v1/auth/devices/cleanup',
+            body: {'inactive_days': 0, 'dry_run': false},
+          );
       await loadDevices();
     } catch (e) {
       state = state.copyWith(error: e.toString());

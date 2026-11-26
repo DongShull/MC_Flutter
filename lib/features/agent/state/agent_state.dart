@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:convert';
 
@@ -10,33 +9,39 @@ import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
 import 'models.dart';
 
-/// agent 域 API 单例：复用 core 全局唯一 McClient（对应 Kotlin McApi.kt agent 段）。
+/// agent 域 API 单例：复用 core 全局唯一 McClient。
 final agentClientProvider = mcClientProvider;
 
-/// agent API 封装。
+/// agent API 封装（完整对齐 Web / 后端 `/api/v1/agent/*` 与 `/api/v1/skills`）。
 class AgentApi {
   AgentApi(this._client);
 
   final McClient _client;
 
-  /// GET /agent/sessions：会话列表。
+  /// GET /api/v1/agent/sessions：会话列表。
   Future<List<SessionSummary>> sessions() async {
     final body = await _client.unwrap<List<dynamic>>(
-        Channel.general, 'GET', '/api/v1/agent/sessions');
+      Channel.general,
+      'GET',
+      '/api/v1/agent/sessions',
+    );
     return body
         .whereType<Map<String, dynamic>>()
         .map(SessionSummary.fromJson)
         .toList();
   }
 
-  /// GET /agent/sessions/{id}：转录。
+  /// GET /api/v1/agent/sessions/{id}：转录。
   Future<SessionTranscript> transcript(String sessionId) async {
     final body = await _client.unwrap<Map<String, dynamic>>(
-        Channel.general, 'GET', '/api/v1/agent/sessions/$sessionId');
+      Channel.general,
+      'GET',
+      '/api/v1/agent/sessions/$sessionId',
+    );
     return SessionTranscript.fromJson(body);
   }
 
-  /// POST /agent/sessions：开始会话（body {content, sessionId?, model?, thinkingLevel?}）。
+  /// POST /api/v1/agent/sessions：开始或继续会话。
   Future<Map<String, dynamic>> start({
     required String content,
     String? sessionId,
@@ -51,19 +56,20 @@ class AgentApi {
         'content': content,
         if (sessionId != null) 'sessionId': sessionId,
         'model': model ?? '',
-        if (thinkingLevel != null) 'thinkingLevel': thinkingLevel,
+        if (thinkingLevel != null && thinkingLevel.isNotEmpty)
+          'thinkingLevel': thinkingLevel,
       },
     );
   }
 
-  /// POST /agent/sessions/{id}/stop。
+  /// POST /api/v1/agent/sessions/{id}/stop。
   Future<void> stop(String sessionId) => _client.unwrap<Map<String, dynamic>>(
         Channel.general,
         'POST',
         '/api/v1/agent/sessions/$sessionId/stop',
       );
 
-  /// POST /agent/sessions/{id}/retry（body {messageId?, content?}）。
+  /// POST /api/v1/agent/sessions/{id}/retry。
   Future<Map<String, dynamic>> retry({
     required String sessionId,
     String? messageId,
@@ -79,7 +85,23 @@ class AgentApi {
         },
       );
 
-  /// POST /agent/sessions/{id}/compact-context。
+  /// POST /api/v1/agent/sessions/{id}/fork：从当前或指定消息分叉出新会话。
+  Future<String?> forkSession(String sessionId, {String? entryId}) async {
+    final body = await _client.unwrap<Map<String, dynamic>>(
+      Channel.general,
+      'POST',
+      '/api/v1/agent/sessions/$sessionId/fork',
+      body: {
+        if (entryId != null && entryId.isNotEmpty) 'entry_id': entryId,
+        if (entryId != null && entryId.isNotEmpty) 'messageId': entryId,
+      },
+    );
+    return body['id']?.toString() ??
+        body['sessionId']?.toString() ??
+        body['session_id']?.toString();
+  }
+
+  /// POST /api/v1/agent/sessions/{id}/compact-context。
   Future<void> compactContext(String sessionId) =>
       _client.unwrap<Map<String, dynamic>>(
         Channel.general,
@@ -87,7 +109,7 @@ class AgentApi {
         '/api/v1/agent/sessions/$sessionId/compact-context',
       );
 
-  /// PATCH /agent/sessions/{id}：重命名。
+  /// PATCH /api/v1/agent/sessions/{id}：重命名。
   Future<void> rename(String sessionId, String title) =>
       _client.unwrap<Map<String, dynamic>>(
         Channel.general,
@@ -96,18 +118,43 @@ class AgentApi {
         body: {'title': title},
       );
 
-  /// DELETE /agent/sessions/{id}。
+  /// DELETE /api/v1/agent/sessions/{id}。
   Future<void> delete(String sessionId) =>
       _client.delete(Channel.general, '/api/v1/agent/sessions/$sessionId');
 
-  /// GET /agent/llm/models：可选模型。
+  /// GET /api/v1/agent/llm/models：可选模型。
   Future<List<LlmModelOption>> models() async {
     final body = await _client.unwrap<List<dynamic>>(
-        Channel.general, 'GET', '/api/v1/agent/llm/models');
+      Channel.general,
+      'GET',
+      '/api/v1/agent/llm/models',
+    );
     return body
         .whereType<Map<String, dynamic>>()
         .map(LlmModelOption.fromJson)
         .toList();
+  }
+
+  /// GET /api/v1/skills（回退 `/api/v1/agent/skills`）：技能列表。
+  Future<List<AgentSkill>> skills() async {
+    for (final path in const ['/api/v1/skills', '/api/v1/agent/skills']) {
+      try {
+        final raw = await _client.unwrap<Object?>(Channel.general, 'GET', path);
+        final list = raw is List<dynamic>
+            ? raw
+            : (raw is Map<String, dynamic>
+                ? ((raw['items'] ?? raw['skills'] ?? const []) as List<dynamic>)
+                : const <dynamic>[]);
+        return list
+            .whereType<Map<String, dynamic>>()
+            .map(AgentSkill.fromJson)
+            .where((s) => s.name.isNotEmpty || s.title.isNotEmpty)
+            .toList();
+      } catch (_) {
+        continue;
+      }
+    }
+    return const <AgentSkill>[];
   }
 }
 
@@ -116,9 +163,10 @@ final agentApiProvider =
 
 /// SSE 流式客户端（复用全局 SessionStore 的 baseUrl/token）。
 final agentSseClientProvider = Provider<AgentSseClient>(
-    (ref) => AgentSseClient(ref.watch(sessionStoreProvider)));
+  (ref) => AgentSseClient(ref.watch(sessionStoreProvider)),
+);
 
-/// —— 会话列表控制器（对齐 AgentSessionsViewModel：load/delete）——
+/// —— 会话列表控制器 ——
 class SessionsController extends Notifier<List<SessionSummary>> {
   @override
   List<SessionSummary> build() {
@@ -138,12 +186,19 @@ class SessionsController extends Notifier<List<SessionSummary>> {
     await ref.read(agentApiProvider).delete(sessionId);
     state = state.where((s) => s.id != sessionId).toList();
   }
+
+  Future<void> rename(String sessionId, String title) async {
+    await ref.read(agentApiProvider).rename(sessionId, title);
+    await load();
+  }
 }
 
 final sessionsProvider =
-    NotifierProvider<SessionsController, List<SessionSummary>>(SessionsController.new);
+    NotifierProvider<SessionsController, List<SessionSummary>>(
+  SessionsController.new,
+);
 
-/// 对话气泡（对齐 Kotlin Bubble：连续 thinking/tool 折叠为 ProcessBlock）。
+/// 对话气泡（连续 thinking/tool 折叠为 ProcessBlock，并携带 `show_media_cards_v1` 富媒体卡片）。
 class Bubble {
   const Bubble({
     required this.id,
@@ -151,6 +206,7 @@ class Bubble {
     required this.text,
     this.thinking,
     this.toolCalls = const [],
+    this.mediaCards = const [],
     this.toolOutput,
     this.toolError = false,
     this.processSummary,
@@ -162,6 +218,7 @@ class Bubble {
   final String text;
   final String? thinking;
   final List<ToolCall> toolCalls;
+  final List<AgentMediaCard> mediaCards;
   final String? toolOutput;
   final bool toolError;
   final String? processSummary;
@@ -174,6 +231,7 @@ class ChatState {
     this.sessionId,
     this.bubbles = const <Bubble>[],
     this.models = const <LlmModelOption>[],
+    this.skills = const <AgentSkill>[],
     this.modelRef,
     this.thinkingLevels = const <String>[],
     this.thinkingLevel,
@@ -185,6 +243,7 @@ class ChatState {
   final String? sessionId;
   final List<Bubble> bubbles;
   final List<LlmModelOption> models;
+  final List<AgentSkill> skills;
   final String? modelRef; // null = 默认模型
   final List<String> thinkingLevels;
   final String? thinkingLevel;
@@ -192,38 +251,43 @@ class ChatState {
   final bool sending;
   final String? error;
 
+  static const Object _unset = Object();
+
   ChatState copyWith({
-    String? sessionId,
+    Object? sessionId = _unset,
     List<Bubble>? bubbles,
     List<LlmModelOption>? models,
-    String? modelRef,
+    List<AgentSkill>? skills,
+    Object? modelRef = _unset,
     List<String>? thinkingLevels,
-    String? thinkingLevel,
+    Object? thinkingLevel = _unset,
     bool? loading,
     bool? sending,
     String? error,
     bool clearError = false,
   }) =>
       ChatState(
-        sessionId: sessionId ?? this.sessionId,
+        sessionId:
+            identical(sessionId, _unset) ? this.sessionId : sessionId as String?,
         bubbles: bubbles ?? this.bubbles,
         models: models ?? this.models,
-        modelRef: modelRef ?? this.modelRef,
+        skills: skills ?? this.skills,
+        modelRef:
+            identical(modelRef, _unset) ? this.modelRef : modelRef as String?,
         thinkingLevels: thinkingLevels ?? this.thinkingLevels,
-        thinkingLevel: thinkingLevel ?? this.thinkingLevel,
+        thinkingLevel: identical(thinkingLevel, _unset)
+            ? this.thinkingLevel
+            : thinkingLevel as String?,
         loading: loading ?? this.loading,
         sending: sending ?? this.sending,
         error: clearError ? null : (error ?? this.error),
       );
 }
 
-/// 服务器推来的一条 agent 执行事件（线格式 snake_case，对齐 web lib/api/agent.ts 的 AgentEvent）：
-/// agent_start / thinking_delta / text_delta / tool_call_start / tool_call_delta /
-/// tool_call / tool_result / context_compacted / agent_done / agent_error / agent_cancelled。
+/// 服务器推来的一条 agent 执行事件（线格式 snake_case）。
 class _AgentEvent {
   _AgentEvent._(this._json);
 
-  /// 解析一帧 SSE data；坏帧返回 null（跳过，不打断流）。
   static _AgentEvent? parse(String raw) {
     try {
       final json = jsonDecode(raw);
@@ -254,21 +318,16 @@ class _AgentEvent {
       : null;
 }
 
-/// 对话页控制器（对齐 AgentViewModel）。
-/// 流式：发送/重试后订阅 GET …/sessions/{id}/events（SSE），
-/// text_delta/thinking_delta 等增量实时渲染；服务器不支持 SSE 时回退轮询。
+/// 对话页控制器：支持 SSE 增量流式渲染、技能加载、思维深度切换、上下文压缩与会话分叉。
 class ChatController extends Notifier<ChatState> {
   static const _modelKey = 'agent_composer_model';
   static const _thinkingKey = 'agent_composer_thinking';
   bool _disposed = false;
 
-  /// SSE 探测失败后置 false：本会话内不再尝试流式，直接轮询回退。
   bool _sseSupported = true;
   StreamSubscription<SseEvent>? _streamSub;
   String? _lastEventId;
 
-  /// SSE 端点候选前缀（按序探测，命中后缓存到 [_eventsBase]）：
-  /// Flutter agent 域既有前缀 / Kotlin+Web 参考实现的前缀。
   static const _eventPathCandidates = <String>[
     '/api/v1/agent/sessions',
     '/api/v1/sessions',
@@ -279,8 +338,10 @@ class ChatController extends Notifier<ChatState> {
   ChatState build() {
     ref.onDispose(() {
       _disposed = true;
+      _streamSub?.cancel();
     });
     loadModels();
+    loadSkills();
     _restorePrefs();
     return const ChatState();
   }
@@ -289,38 +350,56 @@ class ChatController extends Notifier<ChatState> {
 
   Future<void> _restorePrefs() async {
     final prefs = await SharedPreferences.getInstance();
+    final savedModel = prefs.getString(_modelKey);
+    final savedThinking = prefs.getString(_thinkingKey);
+    if (_disposed) return;
     state = state.copyWith(
-      modelRef: prefs.getString(_modelKey),
-      thinkingLevel: prefs.getString(_thinkingKey),
+      modelRef: (savedModel != null && savedModel.isNotEmpty) ? savedModel : null,
+      thinkingLevel: (savedThinking != null && savedThinking.isNotEmpty)
+          ? savedThinking
+          : null,
     );
   }
 
-  /// GET /agent/llm/models：模型 chip；无默认项时补「默认」选项（ref=null）。
   Future<void> loadModels() async {
     try {
       final models = await _api.models();
+      if (_disposed) return;
       final defaults = models.where((m) => m.isDefault).toList();
+      final activeRef =
+          state.modelRef ?? (defaults.isEmpty ? null : defaults.first.ref);
+      LlmModelOption? matched;
+      for (final m in models) {
+        if (m.ref == activeRef) matched = m;
+      }
       state = state.copyWith(
         models: models,
-        modelRef: state.modelRef ??
-            (defaults.isEmpty ? null : defaults.first.ref),
-        thinkingLevels: defaults.isEmpty ? const <String>[] : defaults.first.thinkingLevels,
+        modelRef: activeRef,
+        thinkingLevels: matched?.thinkingLevels ??
+            (defaults.isEmpty ? const <String>[] : defaults.first.thinkingLevels),
       );
     } catch (_) {
       // 模型列表拉不到不影响本地输入。
     }
   }
 
+  Future<void> loadSkills() async {
+    try {
+      final skills = await _api.skills();
+      if (_disposed || skills.isEmpty) return;
+      state = state.copyWith(skills: skills);
+    } catch (_) {}
+  }
+
   Future<void> setModel(String? refId) async {
-    state = state.copyWith(modelRef: refId);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_modelKey, refId ?? '');
-    // 换模型后 thinkingLevels 跟着换；选回默认 = ref null。
     final match = models(refId);
     state = state.copyWith(
+      modelRef: refId,
       thinkingLevels: match?.thinkingLevels ?? const <String>[],
       thinkingLevel: null,
     );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_modelKey, refId ?? '');
   }
 
   LlmModelOption? models(String? refId) {
@@ -336,12 +415,28 @@ class ChatController extends Notifier<ChatState> {
     await prefs.setString(_thinkingKey, level ?? '');
   }
 
+  /// 重置为空白新对话（供桌面/平板双栏或新建对话按钮调用）。
+  void resetNewSession() {
+    _streamSub?.cancel();
+    _streamSub = null;
+    state = state.copyWith(
+      sessionId: null,
+      bubbles: const <Bubble>[],
+      loading: false,
+      sending: false,
+      clearError: true,
+    );
+  }
+
   /// 打开已有会话：拉转录并折叠渲染。
   Future<void> openSession(String sessionId) async {
+    await _streamSub?.cancel();
+    _streamSub = null;
     state = state.copyWith(
       sessionId: sessionId,
       loading: true,
       bubbles: const <Bubble>[],
+      clearError: true,
     );
     await _loadTranscript(sessionId);
   }
@@ -349,16 +444,19 @@ class ChatController extends Notifier<ChatState> {
   Future<void> _loadTranscript(String sessionId) async {
     try {
       final transcript = await _api.transcript(sessionId);
+      if (_disposed) return;
       state = state.copyWith(
         bubbles: _bubblesFromTranscript(transcript),
         loading: false,
+        clearError: true,
       );
     } catch (e) {
+      if (_disposed) return;
       state = state.copyWith(loading: false, error: e.toString());
     }
   }
 
-  /// transcript -> 气泡流：连续 thinking/tool 折叠为 ProcessBlock（对齐 Kotlin 折叠口径）。
+  /// transcript -> 气泡流：连续 thinking/tool 折叠为 ProcessBlock，并提取富媒体卡片。
   List<Bubble> _bubblesFromTranscript(SessionTranscript transcript) {
     final bubbles = <Bubble>[];
     var thinkingParts = <String>[];
@@ -366,12 +464,14 @@ class ChatController extends Notifier<ChatState> {
     void flushProcess() {
       if (thinkingParts.isEmpty && toolCalls.isEmpty) return;
       final commands = toolCalls.length;
+      final cards = AgentMediaCard.extractFromToolCalls(toolCalls);
       bubbles.add(Bubble(
         id: 'process-${bubbles.length}',
         role: 'process',
         text: '',
         thinking: thinkingParts.join('\n\n'),
         toolCalls: toolCalls,
+        mediaCards: cards,
         processSummary: [
           if (thinkingParts.isNotEmpty) '已思考',
           if (commands > 0) '调用 $commands 次工具',
@@ -390,7 +490,7 @@ class ChatController extends Notifier<ChatState> {
         bubbles.add(Bubble(
           id: 'compact-${entry.compactionId ?? bubbles.length}',
           role: 'system',
-          text: '上下文已压缩：${entry.summary ?? ''}（$before -> $after tokens）',
+          text: '上下文已压缩：${entry.summary ?? ''}（$before → $after tokens）',
         ));
         continue;
       }
@@ -414,31 +514,43 @@ class ChatController extends Notifier<ChatState> {
           thinkingParts = [...thinkingParts, message.content];
           break;
         default:
+          if (message.toolCalls.isNotEmpty) {
+            toolCalls = [...toolCalls, ...message.toolCalls];
+          }
           flushProcess();
-          bubbles.add(Bubble(
-            id: entry.messageId ?? 'assistant-${bubbles.length}',
-            role: 'assistant',
-            text: message.content,
-          ));
+          if (message.content.trim().isNotEmpty) {
+            bubbles.add(Bubble(
+              id: entry.messageId ?? 'assistant-${bubbles.length}',
+              role: 'assistant',
+              text: message.content,
+            ));
+          }
       }
     }
     flushProcess();
     return bubbles;
   }
 
-  /// 发送：新会话 POST /agent/sessions；已有会话同样 POST（带 sessionId）。
+  /// 发送消息。
   Future<void> send(String text) async {
     final content = text.trim();
     if (content.isEmpty || state.sending) return;
     state = state.copyWith(
       sending: true,
+      clearError: true,
       bubbles: [
         ...state.bubbles,
         Bubble(
-            id: 'local-${DateTime.now().microsecondsSinceEpoch}',
-            role: 'user',
-            text: content),
-        const Bubble(id: 'streaming', role: 'assistant', text: '', streaming: true),
+          id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+          role: 'user',
+          text: content,
+        ),
+        const Bubble(
+          id: 'streaming',
+          role: 'assistant',
+          text: '',
+          streaming: true,
+        ),
       ],
     );
     try {
@@ -450,41 +562,124 @@ class ChatController extends Notifier<ChatState> {
       );
       final sessionId = state.sessionId ??
           accepted['sessionId']?.toString() ??
-          accepted['session_id']?.toString();
+          accepted['session_id']?.toString() ??
+          accepted['id']?.toString();
       state = state.copyWith(sessionId: sessionId);
-      await _runToCompletion(sessionId!);
+      unawaited(ref.read(sessionsProvider.notifier).load());
+      if (sessionId != null && sessionId.isNotEmpty) {
+        await _runToCompletion(sessionId);
+      }
     } catch (e) {
       _dropStreaming();
       state = state.copyWith(error: e.toString());
     } finally {
-      state = state.copyWith(sending: false);
+      if (!_disposed) {
+        state = state.copyWith(sending: false);
+        unawaited(ref.read(sessionsProvider.notifier).load());
+      }
     }
   }
 
-  /// 改写重发（对齐 beginEdit -> retry）：填回原文后由 retry(messageId) 提交。
+  /// 改写用户消息并重发。
   Future<void> resendEdited(String messageId, String newContent) async {
     if (state.sending) return;
     final sessionId = state.sessionId;
     if (sessionId == null) return;
     state = state.copyWith(
       sending: true,
+      clearError: true,
       bubbles: [
         ...state.bubbles,
-        const Bubble(id: 'streaming', role: 'assistant', text: '', streaming: true),
+        const Bubble(
+          id: 'streaming',
+          role: 'assistant',
+          text: '',
+          streaming: true,
+        ),
       ],
     );
     try {
-      await _api.retry(sessionId: sessionId, messageId: messageId, content: newContent);
+      await _api.retry(
+        sessionId: sessionId,
+        messageId: messageId,
+        content: newContent,
+      );
       await _runToCompletion(sessionId);
     } catch (e) {
       _dropStreaming();
       state = state.copyWith(error: e.toString());
     } finally {
-      state = state.copyWith(sending: false);
+      if (!_disposed) state = state.copyWith(sending: false);
     }
   }
 
-  /// POST /agent/sessions/{id}/stop：终止（同时断开 SSE 流）。
+  /// 重新生成 AI 回复。
+  Future<void> retryAssistant({String? messageId}) async {
+    if (state.sending) return;
+    final sessionId = state.sessionId;
+    if (sessionId == null) return;
+    state = state.copyWith(
+      sending: true,
+      clearError: true,
+      bubbles: [
+        ...state.bubbles,
+        const Bubble(
+          id: 'streaming',
+          role: 'assistant',
+          text: '',
+          streaming: true,
+        ),
+      ],
+    );
+    try {
+      await _api.retry(
+        sessionId: sessionId,
+        messageId:
+            (messageId != null && !messageId.startsWith('assistant-'))
+                ? messageId
+                : null,
+      );
+      await _runToCompletion(sessionId);
+    } catch (e) {
+      _dropStreaming();
+      state = state.copyWith(error: e.toString());
+    } finally {
+      if (!_disposed) state = state.copyWith(sending: false);
+    }
+  }
+
+  /// 手动压缩当前会话上下文。
+  Future<bool> compactCurrentSession() async {
+    final sessionId = state.sessionId;
+    if (sessionId == null || state.sending) return false;
+    try {
+      await _api.compactContext(sessionId);
+      await _loadTranscript(sessionId);
+      return true;
+    } catch (e) {
+      state = state.copyWith(error: e.toString());
+      return false;
+    }
+  }
+
+  /// 从当前会话（或某条消息）分叉出新会话并切换过去。
+  Future<String?> forkCurrentSession({String? entryId}) async {
+    final sessionId = state.sessionId;
+    if (sessionId == null || state.sending) return null;
+    try {
+      final newId = await _api.forkSession(sessionId, entryId: entryId);
+      if (newId != null && newId.isNotEmpty) {
+        await ref.read(sessionsProvider.notifier).load();
+        await openSession(newId);
+        return newId;
+      }
+    } catch (e) {
+      state = state.copyWith(error: e.toString());
+    }
+    return null;
+  }
+
+  /// POST /api/v1/agent/sessions/{id}/stop：终止生成。
   Future<void> stop() async {
     final sessionId = state.sessionId;
     if (sessionId == null) return;
@@ -498,18 +693,14 @@ class ChatController extends Notifier<ChatState> {
     }
   }
 
-  /// 发送/重试后推进到会话空闲：优先 SSE 流式增量渲染，不支持/中断则轮询回退。
   Future<void> _runToCompletion(String sessionId) async {
     _lastEventId = null;
     if (_sseSupported) {
       if (await _streamSession(sessionId)) return;
-      // 流式不可用（端点 404 / 重连耗尽）→ 回退现有轮询兜底。
     }
     await _pollUntilIdle(sessionId);
   }
 
-  /// 订阅一次 agent 事件流直到终态。返回 true = 收到终态；
-  /// false = 流中断（走轮询兜底）；路径候选全部 404 时置 _sseSupported=false。
   Future<bool> _streamSession(String sessionId) async {
     final sse = ref.read(agentSseClientProvider);
     final candidates = _eventsBase != null
@@ -517,7 +708,7 @@ class ChatController extends Notifier<ChatState> {
         : [for (final b in _eventPathCandidates) '$b/$sessionId/events'];
     for (final path in candidates) {
       final result = await _consumeStream(sse, path, sessionId);
-      if (result == null) continue; // 该端点不存在，试下一个候选
+      if (result == null) continue;
       _eventsBase = path.substring(0, path.lastIndexOf('/'));
       return result;
     }
@@ -525,7 +716,6 @@ class ChatController extends Notifier<ChatState> {
     return false;
   }
 
-  /// 消费一条流。null = 端点不支持；true = 终态收尾；false = 网络中断。
   Future<bool?> _consumeStream(
     AgentSseClient sse,
     String path,
@@ -534,32 +724,35 @@ class ChatController extends Notifier<ChatState> {
     final done = Completer<bool?>();
     var gotEvent = false;
     StreamSubscription<SseEvent>? sub;
-    sub = sse.events(path, lastEventId: _lastEventId).listen((event) {
-      if (event.id != null) _lastEventId = event.id;
-      gotEvent = true;
-      final ev = _AgentEvent.parse(event.data);
-      if (ev != null) _applyAgentEvent(ev);
-      if (AgentSseClient.terminalEvents.contains(event.name) &&
-          !done.isCompleted) {
-        done.complete(true);
-      }
-    }, onError: (Object e) {
-      if (done.isCompleted) return;
-      // 该路径从未产出事件且服务器明确 404/非流式 → 端点不支持；
-      // 已经收到过事件（重连耗尽等）→ 当作中断走轮询兜底。
-      done.complete(e is SseUnsupportedException && !gotEvent ? null : false);
-    }, onDone: () {
-      if (!done.isCompleted) done.complete(false);
-    });
+    sub = sse.events(path, lastEventId: _lastEventId).listen(
+      (event) {
+        if (event.id != null) _lastEventId = event.id;
+        gotEvent = true;
+        final ev = _AgentEvent.parse(event.data);
+        if (ev != null) _applyAgentEvent(ev);
+        if (AgentSseClient.terminalEvents.contains(event.name) &&
+            !done.isCompleted) {
+          done.complete(true);
+        }
+      },
+      onError: (Object e) {
+        if (done.isCompleted) return;
+        done.complete(
+          e is SseUnsupportedException && !gotEvent ? null : false,
+        );
+      },
+      onDone: () {
+        if (!done.isCompleted) done.complete(false);
+      },
+    );
     _streamSub = sub;
     final result = await done.future;
     await sub.cancel();
     _streamSub = null;
-    if (result == true) await _loadTranscript(sessionId); // 终态后以转录复原折叠
+    if (result == true) await _loadTranscript(sessionId);
     return result;
   }
 
-  /// 把一条 agent 事件落到气泡流（打字机式增量，对齐 Kotlin 流式渲染口径）。
   void _applyAgentEvent(_AgentEvent ev) {
     switch (ev.type) {
       case 'thinking_delta':
@@ -574,12 +767,17 @@ class ChatController extends Notifier<ChatState> {
         break;
       case 'context_compacted':
         _finishStreamingBubbles();
-        _patchBubbles((bubbles) => [...bubbles, Bubble(
+        _patchBubbles(
+          (bubbles) => [
+            ...bubbles,
+            Bubble(
               id: 'compact-${DateTime.now().microsecondsSinceEpoch}',
               role: 'system',
               text: '上下文已压缩：${ev.compactionSummary ?? ''}'
-                  '（${ev.compactionBefore ?? '?'} -> ${ev.compactionAfter ?? '?'} tokens）',
-            )]);
+                  '（${ev.compactionBefore ?? '?'} → ${ev.compactionAfter ?? '?'} tokens）',
+            ),
+          ],
+        );
         break;
       case 'agent_error':
         _finishStreamingBubbles();
@@ -590,7 +788,7 @@ class ChatController extends Notifier<ChatState> {
         _finishStreamingBubbles();
         break;
       default:
-        break; // agent_start / tool_call_delta / tool_result：渲染无需单独处理
+        break;
     }
   }
 
@@ -598,11 +796,22 @@ class ChatController extends Notifier<ChatState> {
     state = state.copyWith(bubbles: fn(state.bubbles));
   }
 
-  /// thinking 增量 / 工具调用落到末尾的 streaming process 气泡（无则新建）。
   void _appendToProcess({String? thinkingDelta, ToolCall? toolCall}) {
     _patchBubbles((bubbles) {
-      if (bubbles.isNotEmpty && bubbles.last.role == 'process' && bubbles.last.streaming) {
-        final last = bubbles.last;
+      // 去掉占位空 assistant streaming 气泡，让过程卡排在正文前
+      final cleaned = bubbles
+          .where(
+            (b) => !(b.id == 'streaming' && b.role == 'assistant' && b.text.isEmpty),
+          )
+          .toList();
+      if (cleaned.isNotEmpty &&
+          cleaned.last.role == 'process' &&
+          cleaned.last.streaming) {
+        final last = cleaned.last;
+        final nextCalls = [
+          ...last.toolCalls,
+          if (toolCall != null) toolCall,
+        ];
         final merged = Bubble(
           id: last.id,
           role: 'process',
@@ -611,28 +820,28 @@ class ChatController extends Notifier<ChatState> {
             if (last.thinking != null) last.thinking!,
             if (thinkingDelta != null && thinkingDelta.isNotEmpty) thinkingDelta,
           ].join(),
-          toolCalls: [
-            ...last.toolCalls,
-            if (toolCall != null) toolCall,
-          ],
+          toolCalls: nextCalls,
+          mediaCards: AgentMediaCard.extractFromToolCalls(nextCalls),
           processSummary: _processSummary([
             if (((last.thinking ?? '') + (thinkingDelta ?? '')).trim().isNotEmpty)
               '已思考',
-            if (last.toolCalls.length + (toolCall != null ? 1 : 0) > 0)
-              '调用 ${last.toolCalls.length + (toolCall != null ? 1 : 0)} 次工具',
+            if (nextCalls.isNotEmpty) '调用 ${nextCalls.length} 次工具',
           ]),
           streaming: true,
         );
-        return [...bubbles.sublist(0, bubbles.length - 1), merged];
+        return [...cleaned.sublist(0, cleaned.length - 1), merged];
       }
+      final calls = toolCall != null ? <ToolCall>[toolCall] : const <ToolCall>[];
       return [
-        ...bubbles,
+        ...cleaned,
         Bubble(
           id: 'process-${DateTime.now().microsecondsSinceEpoch}',
           role: 'process',
           text: '',
-          thinking: (thinkingDelta != null && thinkingDelta.isNotEmpty) ? thinkingDelta : null,
-          toolCalls: toolCall != null ? [toolCall] : const <ToolCall>[],
+          thinking:
+              (thinkingDelta != null && thinkingDelta.isNotEmpty) ? thinkingDelta : null,
+          toolCalls: calls,
+          mediaCards: AgentMediaCard.extractFromToolCalls(calls),
           processSummary: _processSummary([
             if (thinkingDelta != null && thinkingDelta.trim().isNotEmpty) '已思考',
             if (toolCall != null) '调用 1 次工具',
@@ -643,11 +852,12 @@ class ChatController extends Notifier<ChatState> {
     });
   }
 
-  /// text 增量落到末尾的 streaming assistant 气泡（无则新建，打字机式追加）。
   void _appendToAssistant(String delta) {
     if (delta.isEmpty) return;
     _patchBubbles((bubbles) {
-      if (bubbles.isNotEmpty && bubbles.last.role == 'assistant' && bubbles.last.streaming) {
+      if (bubbles.isNotEmpty &&
+          bubbles.last.role == 'assistant' &&
+          bubbles.last.streaming) {
         final last = bubbles.last;
         return [
           ...bubbles.sublist(0, bubbles.length - 1),
@@ -668,11 +878,13 @@ class ChatController extends Notifier<ChatState> {
 
   String _processSummary(List<String> parts) => parts.join('，');
 
-  /// 终态/停止：所有 streaming 气泡落定。
   void _finishStreamingBubbles() {
-    _patchBubbles((bubbles) => [
-          for (final b in bubbles) if (b.streaming) _unstream(b) else b,
-        ]);
+    _patchBubbles(
+      (bubbles) => [
+        for (final b in bubbles)
+          if (b.streaming) _unstream(b) else b,
+      ],
+    );
   }
 
   Bubble _unstream(Bubble b) => Bubble(
@@ -681,13 +893,13 @@ class ChatController extends Notifier<ChatState> {
         text: b.text,
         thinking: b.thinking,
         toolCalls: b.toolCalls,
+        mediaCards: b.mediaCards,
         toolOutput: b.toolOutput,
         toolError: b.toolError,
         processSummary: b.processSummary,
         streaming: false,
       );
 
-  /// 轮询转录直到会话空闲（SSE 不可用时的回退路径）。
   Future<void> _pollUntilIdle(String sessionId) async {
     for (var attempt = 0; attempt < 300 && !_disposed; attempt++) {
       await Future<void>.delayed(const Duration(seconds: 2));
@@ -716,4 +928,5 @@ class ChatController extends Notifier<ChatState> {
   }
 }
 
-final chatProvider = NotifierProvider<ChatController, ChatState>(ChatController.new);
+final chatProvider =
+    NotifierProvider<ChatController, ChatState>(ChatController.new);

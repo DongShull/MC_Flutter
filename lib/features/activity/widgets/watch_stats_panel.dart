@@ -1,5 +1,6 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_icons.dart';
@@ -204,6 +205,11 @@ class WatchStatsPanel extends StatelessWidget {
                 subtitle:
                     '${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}'
                     '${row.members > 0 ? ' · ${row.members} 位成员' : ''}',
+                onTap: row.media.libraryId == null
+                    ? null
+                    : () => context.push(
+                          '/detail/${row.media.libraryId}/${row.media.mediaItemId}',
+                        ),
               ),
           ],
           if (stats.byMember.isNotEmpty) ...[
@@ -234,6 +240,11 @@ class WatchStatsPanel extends StatelessWidget {
                 iconColor: McTokens.danger,
                 title: row.media.title,
                 subtitle: '${row.plays} 次 · ${mcFormatWatched(row.watchedMs)}',
+                onTap: row.media.libraryId == null
+                    ? null
+                    : () => context.push(
+                          '/detail/${row.media.libraryId}/${row.media.mediaItemId}',
+                        ),
               ),
           ],
         ],

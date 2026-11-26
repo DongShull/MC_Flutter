@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 /// DLNA/SSDP 设备发现（纯 Dart，对齐 UPnP DeviceArchitecture 1.1）：
 /// M-SEARCH 组播 239.255.255.250:1900，收集 MediaRenderer 应答的 LOCATION/USN。
 class DlnaDevice {
@@ -141,9 +143,13 @@ class DlnaDiscovery {
     }
   }
 
+  @visibleForTesting
+  static String? parseAvTransportControlUrl(String xml) =>
+      _avTransportControlUrl(xml);
+
   static String? _avTransportControlUrl(String xml) {
     final serviceRe = RegExp(
-      r'<service>([sS]*?)</service>',
+      r'<service>([\s\S]*?)</service>',
       multiLine: true,
     );
     for (final m in serviceRe.allMatches(xml)) {

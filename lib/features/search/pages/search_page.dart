@@ -9,20 +9,57 @@ import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/state_views.dart';
+import '../../../core/designsystem/subscribe_sheet.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/image/image_urls.dart';
+import '../../../core/models/format.dart';
+import '../../../core/player/player_page_args.dart';
 import '../state/search_controller.dart';
 
-/// 全局库内搜索页（银玻璃深色胶囊搜索栏 + 历史记录胶囊 + 相关影人圆头像 + 结果卡片）。
+/// 全平台三合一统一搜索页（对齐并超越 Web `SearchView` + iOS `SearchView`）：
+/// - `本地媒体库`：库内条目 + 相关影人圆头像 + 联想词 + 无限游标分页 + 右键快捷播/详情；
+/// - `影视发现`：TMDB / 豆瓣实时检索 + 在库绿标 + 一键弹层订阅；
+/// - `种子资源 PT`：跨站点聚合搜种 + FREE/H&R/画质标签 + 一键直推下载器或为指定订阅抓源入库。
 class SearchPage extends ConsumerStatefulWidget {
-  const SearchPage({super.key});
+  const SearchPage({
+    super.key,
+    this.initialQuery,
+    this.initialMode,
+    this.forSubscriptionId,
+  });
+
+  final String? initialQuery;
+  final String? initialMode;
+  final int? forSubscriptionId;
 
   @override
   ConsumerState<SearchPage> createState() => _SearchPageState();
 }
 
 class _SearchPageState extends ConsumerState<SearchPage> {
-  late final TextEditingController _input = TextEditingController();
+  late final TextEditingController _input =
+      TextEditingController(text: widget.initialQuery ?? '');
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() async {
+      final mode = widget.initialMode ??
+          (widget.forSubscriptionId != null ? 'torrent' : null);
+      if ((widget.initialQuery != null && widget.initialQuery!.isNotEmpty) ||
+          mode != null) {
+        await ref.read(searchProvider.notifier).applyRouteArgs(
+              query: widget.initialQuery,
+              mode: mode,
+            );
+      } else {
+        final cur = ref.read(searchProvider).query;
+        if (cur.isNotEmpty && _input.text.isEmpty) {
+          _input.text = cur;
+        }
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -36,6 +73,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       text: q,
       selection: TextSelection.collapsed(offset: q.length),
     );
+    ref.read(searchProvider.notifier).onQuery(q);
     ref.read(searchProvider.notifier).search(q);
   }
 
@@ -47,6 +85,12 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     }
   }
 
+  String _hintFor(String mode) => switch (mode) {
+        'media' => '搜索 TMDB / 豆瓣电影与剧集，一键订阅…',
+        'torrent' => '搜索 PT 站点种子关键词（片名 / IMDb / 分辨率）…',
+        _ => '搜索本地媒体库影片、剧集与影人…',
+      };
+
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(searchProvider);
@@ -57,7 +101,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       body: Column(
         children: [
           Padding(
-            padding: EdgeInsets.fromLTRB(12, topPad + 8, 16, 10),
+            padding: EdgeInsets.fromLTRB(12, topPad + 8, 16, 8),
             child: Row(
               children: [
                 McGlassIconButton(
@@ -93,10 +137,10 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                             onSubmitted: _submit,
                             onChanged: (v) =>
                                 ref.read(searchProvider.notifier).onQuery(v),
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               isCollapsed: true,
                               filled: false,
-                              hintText: '搜索影片、剧集与影人…',
+                              hintText: _hintFor(s.mode),
                               border: InputBorder.none,
                               enabledBorder: InputBorder.none,
                               focusedBorder: InputBorder.none,
@@ -104,7 +148,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                             ),
                           ),
                         ),
-                        if (s.query.isNotEmpty)
+                        if (s.query.isNotEmpty || _input.text.isNotEmpty)
                           GestureDetector(
                             onTap: () {
                               _input.clear();
@@ -131,11 +175,132 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               ],
             ),
           ),
+          // 三合一银玻璃分区切换条
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      McChip(
+                        label: '本地媒体库',
+                        icon: McIcons.mediaLibraryFill,
+                        selected: s.mode == 'library',
+                        onTap: () => ref
+                            .read(searchProvider.notifier)
+                            .switchMode('library'),
+                      ),
+                      const SizedBox(width: 8),
+                      McChip(
+                        label: '影视发现',
+                        icon: McIcons.compass,
+                        selected: s.mode == 'media',
+                        onTap: () => ref
+                            .read(searchProvider.notifier)
+                            .switchMode('media'),
+                      ),
+                      const SizedBox(width: 8),
+                      McChip(
+                        label: '种子资源 PT',
+                        icon: McIcons.fileSeed,
+                        selected: s.mode == 'torrent',
+                        onTap: () => ref
+                            .read(searchProvider.notifier)
+                            .switchMode('torrent'),
+                      ),
+                    ],
+                  ),
+                ),
+                if (s.mode == 'media') ...[
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final (val, label) in const [
+                          ('all', '全部'),
+                          ('movie', '电影'),
+                          ('tv', '剧集'),
+                        ]) ...[
+                          McChip(
+                            label: label,
+                            compact: true,
+                            selected: s.mediaType == val,
+                            onTap: () => ref
+                                .read(searchProvider.notifier)
+                                .setMediaFilter(mediaType: val),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        const SizedBox(width: 6),
+                        Container(width: 1, height: 16, color: McTokens.line),
+                        const SizedBox(width: 10),
+                        for (final (prov, label) in const [
+                          ('tmdb', 'TMDB'),
+                          ('douban', '豆瓣'),
+                        ]) ...[
+                          McChip(
+                            label: label,
+                            compact: true,
+                            selected: s.mediaProvider == prov,
+                            onTap: () => ref
+                                .read(searchProvider.notifier)
+                                .setMediaFilter(provider: prov),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+                if (widget.forSubscriptionId != null &&
+                    s.mode == 'torrent') ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0x1F7FB0FF),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0x4D7FB0FF)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          McIcons.bookmarkFill,
+                          size: 14,
+                          color: McTokens.info,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '正在为订阅 #${widget.forSubscriptionId} 手动挑种抓源，点击「抓源入库」将直接关联该订阅自动整理。',
+                            style: McText.caption.copyWith(color: McTokens.info),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
           const Divider(height: 1, color: McTokens.line),
           Expanded(
-            child: s.query.trim().isEmpty
-                ? _HistorySection(onPick: _submit)
-                : _ResultBody(onPick: _submit),
+            child: s.query.trim().isEmpty && s.submittedQuery.trim().isEmpty
+                ? _HistorySection(mode: s.mode, onPick: _submit)
+                : switch (s.mode) {
+                    'media' => _MediaResultBody(onPick: _submit),
+                    'torrent' => _TorrentResultBody(
+                        forSubscriptionId: widget.forSubscriptionId,
+                      ),
+                    _ => _LibraryResultBody(onPick: _submit),
+                  },
           ),
         ],
       ),
@@ -144,19 +309,33 @@ class _SearchPageState extends ConsumerState<SearchPage> {
 }
 
 class _HistorySection extends ConsumerWidget {
-  const _HistorySection({required this.onPick});
+  const _HistorySection({required this.mode, required this.onPick});
 
+  final String mode;
   final ValueChanged<String> onPick;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final history = ref.watch(searchProvider.select((s) => s.history));
     if (history.isEmpty) {
-      return const McEmptyView(
-        icon: McIcons.search,
-        title: '搜索你的媒体库',
-        text: '输入片名、原名、导演或演员姓名立即查找',
-      );
+      final (icon, title, text) = switch (mode) {
+        'media' => (
+            McIcons.compass,
+            '搜索全球影视库',
+            '检索 TMDB 与豆瓣片单，查看演职员或一键加入追更订阅'
+          ),
+        'torrent' => (
+            McIcons.fileSeed,
+            '聚合检索 PT 站点资源',
+            '输入中英文片名、IMDb 编号或分辨率，支持一键直推下载器'
+          ),
+        _ => (
+            McIcons.search,
+            '搜索你的本地媒体库',
+            '输入片名、原名、导演或演员姓名立即查找'
+          ),
+      };
+      return McEmptyView(icon: icon, title: title, text: text);
     }
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -218,8 +397,364 @@ class _HistorySection extends ConsumerWidget {
   }
 }
 
-class _ResultBody extends ConsumerWidget {
-  const _ResultBody({required this.onPick});
+class _MediaResultBody extends ConsumerWidget {
+  const _MediaResultBody({required this.onPick});
+
+  final ValueChanged<String> onPick;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(searchProvider);
+    if (s.searching && s.mediaHits.isEmpty) {
+      return const McLoadingView(label: '正在检索影视资料…');
+    }
+    if (s.error != null && s.mediaHits.isEmpty) {
+      return McErrorView(
+        text: s.error!,
+        onRetry: () => ref.read(searchProvider.notifier).search(
+              s.submittedQuery.isEmpty ? s.query : s.submittedQuery,
+            ),
+      );
+    }
+    if (s.mediaHits.isEmpty) {
+      return const McEmptyView(
+        icon: McIcons.compass,
+        title: '未检索到相关影视',
+        text: '试试切换英文原名、年份或切换 TMDB / 豆瓣数据源',
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final form = McFormWatch.of(context);
+        final pad = form == McDeviceForm.phone
+            ? McTokens.pagePadding
+            : McTokens.pagePaddingWide;
+        final cols = mcGridCrossAxisCount(form, constraints, cellExtent: 126);
+        return GridView.builder(
+          padding: EdgeInsets.fromLTRB(pad, 14, pad, 40),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: cols,
+            mainAxisSpacing: 18,
+            crossAxisSpacing: 12,
+            childAspectRatio: 0.54,
+          ),
+          itemCount: s.mediaHits.length,
+          itemBuilder: (context, i) {
+            final hit = s.mediaHits[i];
+            return McFocusRing(
+              borderRadius: McTokens.posterRadius,
+              child: McPosterCard(
+                title: hit.title,
+                posterUrl: hit.posterUrl,
+                width: null,
+                subtitle: [
+                  if (hit.year != null) '${hit.year}',
+                  hit.mediaType == 'tv' ? '剧集' : '电影',
+                ].join(' · '),
+                rating: (hit.rating ?? 0) > 0 ? hit.rating : null,
+                badge: hit.inLibrary ? '在库' : null,
+                badgeDotColor: hit.inLibrary ? McTokens.ok : null,
+                onTap: () => context.push(
+                  '/discover/title?ref=${Uri.encodeComponent(hit.titleRef)}',
+                ),
+                onQuickPlay: hit.inLibrary &&
+                        hit.libraryId != null &&
+                        hit.mediaItemId != null
+                    ? () => context.push(
+                          '/detail/${hit.libraryId}/${hit.mediaItemId}',
+                        )
+                    : null,
+                contextActions: [
+                  McPosterMenuAction(
+                    icon: McIcons.film,
+                    label: '查看影视详情',
+                    onTap: () => context.push(
+                      '/discover/title?ref=${Uri.encodeComponent(hit.titleRef)}',
+                    ),
+                  ),
+                  if (hit.inLibrary &&
+                      hit.libraryId != null &&
+                      hit.mediaItemId != null)
+                    McPosterMenuAction(
+                      icon: McIcons.play2Fill,
+                      label: '前往本地媒体库观看',
+                      onTap: () => context.push(
+                        '/detail/${hit.libraryId}/${hit.mediaItemId}',
+                      ),
+                    ),
+                  McPosterMenuAction(
+                    icon: McIcons.bookmarkFill,
+                    label: hit.inLibrary ? '管理订阅 / 洗版' : '加入追更订阅',
+                    onTap: () async {
+                      final outcome = await showSubscribeSheet(
+                        context,
+                        ref,
+                        titleRef: hit.titleRef,
+                      );
+                      if (!context.mounted || outcome == null) return;
+                      if (outcome == SubscribeSheetOutcome.created) {
+                        McToast.success('已加入追更订阅');
+                      } else {
+                        context.push('/subscriptions');
+                      }
+                    },
+                  ),
+                  McPosterMenuAction(
+                    icon: McIcons.fileSeed,
+                    label: '搜 PT 种子资源',
+                    onTap: () {
+                      onPick(hit.title);
+                      ref.read(searchProvider.notifier).switchMode('torrent');
+                    },
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _TorrentResultBody extends ConsumerWidget {
+  const _TorrentResultBody({this.forSubscriptionId});
+
+  final int? forSubscriptionId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(searchProvider);
+    if (s.searching && s.torrentHits.isEmpty) {
+      return const McLoadingView(label: '正在并发检索 PT 站点…');
+    }
+    if (s.error != null && s.torrentHits.isEmpty) {
+      return McErrorView(
+        text: s.error!,
+        onRetry: () => ref.read(searchProvider.notifier).search(
+              s.submittedQuery.isEmpty ? s.query : s.submittedQuery,
+            ),
+      );
+    }
+    if (s.torrentHits.isEmpty) {
+      return const McEmptyView(
+        icon: McIcons.fileSeed,
+        title: '未找到匹配的种子资源',
+        text: '请检查关键词，或在「设置 → 索引站点」确认站点连通性',
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 40),
+      itemCount: s.torrentHits.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, i) {
+        final hit = s.torrentHits[i];
+        final busy = s.busyTorrentKeys.contains(hit.key);
+        final done = s.downloadedTorrentKeys.contains(hit.key);
+        return _TorrentCard(
+          hit: hit,
+          busy: busy,
+          done: done,
+          forSubscriptionId: forSubscriptionId,
+          onAction: () async {
+            final notifier = ref.read(searchProvider.notifier);
+            final err = forSubscriptionId != null
+                ? await notifier.grabForSubscription(forSubscriptionId!, hit)
+                : await notifier.directDownloadTorrent(hit);
+            if (!context.mounted) return;
+            if (err != null) {
+              McToast.error(err);
+            } else {
+              McToast.success(
+                forSubscriptionId != null
+                    ? '已抓取种子并关联订阅入库流水线'
+                    : '已推送至默认下载器',
+              );
+            }
+          },
+        );
+      },
+    );
+  }
+}
+
+class _TorrentCard extends StatelessWidget {
+  const _TorrentCard({
+    required this.hit,
+    required this.busy,
+    required this.done,
+    required this.forSubscriptionId,
+    required this.onAction,
+  });
+
+  final TorrentSearchHit hit;
+  final bool busy;
+  final bool done;
+  final int? forSubscriptionId;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final badges = hit.techBadges;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: McTokens.surfaceRaised,
+        borderRadius: BorderRadius.circular(McTokens.cardRadius),
+        border: Border.all(color: McTokens.line, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _PillTag(
+                text: hit.siteName,
+                bg: const Color(0x26FFFFFF),
+                fg: McTokens.accentStrong,
+              ),
+              if (hit.isFree)
+                _PillTag(
+                  text: hit.freeLabel.isEmpty ? 'FREE' : hit.freeLabel,
+                  bg: const Color(0x244ADE80),
+                  fg: McTokens.ok,
+                ),
+              if (hit.hitAndRun)
+                const _PillTag(
+                  text: 'H&R',
+                  bg: Color(0x29FF6B6B),
+                  fg: McTokens.danger,
+                ),
+              for (final b in badges)
+                _PillTag(
+                  text: b,
+                  bg: McTokens.surfaceInset,
+                  fg: McTokens.textMuted,
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            hit.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: McText.ui.semibold,
+          ),
+          if (hit.subtitle.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              hit.subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: McText.caption.muted,
+            ),
+          ],
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
+                  children: [
+                    if (hit.sizeBytes > 0)
+                      Text(
+                        mcFormatBytes(hit.sizeBytes),
+                        style: McText.caption.semibold.tabular,
+                      ),
+                    Text(
+                      '↑ ${hit.seeders}',
+                      style: McText.caption
+                          .copyWith(color: McTokens.ok)
+                          .tabular,
+                    ),
+                    Text(
+                      '↓ ${hit.leechers}',
+                      style: McText.caption.muted.tabular,
+                    ),
+                    if (hit.publishTime.isNotEmpty)
+                      Text(
+                        mcFromNowIso(hit.publishTime, empty: hit.publishTime),
+                        style: McText.caption.faint,
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              McGlassButton(
+                onTap: busy || done ? null : onAction,
+                tone: done ? McGlassTone.strong : McGlassTone.primary,
+                radius: McTokens.pillRadius,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 7,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (busy)
+                      const SizedBox(
+                        width: 13,
+                        height: 13,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: McTokens.onAccent,
+                        ),
+                      )
+                    else
+                      Icon(
+                        done ? McIcons.check : McIcons.download,
+                        size: 15,
+                      ),
+                    const SizedBox(width: 5),
+                    Text(
+                      done
+                          ? '已推送'
+                          : (forSubscriptionId != null ? '抓源入库' : '推送下载'),
+                      style: McText.caption.semibold,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PillTag extends StatelessWidget {
+  const _PillTag({required this.text, required this.bg, required this.fg});
+
+  final String text;
+  final Color bg;
+  final Color fg;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: fg.withValues(alpha: 0.28), width: 0.8),
+      ),
+      child: Text(
+        text,
+        style: McText.micro.copyWith(color: fg, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
+class _LibraryResultBody extends ConsumerWidget {
+  const _LibraryResultBody({required this.onPick});
 
   final ValueChanged<String> onPick;
 
@@ -228,7 +763,7 @@ class _ResultBody extends ConsumerWidget {
     final s = ref.watch(searchProvider);
 
     if (s.searching && s.hits.isEmpty && s.people.isEmpty) {
-      return const McLoadingView(label: '正在搜索…');
+      return const McLoadingView(label: '正在搜索媒体库…');
     }
     if (s.error != null) {
       return McErrorView(
@@ -327,14 +862,14 @@ class _ResultBody extends ConsumerWidget {
   }
 }
 
-class _NoResults extends StatelessWidget {
+class _NoResults extends ConsumerWidget {
   const _NoResults({required this.s, required this.onPick});
 
   final SearchState s;
   final ValueChanged<String> onPick;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -344,9 +879,29 @@ class _NoResults extends StatelessWidget {
             const Icon(McIcons.search, size: 36, color: McTokens.textFaint),
             const SizedBox(height: 14),
             Text(
-              '没有找到「${s.submittedQuery}」相关的内容',
+              '本地库未找到「${s.submittedQuery}」',
               textAlign: TextAlign.center,
               style: McText.ui,
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                McChip(
+                  icon: McIcons.compass,
+                  label: '去影视发现搜索并订阅',
+                  onTap: () =>
+                      ref.read(searchProvider.notifier).switchMode('media'),
+                ),
+                McChip(
+                  icon: McIcons.fileSeed,
+                  label: '直接搜 PT 种子',
+                  onTap: () =>
+                      ref.read(searchProvider.notifier).switchMode('torrent'),
+                ),
+              ],
             ),
             if (s.suggestions.isNotEmpty) ...[
               const SizedBox(height: 16),
@@ -421,10 +976,13 @@ class _PersonCell extends ConsumerWidget {
                   border: Border.all(color: McTokens.line, width: 1),
                 ),
                 child: ClipOval(
-                  child: person.avatarUrl != null && person.avatarUrl!.isNotEmpty
+                  child: person.avatarUrl != null &&
+                          person.avatarUrl!.isNotEmpty
                       ? CachedNetworkImage(
-                          imageUrl:
-                              McImageUrls.resolve(person.avatarUrl, widthPx: 160),
+                          imageUrl: McImageUrls.resolve(
+                            person.avatarUrl,
+                            widthPx: 160,
+                          ),
                           httpHeaders: mcImageHeaders(),
                           fit: BoxFit.cover,
                           errorWidget: (_, __, ___) => _avatarFallback(),
@@ -458,8 +1016,32 @@ class _HitTile extends StatelessWidget {
 
   final LibrarySearchHit hit;
 
+  List<McPosterMenuAction> _actions(BuildContext context) {
+    if (hit.libraryIds.isEmpty) return const [];
+    final lid = hit.libraryIds.first;
+    return [
+      McPosterMenuAction(
+        icon: McIcons.play2Fill,
+        label: '立即播放',
+        onTap: () => context.push(
+          '/player',
+          extra: PlayerPageArgs(
+            mediaItemId: hit.itemId,
+            title: hit.itemName,
+          ),
+        ),
+      ),
+      McPosterMenuAction(
+        icon: McIcons.film,
+        label: '查看详情',
+        onTap: () => context.push('/detail/$lid/${hit.itemId}'),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
+    final actions = _actions(context);
     return McFocusRing(
       borderRadius: McTokens.cardRadius,
       child: McPressable(
@@ -468,6 +1050,21 @@ class _HitTile extends StatelessWidget {
           if (hit.libraryIds.isEmpty) return;
           context.push('/detail/${hit.libraryIds.first}/${hit.itemId}');
         },
+        onSecondaryTapUp: actions.isEmpty
+            ? null
+            : (d) => showMcContextActions(
+                  context: context,
+                  title: hit.itemName,
+                  actions: actions,
+                  globalPosition: d.globalPosition,
+                ),
+        onLongPress: actions.isEmpty
+            ? null
+            : () => showMcContextActions(
+                  context: context,
+                  title: hit.itemName,
+                  actions: actions,
+                ),
         child: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(

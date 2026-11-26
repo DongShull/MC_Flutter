@@ -219,6 +219,15 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
 
   Future<void> _connect() async {
     FocusScope.of(context).unfocus();
+    final st = ref.read(onboardingProvider);
+    if (st.needsInit) {
+      await ref.read(onboardingProvider.notifier).bootstrapAndLogin(
+            _hostCtrl.text.trim(),
+            _userCtrl.text.trim(),
+            _passCtrl.text,
+          );
+      return;
+    }
     await ref
         .read(onboardingProvider.notifier)
         .login(_hostCtrl.text.trim(), _userCtrl.text.trim(), _passCtrl.text);
@@ -522,8 +531,44 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                       border: Border.all(color: const Color(0x4DF5C451)),
                     ),
                     child: Text(
-                      '该服务器尚未完成首次初始化，请先在浏览器打开服务器地址完成向导。',
+                      '检测到全新未初始化服务器：直接填写上方账号与密码并点击下方按钮，即可在本机完成超级管理员创建与登录。',
                       style: McText.caption.copyWith(color: McTokens.warning),
+                    ),
+                  ),
+                ],
+                if (state.pairingUserCode != null) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: McTokens.surfaceInset,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: McTokens.lineStrong),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          '在已登录手机的「我的 → 右上角扫码/配对」中输入：',
+                          textAlign: TextAlign.center,
+                          style: McText.caption.muted,
+                        ),
+                        const SizedBox(height: 8),
+                        SelectableText(
+                          state.pairingUserCode!,
+                          style: McText.display.tabular.copyWith(
+                            letterSpacing: 3,
+                            color: McTokens.accentStrong,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        McChip(
+                          label: '取消配对码等待',
+                          compact: true,
+                          onTap: () => ref
+                              .read(onboardingProvider.notifier)
+                              .cancelDevicePairing(),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -538,7 +583,9 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                 McFocusRing(
                   borderRadius: McTokens.pillRadius,
                   child: McActionPill(
-                    label: state.busy ? '正在连接…' : '连接',
+                    label: state.busy
+                        ? '正在连接…'
+                        : (state.needsInit ? '初始化服务器并创建超管' : '连接'),
                     primary: true,
                     expanded: true,
                     height: 44,
@@ -546,6 +593,28 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                     onTap: state.busy ? null : _connect,
                   ),
                 ),
+                if (state.pairingUserCode == null && !state.needsInit) ...[
+                  const SizedBox(height: 10),
+                  Center(
+                    child: McPressable(
+                      onTap: state.busy
+                          ? null
+                          : () => ref
+                              .read(onboardingProvider.notifier)
+                              .startDevicePairing(_hostCtrl.text.trim()),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        child: Text(
+                          '使用手机配对码免密登录',
+                          style: McText.caption.muted,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

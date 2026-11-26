@@ -88,7 +88,9 @@ class McDownloadPlugin(private val activity: Activity, private val messenger: Bi
     }
 
     private fun emit(id: String, map: Map<String, Any?>) {
-        sinks[id]?.success(map)
+        activity.runOnUiThread {
+            sinks[id]?.success(map)
+        }
     }
 
     private fun runTask(id: String, url: String, savePath: String, headers: Map<String, String>) {
@@ -123,7 +125,7 @@ class McDownloadPlugin(private val activity: Activity, private val messenger: Bi
             val len = conn.contentLengthLong
             if (received == 0L && len > 0L) total = len else if (total == null && len > 0L) total = received + len
 
-            FileOutputStream(part, true).use { out ->
+            FileOutputStream(part, received > 0L).use { out ->
                 conn.inputStream.use { input ->
                     val buf = ByteArray(64 * 1024)
                     while (true) {

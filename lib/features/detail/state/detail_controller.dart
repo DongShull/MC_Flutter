@@ -614,10 +614,14 @@ class DetailController extends FamilyNotifier<DetailState, String> {
 
   void toggleOverview() => state = state.copyWith(overviewExpanded: !state.overviewExpanded);
 
-  /// 刷新元数据：POST /items/{id}/metadata/refresh（长任务状态在任务域轮询）。
+  /// 刷新元数据：POST /libraries/{libraryId}/items/{id}/metadata/refresh。
   Future<String?> refreshMetadata() async {
     try {
-      await _api.post(Channel.general, '/api/v1/items/$_itemId/metadata/refresh');
+      await _api.unwrap<dynamic>(
+        Channel.general,
+        'POST',
+        '/api/v1/libraries/$_libraryId/items/$_itemId/metadata/refresh',
+      );
       return null;
     } on ApiException catch (e) {
       return e.friendlyMessage;
@@ -626,12 +630,25 @@ class DetailController extends FamilyNotifier<DetailState, String> {
     }
   }
 
-  /// 删除条目：DELETE /libraries/{libraryId}/items/{itemId}
-  /// （对齐 Kotlin McApi.deleteLibraryItem）。null = 成功。
+  /// 删除前预检：GET /libraries/{libraryId}/items/{itemId}/delete-preview。
+  Future<Map<String, dynamic>?> fetchDeletePreview() async {
+    try {
+      return await _api.unwrap<Map<String, dynamic>>(
+        Channel.general,
+        'GET',
+        '/api/v1/libraries/$_libraryId/items/$_itemId/delete-preview',
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 删除条目：DELETE /libraries/{libraryId}/items/{itemId}。null = 成功。
   Future<String?> deleteItem() async {
     try {
-      await _api.delete(
+      await _api.unwrap<dynamic>(
         Channel.general,
+        'DELETE',
         '/api/v1/libraries/$_libraryId/items/$_itemId',
       );
       return null;
@@ -639,6 +656,59 @@ class DetailController extends FamilyNotifier<DetailState, String> {
       return e.friendlyMessage;
     } catch (e) {
       return '删除失败：$e';
+    }
+  }
+
+  /// 单集切换已看 / 未看标记（POST /playback/marks 携带 season_number + episode_number）。
+  Future<String?> toggleEpisodePlayed(EpisodeEntry ep) async {
+    final targetPlayed = !ep.played;
+    final prevSeason = state.episodes[ep.seasonNumber] ?? const <EpisodeEntry>[];
+    final nextSeason = [
+      for (final e in prevSeason)
+        if (e.episodeNumber == ep.episodeNumber)
+          EpisodeEntry(
+            seasonNumber: e.seasonNumber,
+            episodeNumber: e.episodeNumber,
+            name: e.name,
+            overview: e.overview,
+            airDate: e.airDate,
+            runtimeMinutes: e.runtimeMinutes,
+            rating: e.rating,
+            stillUrl: e.stillUrl,
+            played: targetPlayed,
+            resumeMs: targetPlayed ? 0 : e.resumeMs,
+            owned: e.owned,
+            fileIds: e.fileIds,
+          )
+        else
+          e,
+    ];
+    state = state.copyWith(
+      episodes: {...state.episodes, ep.seasonNumber: nextSeason},
+    );
+    try {
+      await _api.unwrap<dynamic>(
+        Channel.general,
+        'POST',
+        '/api/v1/playback/marks',
+        body: {
+          'media_item_id': _itemId,
+          'season_number': ep.seasonNumber,
+          'episode_number': ep.episodeNumber,
+          'played': targetPlayed,
+        },
+      );
+      return null;
+    } on ApiException catch (e) {
+      state = state.copyWith(
+        episodes: {...state.episodes, ep.seasonNumber: prevSeason},
+      );
+      return e.friendlyMessage;
+    } catch (e) {
+      state = state.copyWith(
+        episodes: {...state.episodes, ep.seasonNumber: prevSeason},
+      );
+      return '操作失败：$e';
     }
   }
 
@@ -656,38 +726,71 @@ class DetailController extends FamilyNotifier<DetailState, String> {
     return null;
   }
 
-  /// AI 字幕生成（任务域，对齐 Kotlin McApi.kt 字幕段）：
-  /// 1) GET /libraries/files/{fileId}/subtitles/generation-preview 预检，
-  ///    服务端给了 blocker 就把原因带回去 toast；
-  /// 2) 预检通过 → POST /libraries/files/{fileId}/subtitles/generations 提交生成任务
-  ///    （目标语言固定简体中文，与默认一致）。
-  /// 返回给页面 toast 的文案。
-  Future<String> startSubtitleGen({int? fileId}) async {
+  /// AI 字幕生成预检（GET /libraries/files/{fileId}/subtitles/generation-preview）。
+  Future<Map<String, dynamic>?> previewSubtitleGen({
+    int? fileId,
+    String targetLanguage = 'zh-CN',
+    String? secondaryLanguage,
+  }) async {
     final id = fileId ?? leadFileId;
-    if (id == null) return '没有在位文件，无法生成字幕';
+    if (id == null) return null;
     try {
-      final preview = await _api.unwrap<Map<String, dynamic>>(
+      return await _api.unwrap<Map<String, dynamic>>(
         Channel.general,
         'GET',
         '/api/v1/libraries/files/$id/subtitles/generation-preview',
+        query: {
+          'target_language': targetLanguage,
+          if (secondaryLanguage != null && secondaryLanguage.isNotEmpty)
+            'secondary_language': secondaryLanguage,
+        },
       );
-      final blocker = preview['blocker'];
-      if (blocker is Map) {
-        final b = blocker.cast<String, dynamic>();
-        final title = b['title']?.toString();
-        final message = b['message']?.toString();
-        return '无法生成字幕：${title ?? ''}${message != null && message.isNotEmpty ? ' $message' : ''}';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// AI 字幕生成提交（POST /libraries/files/{fileId}/subtitles/generations）。
+  Future<String> startSubtitleGen({
+    int? fileId,
+    String targetLanguage = 'zh-CN',
+    String? secondaryLanguage,
+    bool retranscribe = false,
+  }) async {
+    final id = fileId ?? leadFileId;
+    if (id == null) return '没有在位文件，无法生成字幕';
+    try {
+      final preview = await previewSubtitleGen(
+        fileId: id,
+        targetLanguage: targetLanguage,
+        secondaryLanguage: secondaryLanguage,
+      );
+      if (preview != null) {
+        final blocker = preview['blocker'];
+        if (blocker is Map) {
+          final b = blocker.cast<String, dynamic>();
+          final title = b['title']?.toString();
+          final message = b['message']?.toString();
+          return '无法生成字幕：${title ?? ''}${message != null && message.isNotEmpty ? ' $message' : ''}';
+        }
+        final pending = preview['pending'];
+        if (pending is Map &&
+            (pending['message']?.toString().isNotEmpty ?? false)) {
+          return pending['message'].toString();
+        }
       }
-      final pending = preview['pending'];
-      if (pending is Map && (pending['message']?.toString().isNotEmpty ?? false)) {
-        return pending['message'].toString();
-      }
-      await _api.post(
+      await _api.unwrap<dynamic>(
         Channel.general,
+        'POST',
         '/api/v1/libraries/files/$id/subtitles/generations',
-        body: {'targetLanguage': 'chs'},
+        body: {
+          'target_language': targetLanguage,
+          if (secondaryLanguage != null && secondaryLanguage.isNotEmpty)
+            'secondary_language': secondaryLanguage,
+          'retranscribe': retranscribe,
+        },
       );
-      return '已提交 AI 字幕生成任务（简体中文），进度在任务列表查看';
+      return '已提交 AI 字幕生成任务，可在活动与任务中查看实时进度';
     } on ApiException catch (e) {
       return e.friendlyMessage;
     } catch (e) {
@@ -695,16 +798,35 @@ class DetailController extends FamilyNotifier<DetailState, String> {
     }
   }
 
-  /// 创建分享链接：POST /libraries/{libraryId}/items/{itemId}/share
-  /// （有效期默认 7 天；url 是相对路径 /s/{slug} 时拼上服务器基址）。
-  /// 成功返回可分享的完整链接，失败返回 null 并把错误放 [err]。
-  Future<String?> createShareLink({StringBuffer? err}) async {
+  /// 读取当前条目的活跃分享状态（GET /libraries/{libraryId}/items/{itemId}/share）。
+  Future<Map<String, dynamic>?> getShareInfo() async {
+    try {
+      return await _api.unwrap<Map<String, dynamic>>(
+        Channel.general,
+        'GET',
+        '/api/v1/libraries/$_libraryId/items/$_itemId/share',
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 创建/更新可配置分享链接（支持有效期天数与访问密码）。
+  Future<String?> createShareLink({
+    int expiresInDays = 7,
+    String? password,
+    StringBuffer? err,
+  }) async {
     try {
       final body = await _api.unwrap<Map<String, dynamic>>(
         Channel.general,
         'POST',
         '/api/v1/libraries/$_libraryId/items/$_itemId/share',
-        body: {'expiresInDays': 7},
+        body: {
+          'expires_in_days': expiresInDays,
+          if (password != null && password.trim().isNotEmpty)
+            'password': password.trim(),
+        },
       );
       var url = body['url']?.toString() ?? '';
       if (url.isEmpty) {
@@ -721,6 +843,145 @@ class DetailController extends FamilyNotifier<DetailState, String> {
     } catch (e) {
       err?.write(e.toString());
       return null;
+    }
+  }
+
+  /// 吊销当前条目的分享外链。
+  Future<String?> revokeShare() async {
+    try {
+      await _api.unwrap<dynamic>(
+        Channel.general,
+        'DELETE',
+        '/api/v1/libraries/$_libraryId/items/$_itemId/share',
+      );
+      return null;
+    } on ApiException catch (e) {
+      return e.friendlyMessage;
+    } catch (e) {
+      return '吊销失败：$e';
+    }
+  }
+
+  /// 读取候选海报/剧照/Logo（GET /libraries/{libraryId}/items/{itemId}/artwork/candidates）。
+  Future<Map<String, dynamic>> fetchArtworkCandidates() async {
+    final raw = await _api.unwrap<Map<String, dynamic>>(
+      Channel.general,
+      'GET',
+      '/api/v1/libraries/$_libraryId/items/$_itemId/artwork/candidates',
+    );
+    return raw;
+  }
+
+  /// 更换海报/剧照/Logo（POST .../artwork/select）。
+  Future<String?> selectArtwork({
+    required String kind,
+    String? filePath,
+  }) async {
+    try {
+      await _api.unwrap<dynamic>(
+        Channel.general,
+        'POST',
+        '/api/v1/libraries/$_libraryId/items/$_itemId/artwork/select',
+        body: {'kind': kind, 'file_path': filePath},
+      );
+      await load();
+      return null;
+    } on ApiException catch (e) {
+      return e.friendlyMessage;
+    } catch (e) {
+      return '更换图片失败：$e';
+    }
+  }
+
+  /// 搜索手动重新识别的候选词条（POST /search/titles）。
+  Future<List<Map<String, dynamic>>> searchReidentifyCandidates(
+    String query,
+  ) async {
+    final kind = (state.entry?.isTv ?? false) ? 'tv' : 'movie';
+    final raw = await _api.unwrap<dynamic>(
+      Channel.general,
+      'POST',
+      '/api/v1/search/titles',
+      body: {'query': query, 'provider': 'tmdb', 'media_type': kind},
+    );
+    final list = raw is List
+        ? raw
+        : (raw is Map
+            ? (raw['titles'] ?? raw['items'] ?? const []) as List<dynamic>
+            : const <dynamic>[]);
+    return list.whereType<Map>().map(Map<String, dynamic>.from).toList();
+  }
+
+  /// 执行重新识别（POST .../reidentifications）。
+  Future<String?> applyReidentify(String titleRef) async {
+    try {
+      await _api.unwrap<dynamic>(
+        Channel.general,
+        'POST',
+        '/api/v1/libraries/$_libraryId/items/$_itemId/reidentifications',
+        body: {'title_ref': titleRef},
+      );
+      await load();
+      return null;
+    } on ApiException catch (e) {
+      return e.friendlyMessage;
+    } catch (e) {
+      return '重新识别失败：$e';
+    }
+  }
+
+  /// 读取可编辑的用户合集列表。
+  Future<List<Map<String, dynamic>>> listEditableCollections() async {
+    final raw = await _api.unwrap<List<dynamic>>(
+      Channel.general,
+      'GET',
+      '/api/v1/collections',
+      query: {'include_empty': true},
+    );
+    return raw
+        .whereType<Map>()
+        .map(Map<String, dynamic>.from)
+        .where((c) => c['editable'] != false && c['rule_driven'] != true)
+        .toList();
+  }
+
+  /// 将当前条目加入已有合集（POST /collections/{id}/items）。
+  Future<String?> addToCollection(int collectionId) async {
+    try {
+      await _api.unwrap<dynamic>(
+        Channel.general,
+        'POST',
+        '/api/v1/collections/$collectionId/items',
+        body: {'media_item_ids': [_itemId]},
+      );
+      await load();
+      return null;
+    } on ApiException catch (e) {
+      return e.friendlyMessage;
+    } catch (e) {
+      return '加入合集失败：$e';
+    }
+  }
+
+  /// 新建合集并立即收入当前条目。
+  Future<String?> createCollectionWithItem(String name) async {
+    try {
+      await _api.unwrap<dynamic>(
+        Channel.general,
+        'POST',
+        '/api/v1/collections',
+        body: {
+          'name': name,
+          'library_id': _libraryId,
+          'item_ids': [_itemId],
+        },
+      );
+      await load();
+      return null;
+    } on ApiException catch (e) {
+      return e.friendlyMessage;
+    } catch (e) {
+      return '创建合集失败：$e';
     }
   }
 }

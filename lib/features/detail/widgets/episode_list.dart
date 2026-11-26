@@ -7,17 +7,24 @@ import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/theme.dart';
 import '../state/detail_controller.dart';
 
-/// 分集列表（对齐 iOS `EpisodeRow`：16:9 剧照缩略图 + 集号标题 + 时长/评分 + 单集简介）。
-/// 点击分集触发起播导航意图；缺文件条目自动降暗并提示。
+/// 分集列表（对齐并超越 iOS `EpisodeRow` + Web 分集菜单）：
+/// 16:9 剧照缩略图 + 集号标题 + 时长/评分 + 单集简介 + 桌面右键/触屏长按/右侧 `⋯` 分集菜单
+/// （支持单集标为已看/未看、单集离线缓存、单集 AI 生成字幕）。
 class EpisodeList extends StatelessWidget {
   const EpisodeList({
     super.key,
     required this.episodes,
     required this.onEpisodeTap,
+    this.onTogglePlayed,
+    this.onDownloadEpisode,
+    this.onSubtitleEpisode,
   });
 
   final List<EpisodeEntry> episodes;
   final void Function(EpisodeEntry episode) onEpisodeTap;
+  final void Function(EpisodeEntry episode)? onTogglePlayed;
+  final void Function(EpisodeEntry episode)? onDownloadEpisode;
+  final void Function(EpisodeEntry episode)? onSubtitleEpisode;
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +43,15 @@ class EpisodeList extends StatelessWidget {
           _EpisodeCard(
             episode: episodes[i],
             onTap: () => onEpisodeTap(episodes[i]),
+            onTogglePlayed: onTogglePlayed == null
+                ? null
+                : () => onTogglePlayed!(episodes[i]),
+            onDownload: onDownloadEpisode == null
+                ? null
+                : () => onDownloadEpisode!(episodes[i]),
+            onSubtitle: onSubtitleEpisode == null
+                ? null
+                : () => onSubtitleEpisode!(episodes[i]),
           ),
         ],
       ],
@@ -44,10 +60,48 @@ class EpisodeList extends StatelessWidget {
 }
 
 class _EpisodeCard extends StatelessWidget {
-  const _EpisodeCard({required this.episode, required this.onTap});
+  const _EpisodeCard({
+    required this.episode,
+    required this.onTap,
+    this.onTogglePlayed,
+    this.onDownload,
+    this.onSubtitle,
+  });
 
   final EpisodeEntry episode;
   final VoidCallback onTap;
+  final VoidCallback? onTogglePlayed;
+  final VoidCallback? onDownload;
+  final VoidCallback? onSubtitle;
+
+  List<McPosterMenuAction> _actions() => [
+        if (episode.owned)
+          McPosterMenuAction(
+            icon: McIcons.play2Fill,
+            label: '立即播放本集',
+            onTap: onTap,
+          ),
+        if (onTogglePlayed != null)
+          McPosterMenuAction(
+            icon: episode.played
+                ? McIcons.eyeClosedFill
+                : McIcons.checkCircleFill,
+            label: episode.played ? '标为未看' : '标为已看',
+            onTap: onTogglePlayed!,
+          ),
+        if (episode.owned && onDownload != null)
+          McPosterMenuAction(
+            icon: McIcons.downloadCloudOut,
+            label: '离线缓存本集',
+            onTap: onDownload!,
+          ),
+        if (episode.owned && onSubtitle != null)
+          McPosterMenuAction(
+            icon: McIcons.closedCaptioning,
+            label: 'AI 生成本集字幕…',
+            onTap: onSubtitle!,
+          ),
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -57,6 +111,8 @@ class _EpisodeCard extends StatelessWidget {
         : null;
     final epPrefix =
         'E${episode.episodeNumber.toString().padLeft(2, '0')}';
+    final fullTitle =
+        episode.name.isEmpty ? epPrefix : '$epPrefix · ${episode.name}';
 
     final metaParts = <String>[
       if (episode.airDate != null && episode.airDate!.isNotEmpty)
@@ -64,6 +120,7 @@ class _EpisodeCard extends StatelessWidget {
       if (episode.runtimeMinutes != null && episode.runtimeMinutes! > 0)
         '${episode.runtimeMinutes} 分钟',
     ];
+    final actions = _actions();
 
     return Opacity(
       opacity: episode.owned ? 1.0 : 0.48,
@@ -72,6 +129,21 @@ class _EpisodeCard extends StatelessWidget {
         child: McPressable(
           onTap: onTap,
           scaleDown: 0.985,
+          onSecondaryTapUp: actions.isEmpty
+              ? null
+              : (d) => showMcContextActions(
+                    context: context,
+                    title: fullTitle,
+                    actions: actions,
+                    globalPosition: d.globalPosition,
+                  ),
+          onLongPress: actions.isEmpty
+              ? null
+              : () => showMcContextActions(
+                    context: context,
+                    title: fullTitle,
+                    actions: actions,
+                  ),
           child: Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: McTokens.pagePadding,
@@ -80,7 +152,6 @@ class _EpisodeCard extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 16:9 剧照卡（锁比模糊铺底 + 1px 描边 + 播放微标 + 已看绿勾 + 贴底银白进度条）
                 Container(
                   width: 132,
                   height: 74,
@@ -162,9 +233,7 @@ class _EpisodeCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        episode.name.isEmpty
-                            ? epPrefix
-                            : '$epPrefix · ${episode.name}',
+                        fullTitle,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: McText.sub
@@ -222,6 +291,24 @@ class _EpisodeCard extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (actions.isNotEmpty)
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapUp: (d) => showMcContextActions(
+                      context: context,
+                      title: fullTitle,
+                      actions: actions,
+                      globalPosition: d.globalPosition,
+                    ),
+                    child: const Padding(
+                      padding: EdgeInsets.fromLTRB(6, 2, 2, 6),
+                      child: Icon(
+                        McIcons.more,
+                        size: 17,
+                        color: McTokens.textFaint,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

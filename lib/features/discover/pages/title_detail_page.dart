@@ -11,12 +11,21 @@ import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/mc_ambient.dart';
 import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/subscribe_sheet.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/image/image_urls.dart';
+
+/// 发现侧演职员切片（带 TMDB personId 支持点击下钻）。
+typedef DiscoverCastMember = ({
+  int? personId,
+  String name,
+  String role,
+  String? profileUrl,
+});
 
 /// 发现侧条目详情状态（GET /discover/titles/{titleRef}）。
 class TitleDetailState {
@@ -32,6 +41,8 @@ class TitleDetailState {
     this.genres = const [],
     this.cast = const [],
     this.inLibrary = false,
+    this.libraryId,
+    this.mediaItemId,
   });
 
   final bool loading;
@@ -43,8 +54,10 @@ class TitleDetailState {
   final String? posterUrl;
   final String? backdropUrl;
   final List<String> genres;
-  final List<({String name, String role, String? profileUrl})> cast;
+  final List<DiscoverCastMember> cast;
   final bool inLibrary;
+  final int? libraryId;
+  final int? mediaItemId;
 
   TitleDetailState copyWith({
     bool? loading,
@@ -56,8 +69,10 @@ class TitleDetailState {
     String? posterUrl,
     String? backdropUrl,
     List<String>? genres,
-    List<({String name, String role, String? profileUrl})>? cast,
+    List<DiscoverCastMember>? cast,
     bool? inLibrary,
+    int? libraryId,
+    int? mediaItemId,
   }) =>
       TitleDetailState(
         loading: loading ?? this.loading,
@@ -71,20 +86,27 @@ class TitleDetailState {
         genres: genres ?? this.genres,
         cast: cast ?? this.cast,
         inLibrary: inLibrary ?? this.inLibrary,
+        libraryId: libraryId ?? this.libraryId,
+        mediaItemId: mediaItemId ?? this.mediaItemId,
       );
 
   static const _sentinel = Object();
 }
 
-class TitleDetailController extends Notifier<TitleDetailState> {
+class TitleDetailController
+    extends AutoDisposeFamilyNotifier<TitleDetailState, String> {
   McClient? _client;
   McClient get _mc =>
       _client ??= McClient(session: ref.read(sessionStoreProvider));
 
   @override
-  TitleDetailState build() => const TitleDetailState();
+  TitleDetailState build(String titleRef) {
+    Future.microtask(() => load(titleRef));
+    return const TitleDetailState();
+  }
 
-  Future<void> load(String titleRef) async {
+  Future<void> load([String? overrideRef]) async {
+    final titleRef = overrideRef ?? arg;
     if (titleRef.isEmpty) {
       state = state.copyWith(loading: false, error: '缺少条目 ref');
       return;
@@ -97,10 +119,14 @@ class TitleDetailController extends Notifier<TitleDetailState> {
         '/api/v1/discover/titles/${Uri.encodeComponent(titleRef)}',
       );
       final lib = d['library_status'];
+      final libMap = lib is Map ? Map<String, dynamic>.from(lib) : null;
       final castRaw = (d['cast'] as List<dynamic>? ?? const [])
           .whereType<Map>()
           .map(
             (c) => (
+              personId: (c['person_id'] as num?)?.toInt() ??
+                  (c['tmdb_person_id'] as num?)?.toInt() ??
+                  (c['id'] as num?)?.toInt(),
               name: (c['name'] ?? '').toString(),
               role: (c['character'] ?? c['role'] ?? '').toString(),
               profileUrl:
@@ -122,7 +148,11 @@ class TitleDetailController extends Notifier<TitleDetailState> {
             g.toString(),
         ],
         cast: castRaw,
-        inLibrary: lib is Map && ((lib['file_count'] as num? ?? 0).toInt() > 0),
+        inLibrary:
+            libMap != null && ((libMap['file_count'] as num? ?? 0).toInt() > 0),
+        libraryId: (libMap?['library_id'] as num?)?.toInt(),
+        mediaItemId: (libMap?['media_item_id'] as num?)?.toInt() ??
+            (libMap?['item_id'] as num?)?.toInt(),
       );
     } on ApiException catch (e) {
       state = state.copyWith(loading: false, error: e.friendlyMessage);
@@ -132,12 +162,12 @@ class TitleDetailController extends Notifier<TitleDetailState> {
   }
 }
 
-final titleDetailProvider =
-    NotifierProvider<TitleDetailController, TitleDetailState>(
+final titleDetailProvider = NotifierProvider.autoDispose
+    .family<TitleDetailController, TitleDetailState, String>(
       TitleDetailController.new,
     );
 
-/// 发现条目沉浸式详情页（全出血剧照 + 底边动态取色 + 亮银白胶囊「订阅影片」）。
+/// 发现条目沉浸式详情页（全出血剧照 + 底边动态取色 + 在库直达观看 + 亮银白胶囊「订阅影片」）。
 class TitleDetailPage extends ConsumerStatefulWidget {
   const TitleDetailPage({super.key, required this.titleRef});
 
@@ -151,14 +181,6 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
   double _scrollOffset = 0;
   Color? _edgeColor;
   String? _sampledUrl;
-
-  @override
-  void initState() {
-    super.initState();
-    Future.microtask(
-      () => ref.read(titleDetailProvider.notifier).load(widget.titleRef),
-    );
-  }
 
   void _ensureAmbient(String? url) {
     if (url == null || url.isEmpty || url == _sampledUrl) return;
@@ -194,7 +216,7 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final s = ref.watch(titleDetailProvider);
+    final s = ref.watch(titleDetailProvider(widget.titleRef));
     final topPad = MediaQuery.paddingOf(context).top;
     final form = McFormWatch.of(context);
     final pad = form == McDeviceForm.phone
@@ -225,8 +247,9 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
           children: [
             McErrorView(
               text: s.error!,
-              onRetry: () =>
-                  ref.read(titleDetailProvider.notifier).load(widget.titleRef),
+              onRetry: () => ref
+                  .read(titleDetailProvider(widget.titleRef).notifier)
+                  .load(),
             ),
             Positioned(
               top: 0,
@@ -251,6 +274,8 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
         : 1.0;
     final parallax =
         _scrollOffset > 0 ? math.min(_scrollOffset * 0.25, 68.0) : 0.0;
+    final canOpenLocal =
+        s.inLibrary && s.libraryId != null && s.mediaItemId != null;
 
     return Scaffold(
       backgroundColor: McTokens.bg,
@@ -456,17 +481,59 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
                   padding: EdgeInsets.fromLTRB(pad, 16, pad, 0),
                   child: Center(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 408),
-                      child: McFocusRing(
-                        borderRadius: McTokens.pillRadius,
-                        child: McActionPill(
-                          label: s.inLibrary ? '管理 / 追更订阅' : '订阅影片',
-                          icon: McIcons.bookmarkFill,
-                          primary: true,
-                          expanded: true,
-                          height: 44,
-                          onTap: _onSubscribe,
-                        ),
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (canOpenLocal) ...[
+                            McFocusRing(
+                              borderRadius: McTokens.pillRadius,
+                              child: McActionPill(
+                                label: '在媒体库中观看',
+                                icon: McIcons.play2Fill,
+                                primary: true,
+                                expanded: true,
+                                height: 44,
+                                onTap: () => context.push(
+                                  '/detail/${s.libraryId}/${s.mediaItemId}',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
+                          Row(
+                            children: [
+                              Expanded(
+                                child: McFocusRing(
+                                  borderRadius: McTokens.pillRadius,
+                                  child: McActionPill(
+                                    label: s.inLibrary ? '管理 / 洗版订阅' : '订阅影片',
+                                    icon: McIcons.bookmarkFill,
+                                    primary: !canOpenLocal,
+                                    expanded: true,
+                                    height: canOpenLocal ? 40 : 44,
+                                    onTap: _onSubscribe,
+                                  ),
+                                ),
+                              ),
+                              if (s.title != null && s.title!.isNotEmpty) ...[
+                                const SizedBox(width: 10),
+                                McFocusRing(
+                                  borderRadius: McTokens.pillRadius,
+                                  child: McActionPill(
+                                    label: '搜 PT 种子',
+                                    icon: McIcons.fileSeed,
+                                    primary: false,
+                                    height: canOpenLocal ? 40 : 44,
+                                    onTap: () => context.push(
+                                      '/search?q=${Uri.encodeComponent(s.title!)}&tab=torrent',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -488,7 +555,7 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
                   const McSectionHeader(title: '演职员'),
                   const SizedBox(height: 12),
                   SizedBox(
-                    height: 116,
+                    height: 118,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       padding: EdgeInsets.symmetric(horizontal: pad),
@@ -500,62 +567,72 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
                           c.profileUrl,
                           widthPx: 180,
                         );
-                        return SizedBox(
-                          width: 74,
-                          child: Column(
-                            children: [
-                              Container(
-                                width: 64,
-                                height: 64,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: McTokens.posterPlaceholder,
-                                  border: Border.all(
-                                    color: McTokens.line,
-                                    width: 1,
+                        final pid = c.personId;
+                        return McFocusRing(
+                          borderRadius: 12,
+                          child: McPressable(
+                            onTap: pid != null && pid > 0
+                                ? () => context.push('/discover/person?id=$pid')
+                                : null,
+                            child: SizedBox(
+                              width: 74,
+                              child: Column(
+                                children: [
+                                  Container(
+                                    width: 64,
+                                    height: 64,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: McTokens.posterPlaceholder,
+                                      border: Border.all(
+                                        color: McTokens.line,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    clipBehavior: Clip.antiAlias,
+                                    child: resolved.isNotEmpty
+                                        ? CachedNetworkImage(
+                                            imageUrl: resolved,
+                                            httpHeaders: mcImageHeaders(),
+                                            fit: BoxFit.cover,
+                                            errorWidget: (_, __, ___) =>
+                                                const Icon(
+                                                  McIcons.user,
+                                                  color: McTokens.textFaint,
+                                                ),
+                                          )
+                                        : const Icon(
+                                            McIcons.user,
+                                            color: McTokens.textFaint,
+                                          ),
                                   ),
-                                ),
-                                clipBehavior: Clip.antiAlias,
-                                child: resolved.isNotEmpty
-                                    ? CachedNetworkImage(
-                                        imageUrl: resolved,
-                                        httpHeaders: mcImageHeaders(),
-                                        fit: BoxFit.cover,
-                                        errorWidget: (_, __, ___) => const Icon(
-                                          McIcons.user,
-                                          color: McTokens.textFaint,
-                                        ),
-                                      )
-                                    : const Icon(
-                                        McIcons.user,
+                                  const SizedBox(height: 7),
+                                  Text(
+                                    c.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: McText.caption.copyWith(
+                                      color: McTokens.text,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  if (c.role.isNotEmpty) ...[
+                                    const SizedBox(height: 1),
+                                    Text(
+                                      c.role,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                      style: McText.micro.copyWith(
+                                        fontWeight: FontWeight.w400,
                                         color: McTokens.textFaint,
                                       ),
+                                    ),
+                                  ],
+                                ],
                               ),
-                              const SizedBox(height: 7),
-                              Text(
-                                c.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: McText.caption.copyWith(
-                                  color: McTokens.text,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              if (c.role.isNotEmpty) ...[
-                                const SizedBox(height: 1),
-                                Text(
-                                  c.role,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                  style: McText.micro.copyWith(
-                                    fontWeight: FontWeight.w400,
-                                    color: McTokens.textFaint,
-                                  ),
-                                ),
-                              ],
-                            ],
+                            ),
                           ),
                         );
                       },

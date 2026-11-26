@@ -144,7 +144,10 @@ class _DownloadProfileSheetState extends ConsumerState<DownloadProfileSheet> {
                       DownloadCandidate(
                         fileId: candidate.fileId,
                         title: candidate.title,
+                        subtitle: candidate.subtitle,
                         scopes: candidate.scopes,
+                        seasonFileIds: candidate.seasonFileIds,
+                        fullSeasonSelected: _scopeIndex == 1,
                         profiles: candidate.profiles
                             .where((p) => _selected.contains(p.id))
                             .toList(),

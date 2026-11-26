@@ -56,7 +56,22 @@ class _CastSheetState extends ConsumerState<CastSheet> {
               const Expanded(
                 child: Text(McStrings.castToDevice, style: McText.titleSm),
               ),
-              if (cast.casting)
+              if (cast.casting) ...[
+                McChip(
+                  icon: McIcons.pause,
+                  label: '暂停',
+                  compact: true,
+                  onTap: () => ref.read(castControllerProvider.notifier).pause(),
+                ),
+                const SizedBox(width: 6),
+                McChip(
+                  icon: McIcons.play2Fill,
+                  label: '播放',
+                  compact: true,
+                  onTap: () =>
+                      ref.read(castControllerProvider.notifier).resume(),
+                ),
+                const SizedBox(width: 6),
                 McActionPill(
                   label: McStrings.stopCast,
                   primary: false,
@@ -65,6 +80,7 @@ class _CastSheetState extends ConsumerState<CastSheet> {
                   onTap: () =>
                       ref.read(castControllerProvider.notifier).disconnect(),
                 ),
+              ],
             ],
           ),
           const SizedBox(height: 14),

@@ -266,3 +266,12 @@ t15/t16 子代理产出，验收 analyze No issues + test 36/36。
 - 顺带修复：main.dart runZonedGuarded 导致的 "Zone mismatch" 启动报错，改用 PlatformDispatcher.onError。
 - 未做（下一步）：首页磁盘快照（冷启动先上屏缓存）、片段入口蜂窝网络确认、空库「创建第一个媒体库」入口（依赖二期建库页）。
 - 验收：analyze No issues；test 36/36。
+
+## Round 25：全平台终极碾压改造（iOS / Android / HarmonyOS / iPadOS / macOS / Windows / Linux 全覆盖，2026-11-26）
+
+对照 `MovieClaw` 全仓（`apps/web`、`apps/apple`、`apps/desktop`、`apps/harmonyos`、`apps/android*` 与 `src/movieclaw_api`）完成全量差距清零与跨端交互升级：
+- **多端宿主与 P0 核心修复**：补齐 `macos/`、`windows/`、`linux/` 桌面宿主及 `ios/Info.plist`、`AndroidManifest.xml` 权限声明；修复 `PlaybackSessionApi` 全端点 `/api/v1/playback/*` 路径、DLNA 跨行 XML 解析、Android 原生下载 `runOnUiThread` 与非 206 截断、`McClient.patch()` 与 `postMultipart` 鉴权及 HTTP 204、Happy Eyeballs 内外网并发竞速与前台自愈、`SessionStore` `ChangeNotifier` 驱动 `GoRouter` 守卫与多账号库、首次运行引导初始化与设备配对码登录、分享页密码解锁 Cookie 透传。
+- **桌面 / iPad 交互碾压**：修复 ≥20" 显示器误判 TV 问题，支持窗口实时缩放自适应与可折叠侧边栏（`236dp ↔ 76dp`）；新增全局 `⌘K / Ctrl+K` Spotlight 命令与三合一快搜面板（`McCommandPaletteHost`）及 `⌘1..5 / ⌘, / ⌘[` 快捷键；海报卡支持鼠标悬停 3D 微倾银白追光、快捷播放钮及桌面右键锚定毛玻璃菜单 / 触屏长按菜单。
+- **三合一搜索 + 10 维媒体库 + 原生库管中心 + 详情 Pro 套件**：搜索打通「本地媒体库 / 影视发现 / 种子资源 PT」（支持一键推送下载器与为订阅手动选种）；媒体库首页接入 `SharedPreferences` 0ms 冷启动快照缓存；媒体库详情支持「影片 | 合集」双视图、10 维筛选、存为智能合集、右侧 A–Z 字母速滑条；新增四合一原生库管中心 `/library/manage`（建库与服务端目录树浏览 `GET /api/v1/fs/browse`、未识别文件指认、回收站还原/彻底清理、分享链接管理）；影视详情新增可配置有效期的加密分享弹层、加入合集、海报/剧照/Logo 换图器、TMDB 手动重识别、AI 双语字幕生成、删除文件影响预览及单集右键/长按菜单。
+- **影院级播放器 + 真·离线播放 + 23 分区全原生管理后台 + 双栏 AI 工作台**：`PlayerService` 支持本地 `file://` 直播与鉴权头注入；内置 WebVTT/SRT 外挂与 AI 字幕实时叠加（字号缩放 + `±0.1s` 时间轴微调）、清晰度档位切换、软解确认重连、8s 下一集倒计时卡、`I` 键实时技术诊断 HUD、双击 `±10s` 波纹、倍速恢复修复与全套键盘快捷键；离线下载支持整季多集选择、断网直播本地文件、已看完一键清理与多账号缓存管理；彻底移除 `WebManagedPage` 外跳妥协，原生落地自动化总览、成员管理、选种规则组、PT 站点、下载器、刮削与网盘、AI 与通知集成、网络代理与系统任务日志等全部后台页面；AI 助手升级宽屏双栏工作台、结构化 Markdown 渲染、`show_media_cards_v1` 交互式海报卡、技能选择器、思考深度切换与会话压缩/分叉。
+- **验收**：`flutter analyze` 零问题，`flutter test` 全绿通过。

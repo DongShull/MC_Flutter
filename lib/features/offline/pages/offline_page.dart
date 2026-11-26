@@ -7,13 +7,13 @@ import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
+import '../../../core/player/player_page_args.dart';
+import '../embed.dart';
 import '../state/models.dart';
-import '../state/offline_state.dart';
 import '../widgets/downloading_row.dart';
 
-/// 离线下载页（1:1 对齐 Kotlin DownloadsScreen 的 sections 顺序）：
-/// 下载中（含 waitingForWiFi 提示条 + 蜂窝一键开）→ 建议 → 已下载 →
-/// 其他账号 → 容量条（StorageCard）最后；右上角设置圆钮打开蜂窝网络开关。
+/// 离线下载管理专页：
+/// 下载中（拖拽调整优先级 + Wi-Fi 守卫）→ 已看完一键清理建议 → 已下载（点击直接离线播放）→ 其他账号缓存 → 存储空间。
 class OfflinePage extends ConsumerStatefulWidget {
   const OfflinePage({super.key});
 
@@ -53,6 +53,22 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
     );
   }
 
+  void _playUnitOffline(DownloadUnit unit) {
+    final uri = ref.read(offlineProvider.notifier).localPlayUri(unit);
+    if (uri == null) {
+      McToast.error('本地离线文件不存在');
+      return;
+    }
+    context.push(
+      '/player',
+      extra: PlayerPageArgs(
+        url: uri,
+        title: unit.title,
+        subtitle: unit.seasonEpisode ?? '本机离线播放',
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final offline = ref.watch(offlineProvider);
@@ -69,7 +85,7 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
           McFloatingDetailBar(
             onBack: () =>
                 context.canPop() ? context.pop() : context.go('/home'),
-            title: '下载',
+            title: '离线下载',
             titleVisible: true,
             trailing: [
               McFocusRing(
@@ -99,7 +115,7 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                   ),
                   children: [
                     if (active.isNotEmpty) ...[
-                      _sectionHeader('下载中'),
+                      _sectionHeader('下载中（拖拽调整顺序）'),
                       if (!offline.allowCellular &&
                           active.any(
                             (u) => u.status == OfflineUnitStatus.waitingWifi,
@@ -130,15 +146,11 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                                   style: McText.caption.muted,
                                 ),
                               ),
-                              McFocusRing(
-                                borderRadius: McTokens.pillRadius,
-                                child: McChip(
-                                  label: '使用蜂窝网络下载',
-                                  compact: true,
-                                  selected: true,
-                                  onTap: () =>
-                                      controller.setAllowCellular(true),
-                                ),
+                              McChip(
+                                label: '允许移动数据下载',
+                                compact: true,
+                                selected: true,
+                                onTap: () => controller.setAllowCellular(true),
                               ),
                             ],
                           ),
@@ -163,29 +175,57 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                         },
                       ),
                     ],
-                    _sectionHeader('建议'),
-                    if (done.isEmpty)
-                      Text('看过的好片，下载下来随时重温。', style: McText.caption.muted)
-                    else
-                      for (final unit in done)
-                        DownloadingRow(
-                          unit: unit,
-                          onPauseResume: () {},
-                          onCancel: () => controller.deleteDownloaded(unit),
-                          onPrioritize: () {},
-                          onDelete: () => _confirmDelete(unit),
-                        ),
+                    const WatchedCard(),
                     _sectionHeader('已下载'),
                     if (done.isEmpty)
-                      Text('还没有已下载的内容。', style: McText.caption.muted),
-                    _sectionHeader('其他账号'),
-                    Text(
-                      '本机其他账号下载的内容会显示在这里。',
-                      style: McText.caption.muted,
-                    ),
-                    const SizedBox(height: 18),
-                    if (offline.storage != null)
-                      StorageCard(info: offline.storage!),
+                      Text(
+                        '还没有已下载的内容。在影片详情页点击「⋯ → 离线缓存到本地」，无网环境也能随时播放。',
+                        style: McText.caption.muted,
+                      )
+                    else
+                      McInsetGroup(
+                        margin: EdgeInsets.zero,
+                        children: [
+                          for (final unit in done)
+                            McInsetRow(
+                              icon: McIcons.play2Fill,
+                              iconColor: McTokens.accentStrong,
+                              title: unit.title,
+                              subtitle: [
+                                if (unit.seasonEpisode != null)
+                                  unit.seasonEpisode!,
+                                unit.profileLabel,
+                                if (unit.watched) '已看完',
+                              ].join(' · '),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  McChip(
+                                    label: unit.watched ? '未看' : '标已看',
+                                    compact: true,
+                                    onTap: () => controller.markUnitWatched(
+                                      unit,
+                                      watched: !unit.watched,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  IconButton(
+                                    tooltip: '删除副本',
+                                    icon: const Icon(
+                                      McIcons.trash2,
+                                      size: 17,
+                                      color: McTokens.danger,
+                                    ),
+                                    onPressed: () => _confirmDelete(unit),
+                                  ),
+                                ],
+                              ),
+                              onTap: () => _playUnitOffline(unit),
+                            ),
+                        ],
+                      ),
+                    const OtherOwnersSection(),
+                    const CapacityCard(),
                     if (offline.error != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 10),
@@ -213,9 +253,9 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('删除这个下载？', style: McText.titleSm),
+            Text('删除「${unit.title}」的离线副本？', style: McText.titleSm),
             const SizedBox(height: 8),
-            Text('只删本机上的副本，观看进度会保留。', style: McText.sub.muted),
+            Text('只删本机上的视频文件，观看进度会保留。', style: McText.sub.muted),
             const SizedBox(height: 20),
             Row(
               children: [
@@ -249,7 +289,7 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
   }
 
   Widget _sectionHeader(String title) => Padding(
-        padding: const EdgeInsets.only(top: 18, bottom: 6),
+        padding: const EdgeInsets.only(top: 18, bottom: 8),
         child: Text(title, style: McText.titleSm),
       );
 }

@@ -5,5 +5,13 @@ import 'pages/search_page.dart';
 const routeSearch = '/search';
 
 final List<GoRoute> routes = [
-  GoRoute(path: routeSearch, builder: (context, state) => const SearchPage()),
+  GoRoute(
+    path: routeSearch,
+    builder: (context, state) => SearchPage(
+      initialQuery: state.uri.queryParameters['q'],
+      initialMode: state.uri.queryParameters['tab'],
+      forSubscriptionId:
+          int.tryParse(state.uri.queryParameters['for_sub'] ?? ''),
+    ),
+  ),
 ];

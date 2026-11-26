@@ -2,20 +2,23 @@ import 'package:go_router/go_router.dart';
 
 import 'pages/collection_pages.dart';
 import 'pages/favorites_page.dart';
-import 'pages/library_detail_page.dart';
 import 'pages/library_customize_page.dart';
+import 'pages/library_detail_page.dart';
+import 'pages/library_manage_page.dart';
 import 'pages/person_kind_pages.dart';
 
 /// library 模块路由（挂载到 core/router.dart）。
 const routeLibrary = '/library';
 
-/// 子页面路由（本 feature 内新增）。
+/// 子页面路由（本 feature 内）。
 const routeLibraryCollections = '/library/collections';
 const routeLibraryCustomize = '/library/customize';
 const routeLibraryFavorites = '/library/favorites';
+const routeLibraryManage = '/library/manage';
 
 String routeLibraryDetail(int libraryId) => '/library/detail/$libraryId';
-String routeLibraryCollection(int collectionId) => '/library/collection/$collectionId';
+String routeLibraryCollection(int collectionId) =>
+    '/library/collection/$collectionId';
 String routeLibraryPerson(int personId, {String? name}) =>
     '/library/person/$personId${name == null ? '' : '?name=${Uri.encodeComponent(name)}'}';
 String routeLibraryKind(String kind) => '/library/kind/$kind';
@@ -32,6 +35,12 @@ final List<GoRoute> routes = [
   GoRoute(
     path: routeLibraryCustomize,
     builder: (context, state) => const LibraryCustomizePage(),
+  ),
+  GoRoute(
+    path: routeLibraryManage,
+    builder: (context, state) => LibraryManagePage(
+      initialTab: int.tryParse(state.uri.queryParameters['tab'] ?? '') ?? 0,
+    ),
   ),
   GoRoute(
     path: '/library/detail/:libraryId',

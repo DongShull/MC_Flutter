@@ -9,6 +9,7 @@ import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/state_views.dart';
+import '../../../core/designsystem/subscribe_sheet.dart';
 import '../../../core/designsystem/theme.dart';
 import '../routes.dart' as feat_discover;
 import '../state/discover_controller.dart';
@@ -420,13 +421,13 @@ class _DiscoverHomeBody extends ConsumerWidget {
   }
 }
 
-class _DiscoverSectionShelf extends StatelessWidget {
+class _DiscoverSectionShelf extends ConsumerWidget {
   const _DiscoverSectionShelf({required this.row});
 
   final DiscoverRowData row;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Padding(
       padding: const EdgeInsets.only(top: 26),
       child: Column(
@@ -459,6 +460,39 @@ class _DiscoverSectionShelf extends StatelessWidget {
                     badge: t.owned ? '在库' : null,
                     badgeDotColor: t.owned ? McTokens.ok : null,
                     onTap: () => feat_discover.pushTitle(context, t.ref),
+                    onQuickPlay: t.owned &&
+                            t.libraryId != null &&
+                            t.mediaItemId != null
+                        ? () => context.push(
+                              '/detail/${t.libraryId}/${t.mediaItemId}',
+                            )
+                        : null,
+                    contextActions: [
+                      McPosterMenuAction(
+                        icon: McIcons.film,
+                        label: '查看详情',
+                        onTap: () => feat_discover.pushTitle(context, t.ref),
+                      ),
+                      if (t.owned &&
+                          t.libraryId != null &&
+                          t.mediaItemId != null)
+                        McPosterMenuAction(
+                          icon: McIcons.play2Fill,
+                          label: '前往媒体库观看',
+                          onTap: () => context.push(
+                            '/detail/${t.libraryId}/${t.mediaItemId}',
+                          ),
+                        ),
+                      McPosterMenuAction(
+                        icon: McIcons.bookmarkFill,
+                        label: t.owned ? '管理订阅' : '订阅影片',
+                        onTap: () => showSubscribeSheet(
+                          context,
+                          ref,
+                          titleRef: t.ref,
+                        ),
+                      ),
+                    ],
                   ),
                 );
               },

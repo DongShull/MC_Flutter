@@ -3,16 +3,21 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/poster_card.dart';
 import '../../../core/designsystem/theme.dart';
+import '../../../core/player/player_page_args.dart';
 import '../state/models.dart';
 
-/// LibraryItemView → 海报卡片。
+/// LibraryItemView → 海报卡片（支持悬停快播、右键与长按菜单）。
 Widget mcItemCard(
   BuildContext context,
   LibraryItemView item, {
-  double width = 120,
+  double? width = 120,
+  int? fallbackLibraryId,
+  List<McPosterMenuAction> extraActions = const [],
 }) {
+  final lid = item.libraryId ?? fallbackLibraryId;
   final badge = item.kind == 'episode'
       ? (item.seasons.isNotEmpty ? 'S1' : null)
       : (item.resolutions.isNotEmpty ? item.resolutions.first : null);
@@ -26,12 +31,42 @@ Widget mcItemCard(
         item.year?.toString(),
         if (item.kindLabel.isNotEmpty) item.kindLabel,
       ].nonNulls.join(' · '),
+      rating: (item.rating ?? 0) > 0 ? item.rating : null,
+      favorite: item.isFavorite,
       badge: badge,
       width: width,
       onTap: () {
-        final lid = item.libraryId;
         if (lid != null) context.push('/detail/$lid/${item.mediaItemId}');
       },
+      onQuickPlay: () => context.push(
+        '/player',
+        extra: PlayerPageArgs(
+          mediaItemId: item.mediaItemId,
+          title: item.title,
+          isEpisode: item.kind == 'tv',
+        ),
+      ),
+      contextActions: [
+        McPosterMenuAction(
+          icon: McIcons.play2Fill,
+          label: '立即播放',
+          onTap: () => context.push(
+            '/player',
+            extra: PlayerPageArgs(
+              mediaItemId: item.mediaItemId,
+              title: item.title,
+              isEpisode: item.kind == 'tv',
+            ),
+          ),
+        ),
+        if (lid != null)
+          McPosterMenuAction(
+            icon: McIcons.film,
+            label: '查看详情',
+            onTap: () => context.push('/detail/$lid/${item.mediaItemId}'),
+          ),
+        ...extraActions,
+      ],
     ),
   );
 }

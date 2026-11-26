@@ -177,6 +177,11 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
           onSelected: (v) {
             if (v == 'customize') _openCustomize();
             if (v == 'collections') context.push(routeLibraryCollections);
+            if (v == 'manage') {
+              context.push(routeLibraryManage).then((_) {
+                if (mounted) _controller.reload();
+              });
+            }
           },
           itemBuilder: (_) => [
             const PopupMenuItem(
@@ -186,6 +191,13 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
             const PopupMenuItem(
               value: 'collections',
               child: _MenuRow(icon: McIcons.mediaLibraryFill, label: '全部合集'),
+            ),
+            const PopupMenuItem(
+              value: 'manage',
+              child: _MenuRow(
+                icon: McIcons.folderSettings,
+                label: '管理媒体库与异常',
+              ),
             ),
           ],
           child: const IgnorePointer(
@@ -253,6 +265,12 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
               message: state.isAdmin
                   ? '创建电影库或剧集库，选好根目录后，订阅完成的内容会自动整理到这里。'
                   : '当前账号暂时没有可浏览的媒体库，请联系管理员分配媒体库权限。',
+              actionTitle: state.isAdmin ? '创建第一个媒体库' : null,
+              onAction: state.isAdmin
+                  ? () => context.push(routeLibraryManage).then((_) {
+                        if (mounted) _controller.reload();
+                      })
+                  : null,
             ),
           ),
         )
@@ -385,6 +403,29 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
                   progress: frac,
                   onPlay: () => _play(it),
                   onTap: () => _openItem(it.libraryId, it.mediaItemId),
+                  contextActions: [
+                    McPosterMenuAction(
+                      icon: McIcons.play2Fill,
+                      label: '立即续播',
+                      onTap: () => _play(it),
+                    ),
+                    McPosterMenuAction(
+                      icon: McIcons.film,
+                      label: '查看详情',
+                      onTap: () => _openItem(it.libraryId, it.mediaItemId),
+                    ),
+                    McPosterMenuAction(
+                      icon: McIcons.checkCircleFill,
+                      label: '标为已看完',
+                      onTap: () async {
+                        await _controller.toggleItemMark(
+                          it.mediaItemId,
+                          played: true,
+                        );
+                        if (mounted) McToast.success('已标为看完');
+                      },
+                    ),
+                  ],
                 );
               },
             ),
@@ -845,8 +886,8 @@ class _LibraryCard extends StatelessWidget {
   }
 }
 
-/// 横滚海报行（收藏行 / 库行 / 合集行统一形态）；长按海报弹出入库/收藏信息。
-class _PosterRow extends StatelessWidget {
+/// 横滚海报行（收藏行 / 库行 / 合集行统一形态）；支持悬停快播、桌面右键与触屏长按快捷菜单。
+class _PosterRow extends ConsumerWidget {
   const _PosterRow({
     required this.title,
     required this.moreTitle,
@@ -867,30 +908,8 @@ class _PosterRow extends StatelessWidget {
 
   static const _cellWidth = 122.0;
 
-  Future<void> _showInfo(
-    BuildContext context,
-    Offset at,
-    List<String> lines,
-  ) async {
-    if (lines.isEmpty) return;
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    await showMenu<void>(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        at.dx,
-        at.dy,
-        overlay.size.width - at.dx,
-        overlay.size.height - at.dy,
-      ),
-      items: [
-        for (final l in lines)
-          PopupMenuItem<void>(enabled: false, child: Text(l)),
-      ],
-    );
-  }
-
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (items.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 24),
@@ -914,32 +933,78 @@ class _PosterRow extends StatelessWidget {
               separatorBuilder: (_, __) => const SizedBox(width: 12),
               itemBuilder: (context, i) {
                 final item = items[i];
+                final lid = item.libraryId ?? fallbackLibraryId;
+                final isFav = favorite || item.isFavorite;
                 final recentBadge = !favorite && item.recentAddition != null
                     ? formatRecentAddition(item.recentAddition!)
                     : null;
-                return GestureDetector(
-                  onLongPressStart: (d) => _showInfo(
-                    context,
-                    d.globalPosition,
-                    posterInfoLines(item, favorite: favorite),
-                  ),
-                  child: McPosterCard(
-                    width: _cellWidth,
-                    title: item.title,
-                    posterUrl: item.posterUrl,
-                    imageAspect: item.primaryAspect,
-                    subtitle: [
-                      if (item.year != null) '${item.year}',
-                      if ((item.rating ?? 0) > 0)
-                        '★ ${item.rating!.toStringAsFixed(1)}',
-                    ].join(' · '),
-                    badge: recentBadge,
-                    favorite: favorite || item.isFavorite,
-                    onTap: () => onOpen(
-                      item.libraryId ?? fallbackLibraryId,
-                      item.mediaItemId,
+                final infoLines = posterInfoLines(item, favorite: favorite);
+                return McPosterCard(
+                  width: _cellWidth,
+                  title: item.title,
+                  posterUrl: item.posterUrl,
+                  imageAspect: item.primaryAspect,
+                  subtitle: [
+                    if (item.year != null) '${item.year}',
+                    if ((item.rating ?? 0) > 0)
+                      '★ ${item.rating!.toStringAsFixed(1)}',
+                    if (infoLines.isNotEmpty) infoLines.first,
+                  ].take(2).join(' · '),
+                  badge: recentBadge,
+                  favorite: isFav,
+                  onTap: () => onOpen(lid, item.mediaItemId),
+                  onQuickPlay: () => context.push(
+                    '/player',
+                    extra: PlayerPageArgs(
+                      mediaItemId: item.mediaItemId,
+                      title: item.title,
+                      isEpisode: item.kind == 'tv',
                     ),
                   ),
+                  contextActions: [
+                    McPosterMenuAction(
+                      icon: McIcons.play2Fill,
+                      label: '立即播放',
+                      onTap: () => context.push(
+                        '/player',
+                        extra: PlayerPageArgs(
+                          mediaItemId: item.mediaItemId,
+                          title: item.title,
+                          isEpisode: item.kind == 'tv',
+                        ),
+                      ),
+                    ),
+                    McPosterMenuAction(
+                      icon: McIcons.film,
+                      label: '查看详情',
+                      onTap: () => onOpen(lid, item.mediaItemId),
+                    ),
+                    McPosterMenuAction(
+                      icon: isFav ? McIcons.unheart2 : McIcons.heart2,
+                      label: isFav ? '取消收藏' : '加入收藏',
+                      onTap: () async {
+                        await ref
+                            .read(libraryHomeProvider.notifier)
+                            .toggleItemMark(
+                              item.mediaItemId,
+                              favorite: !isFav,
+                            );
+                        if (context.mounted) {
+                          McToast.success(isFav ? '已取消收藏' : '已加入收藏');
+                        }
+                      },
+                    ),
+                    McPosterMenuAction(
+                      icon: McIcons.checkCircle,
+                      label: '标为已看',
+                      onTap: () async {
+                        await ref
+                            .read(libraryHomeProvider.notifier)
+                            .toggleItemMark(item.mediaItemId, played: true);
+                        if (context.mounted) McToast.success('已标为看完');
+                      },
+                    ),
+                  ],
                 );
               },
             ),

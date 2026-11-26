@@ -9,9 +9,7 @@ import 'mc_icons.dart';
 import 'state_views.dart';
 import 'theme.dart';
 
-/// 订阅创建毛玻璃弹层（对齐 iOS `SubscribeSheet` 与 Kotlin `SubscribeSheetHost`）：
-/// title-preview（标题 + 简介）→ 季多选（电影直接确认）→ POST /subscriptions。
-/// 详情页与发现侧条目详情共用（跨 feature 只经 core，不互相 import）。
+/// 订阅创建毛玻璃弹层（全站唯一入口：支持智能模式 / 规则组模式、选季、自动追更与目标媒体库）。
 enum SubscribeSheetOutcome { created, managed }
 
 Future<SubscribeSheetOutcome?> showSubscribeSheet(
@@ -41,6 +39,11 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
   late final Future<SubscribePreview?> _preview;
   final Set<int> _selected = {};
   bool _followFuture = false;
+  String _selectionMode = 'smart'; // smart | rules
+  List<SubscribeRuleSetOption> _ruleSets = const [];
+  List<SubscribeLibraryOption> _libraries = const [];
+  int? _ruleSetId;
+  int? _libraryId;
   bool _submitting = false;
   String? _error;
 
@@ -53,6 +56,10 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
   Future<SubscribePreview?> _load() async {
     try {
       final p = await _api.titlePreview(widget.titleRef);
+      final rs = await _api.ruleSets();
+      final libs = await _api.libraries(
+        kind: p.seasons.isEmpty ? 'movie' : 'tv',
+      );
       if (!mounted) return p;
       setState(() {
         _selected.addAll(p.suggestedSeasons);
@@ -60,6 +67,12 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
           _selected.addAll(p.seasons.map((s) => s.number));
         }
         _followFuture = p.seasons.isNotEmpty;
+        _ruleSets = rs;
+        _libraries = libs;
+        if (rs.isNotEmpty) {
+          _ruleSetId = rs.where((r) => r.isDefault).firstOrNull?.id ??
+              rs.first.id;
+        }
       });
       return p;
     } catch (e) {
@@ -78,6 +91,9 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
         titleRef: widget.titleRef,
         selectedSeasons: _selected.toList()..sort(),
         followFuture: _followFuture,
+        selectionMode: _selectionMode,
+        ruleSetId: _selectionMode == 'rules' ? _ruleSetId : null,
+        libraryId: _libraryId,
       );
       if (mounted) Navigator.of(context).pop(SubscribeSheetOutcome.created);
     } catch (e) {
@@ -166,7 +182,7 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
         }
 
         final isMovie = p.seasons.isEmpty;
-        return Padding(
+        return SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(22, 6, 22, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -208,10 +224,72 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
                   style: McText.caption.muted,
                 ),
               ],
+              if (_ruleSets.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    McChip(
+                      label: '智能选源',
+                      icon: McIcons.aiStarFill,
+                      selected: _selectionMode == 'smart',
+                      compact: true,
+                      onTap: () => setState(() => _selectionMode = 'smart'),
+                    ),
+                    const SizedBox(width: 8),
+                    McChip(
+                      label: '指定规则组',
+                      icon: McIcons.listSettings2,
+                      selected: _selectionMode == 'rules',
+                      compact: true,
+                      onTap: () => setState(() => _selectionMode = 'rules'),
+                    ),
+                  ],
+                ),
+                if (_selectionMode == 'rules') ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      for (final r in _ruleSets)
+                        McChip(
+                          label: r.name,
+                          selected: _ruleSetId == r.id,
+                          compact: true,
+                          onTap: () => setState(() => _ruleSetId = r.id),
+                        ),
+                    ],
+                  ),
+                ],
+              ],
+              if (_libraries.length > 1) ...[
+                const SizedBox(height: 12),
+                Text('入库目标媒体库', style: McText.micro.muted),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    McChip(
+                      label: '自动路由',
+                      selected: _libraryId == null,
+                      compact: true,
+                      onTap: () => setState(() => _libraryId = null),
+                    ),
+                    for (final l in _libraries)
+                      McChip(
+                        label: l.name,
+                        selected: _libraryId == l.id,
+                        compact: true,
+                        onTap: () => setState(() => _libraryId = l.id),
+                      ),
+                  ],
+                ),
+              ],
               if (!isMovie) ...[
                 const SizedBox(height: 14),
                 ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 240),
+                  constraints: const BoxConstraints(maxHeight: 210),
                   child: SingleChildScrollView(
                     child: McInsetGroup(
                       margin: EdgeInsets.zero,
@@ -246,23 +324,21 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
                     ),
                   ),
                 ),
-                if (p.seasons.length > 1) ...[
-                  const SizedBox(height: 10),
-                  McInsetGroup(
-                    margin: EdgeInsets.zero,
-                    children: [
-                      McInsetRow(
-                        title: '自动追后续新季',
-                        trailing: Switch(
-                          value: _followFuture,
-                          onChanged: (v) => setState(() => _followFuture = v),
-                        ),
-                        onTap: () =>
-                            setState(() => _followFuture = !_followFuture),
+                const SizedBox(height: 10),
+                McInsetGroup(
+                  margin: EdgeInsets.zero,
+                  children: [
+                    McInsetRow(
+                      title: '自动追后续新季',
+                      trailing: Switch(
+                        value: _followFuture,
+                        onChanged: (v) => setState(() => _followFuture = v),
                       ),
-                    ],
-                  ),
-                ],
+                      onTap: () =>
+                          setState(() => _followFuture = !_followFuture),
+                    ),
+                  ],
+                ),
               ],
               if (_error != null) ...[
                 const SizedBox(height: 10),

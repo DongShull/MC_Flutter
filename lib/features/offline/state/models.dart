@@ -1,12 +1,9 @@
 import '../../../core/models/format.dart';
 
-// 离线下载域模型（1:1 对齐 Kotlin feature/offline 的核心数据）。
-
 /// 单个下载单元的状态（对齐 OfflineUnitStatus）。
 enum OfflineUnitStatus { queued, running, paused, waitingWifi, done, failed }
 
 extension OfflineUnitStatusX on OfflineUnitStatus {
-  /// 状态行文本（对齐 OfflineUnitStatus.text）。
   String text({int ahead = 0, bool waitingForWifi = false}) => switch (this) {
         OfflineUnitStatus.queued => '排队中',
         OfflineUnitStatus.running => '正在下载',
@@ -29,6 +26,8 @@ class DownloadUnit {
     this.speedBps = 0,
     this.priority = 0,
     this.totalBytes,
+    this.savePath,
+    this.watched = false,
   });
 
   final String id;
@@ -36,16 +35,20 @@ class DownloadUnit {
   final String? seasonEpisode;
   final String profileLabel;
   final OfflineUnitStatus status;
-  final double progress; // 0..1
+  final double progress;
   final int speedBps;
-  final int priority; // 越大越优先（对齐拖动排序 -> 优先级）
+  final int priority;
   final int? totalBytes;
+  final String? savePath;
+  final bool watched;
 
   DownloadUnit copyWith({
     OfflineUnitStatus? status,
     double? progress,
     int? speedBps,
     int? priority,
+    String? savePath,
+    bool? watched,
   }) =>
       DownloadUnit(
         id: id,
@@ -57,6 +60,8 @@ class DownloadUnit {
         speedBps: speedBps ?? this.speedBps,
         priority: priority ?? this.priority,
         totalBytes: totalBytes,
+        savePath: savePath ?? this.savePath,
+        watched: watched ?? this.watched,
       );
 
   bool get isActive =>
@@ -65,7 +70,7 @@ class DownloadUnit {
       status == OfflineUnitStatus.waitingWifi;
 }
 
-/// 下载档位（画质选项；对齐 DownloadProfileSheet 的行）。
+/// 下载档位（画质选项）。
 class DownloadProfile {
   const DownloadProfile({
     required this.id,
@@ -81,7 +86,6 @@ class DownloadProfile {
   final int? estimatedBytes;
   final bool transcode;
 
-  /// 行说明：原画显示准确大小，其余加 ≈ 前缀；转码档补一句说明。
   String get subtitle {
     final parts = <String>[];
     if (estimatedBytes != null) {
@@ -92,9 +96,7 @@ class DownloadProfile {
   }
 }
 
-// 字节/速度格式化已下沉 core（mcFormatBytes / mcFormatSpeed）。}
-
-/// 一个媒体的下载候选（profile sheet 的数据源）。
+/// 一个媒体的下载候选（支持单集与本季全部批量下载）。
 class DownloadCandidate {
   const DownloadCandidate({
     required this.fileId,
@@ -102,16 +104,20 @@ class DownloadCandidate {
     this.subtitle,
     required this.scopes,
     required this.profiles,
+    this.seasonFileIds = const [],
+    this.fullSeasonSelected = false,
   });
 
   final String fileId;
   final String title;
   final String? subtitle;
-  final List<String> scopes; // e.g. ['本片', '全季']
+  final List<String> scopes;
   final List<DownloadProfile> profiles;
+  final List<String> seasonFileIds;
+  final bool fullSeasonSelected;
 }
 
-/// 服务器存储容量（StorageCard）。
+/// 本机存储容量（StorageCard）。
 class StorageInfo {
   const StorageInfo({required this.availableBytes, required this.totalBytes});
 
