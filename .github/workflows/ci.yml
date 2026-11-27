@@ -116,6 +116,19 @@ jobs:
 
       - name: 构建验证版 Android arm64 APK
         run: |
+          set -euo pipefail
+          # 全新 runner 尚未运行过 assembleDebug，~/.android/debug.keystore 尚未生成；
+          # 参照 MovieClaw android-stability.yml 现场生成临时调试证书供 CI 验证打包。
+          export MC_KEYSTORE_PATH="$RUNNER_TEMP/mc-ci-debug.p12"
+          export MC_KEYSTORE_PASSWORD="android"
+          export MC_KEY_ALIAS="androiddebugkey"
+          export MC_KEY_PASSWORD="android"
+          trap 'rm -f "$MC_KEYSTORE_PATH"' EXIT
+          keytool -genkeypair -keystore "$MC_KEYSTORE_PATH" -storetype PKCS12 \
+            -alias "$MC_KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 30 \
+            -dname 'CN=Android Debug,O=Android,C=US' \
+            -storepass:env MC_KEYSTORE_PASSWORD \
+            -keypass:env MC_KEY_PASSWORD -noprompt
           flutter pub get
           flutter build apk --release --target-platform android-arm64 --build-number="${{ github.run_number }}"
 

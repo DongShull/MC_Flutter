@@ -182,8 +182,21 @@ jobs:
               echo "::error::未配置 MC_KEYSTORE_BASE64 / MC_KEYSTORE_PASSWORD / MC_KEY_ALIAS / MC_KEY_PASSWORD"
               exit 1
             fi
+            # 全新 runner 上 ~/.android/debug.keystore 尚未生成；
+            # 参照 MovieClaw android-stability.yml 使用 keytool 生成临时调试签名证书。
+            export MC_KEYSTORE_PATH="$RUNNER_TEMP/mc-debug-fallback.p12"
+            export MC_KEYSTORE_PASSWORD="android"
+            export MC_KEY_ALIAS="androiddebugkey"
+            export MC_KEY_PASSWORD="android"
+            umask 077
+            trap 'rm -f "$MC_KEYSTORE_PATH"' EXIT
+            keytool -genkeypair -keystore "$MC_KEYSTORE_PATH" -storetype PKCS12 \
+              -alias "$MC_KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 30 \
+              -dname 'CN=Android Debug,O=Android,C=US' \
+              -storepass:env MC_KEYSTORE_PASSWORD \
+              -keypass:env MC_KEY_PASSWORD -noprompt
             echo "SIGNING_MODE=debug-fallback" >> "$GITHUB_ENV"
-            echo "::warning::未配置正式签名 Secrets，将按 build.gradle.kts 规则回落 Debug 密钥签名（可直接安装测试）"
+            echo "::warning::未配置正式签名 Secrets，已生成临时 Debug 签名证书（可直接安装测试）"
           fi
 
           mkdir -p dist
