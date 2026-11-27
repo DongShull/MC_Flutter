@@ -12,7 +12,7 @@ import '../state/controllers.dart';
 import '../state/models.dart';
 import 'quick_input.dart';
 
-/// 会话段（管理员）：AI 历史对话按 今天 / 昨天 / 更早 分组，`McInsetGroup` 圆角容器 + 左滑管理 + 底部 `QuickInputCard`。
+/// 会话段（管理员）：AI 历史对话按 今天 / 昨天 / 更早 分组，`McInsetGroup` 圆角容器 + 左滑管理 + 顶部 `QuickInputCard`。
 class ConversationsSection extends ConsumerWidget {
   const ConversationsSection({super.key});
 

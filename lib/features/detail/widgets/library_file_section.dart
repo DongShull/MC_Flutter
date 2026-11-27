@@ -79,23 +79,35 @@ class LibraryFileSection extends ConsumerWidget {
               ),
               if (canManage && dupLabel != null && onManageDuplicates != null) ...[
                 const SizedBox(width: 10),
-                McPressable(
-                  onTap: onManageDuplicates,
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: McTokens.warning.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: McTokens.warning.withValues(alpha: 0.32),
-                      ),
-                    ),
-                    child: Text(
-                      '$dupLabel · 处理重复',
-                      style: McText.micro.copyWith(
-                        color: McTokens.warning,
-                        fontWeight: FontWeight.w600,
+                Tooltip(
+                  message: '前往重复文件管理',
+                  child: McPressable(
+                    haptic: true,
+                    onTap: onManageDuplicates,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 36),
+                      child: Center(
+                        widthFactor: 1,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: McTokens.warning.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: McTokens.warning.withValues(alpha: 0.32),
+                            ),
+                          ),
+                          child: Text(
+                            '$dupLabel · 处理重复',
+                            style: McText.micro.copyWith(
+                              color: McTokens.warning,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -266,18 +278,31 @@ class _LibraryFileRowState extends State<LibraryFileRow> {
                 _tag('待回收', McTokens.textFaint),
                 if (widget.onRestore != null) ...[
                   const SizedBox(width: 6),
-                  McPressable(
-                    onTap: widget.onRestore,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 4,
-                      ),
-                      child: Text(
-                        '恢复',
-                        style: McText.micro.copyWith(
-                          color: McTokens.accentStrong,
-                          fontWeight: FontWeight.w600,
+                  Tooltip(
+                    message: '从回收站恢复此文件',
+                    child: McPressable(
+                      haptic: true,
+                      onTap: widget.onRestore,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          minWidth: 44,
+                          minHeight: 36,
+                        ),
+                        child: Center(
+                          widthFactor: 1,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 6,
+                            ),
+                            child: Text(
+                              '恢复',
+                              style: McText.micro.copyWith(
+                                color: McTokens.accentStrong,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -285,18 +310,31 @@ class _LibraryFileRowState extends State<LibraryFileRow> {
                 ],
                 if (widget.onPurge != null) ...[
                   const SizedBox(width: 2),
-                  McPressable(
-                    onTap: widget.onPurge,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 4,
-                      ),
-                      child: Text(
-                        '彻底删除',
-                        style: McText.micro.copyWith(
-                          color: McTokens.danger,
-                          fontWeight: FontWeight.w600,
+                  Tooltip(
+                    message: '彻底删除此文件',
+                    child: McPressable(
+                      haptic: true,
+                      onTap: widget.onPurge,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          minWidth: 44,
+                          minHeight: 36,
+                        ),
+                        child: Center(
+                          widthFactor: 1,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 6,
+                            ),
+                            child: Text(
+                              '彻底删除',
+                              style: McText.micro.copyWith(
+                                color: McTokens.danger,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -305,13 +343,19 @@ class _LibraryFileRowState extends State<LibraryFileRow> {
               ] else if (widget.onDelete != null) ...[
                 IconButton(
                   tooltip: '删除此文件',
-                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
                   icon: const Icon(
                     McIcons.trash2,
-                    size: 15,
+                    size: 16,
                     color: McTokens.textFaint,
                   ),
-                  onPressed: widget.onDelete,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    widget.onDelete!();
+                  },
                 ),
               ],
             ],
@@ -357,22 +401,36 @@ class _LibraryFileRowState extends State<LibraryFileRow> {
                 _detailRow('文件大小', mcFormatBytes(f.sizeBytes)),
                 for (final r in specRows) _detailRow(r.label, r.value),
                 const SizedBox(height: 6),
-                McPressable(
-                  onTap: _copyPath,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        McIcons.fileCopy,
-                        size: 13,
-                        color: McTokens.accent,
+                Tooltip(
+                  message: '复制文件完整路径',
+                  child: McPressable(
+                    haptic: true,
+                    onTap: _copyPath,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 36),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              McIcons.fileCopy,
+                              size: 13,
+                              color: McTokens.accent,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '复制完整路径',
+                              style:
+                                  McText.micro.copyWith(color: McTokens.accent),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '复制完整路径',
-                        style: McText.micro.copyWith(color: McTokens.accent),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ],
@@ -477,20 +535,30 @@ class ExternalLinksBar extends StatelessWidget {
   }
 
   Widget _linkButton(String label, String url) {
-    return McPressable(
-      onTap: () => ExternalMediaLink.open(url),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: McTokens.surfaceInset,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: McTokens.line),
-        ),
-        child: Text(
-          '$label ↗',
-          style: McText.caption.copyWith(
-            color: McTokens.textMuted,
-            fontWeight: FontWeight.w500,
+    return Tooltip(
+      message: '在外部打开 $label',
+      child: McPressable(
+        haptic: true,
+        onTap: () => ExternalMediaLink.open(url),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 36),
+          child: Center(
+            widthFactor: 1,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: McTokens.surfaceInset,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: McTokens.line),
+              ),
+              child: Text(
+                '$label ↗',
+                style: McText.caption.copyWith(
+                  color: McTokens.textMuted,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
           ),
         ),
       ),

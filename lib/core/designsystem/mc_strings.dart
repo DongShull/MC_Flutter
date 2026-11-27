@@ -68,7 +68,7 @@ abstract final class McStrings {
   static const sectionDownloads = '下载';
   static const sectionServer = '服务器';
   static const conversationsEmptyTitle = '还没有会话';
-  static const conversationsEmptyHint = '在下方输入框里问点什么吧。';
+  static const conversationsEmptyHint = '在上方输入框里问点什么吧。';
   static const runningBadge = '进行中';
   static const forkSessionAction = '续接';
   static const renameSessionAction = '重命名';

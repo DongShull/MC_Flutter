@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
@@ -28,15 +29,45 @@ class NoticesReady extends NoticesLoadable {
 /// 通知中心控制器（对齐 Kotlin NoticeCenterViewModel）：
 /// 30s 轮询 + 忽略（乐观更新，失败回滚，下次轮询带回）；
 /// 服务端无推送基础设施，故用轮询（设计方案 05 §6.1）。
-class NoticesController extends Notifier<NoticesLoadable> {
+class NoticesController extends Notifier<NoticesLoadable>
+    with WidgetsBindingObserver {
   Timer? _poll;
 
   static const _pollInterval = Duration(seconds: 30);
 
+  void _startPolling() {
+    _poll?.cancel();
+    _poll = Timer.periodic(_pollInterval, (_) => refresh(silent: true));
+  }
+
+  void _stopPolling() {
+    _poll?.cancel();
+    _poll = null;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _stopPolling();
+      case AppLifecycleState.resumed:
+        _startPolling();
+        unawaited(refresh(silent: true));
+      case AppLifecycleState.inactive:
+        break;
+    }
+  }
+
   @override
   NoticesLoadable build() {
-    _poll = Timer.periodic(_pollInterval, (_) => refresh(silent: true));
-    ref.onDispose(() => _poll?.cancel());
+    WidgetsBinding.instance.addObserver(this);
+    _startPolling();
+    ref.onDispose(() {
+      WidgetsBinding.instance.removeObserver(this);
+      _stopPolling();
+    });
     refresh();
     return const NoticesLoading();
   }

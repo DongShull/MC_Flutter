@@ -17,6 +17,7 @@ import '../../../core/designsystem/theme.dart';
 import '../../../core/image/image_urls.dart';
 import '../../../core/models/format.dart';
 import '../../../core/player/player_page_args.dart';
+import '../../../core/session/permissions.dart';
 import '../../offline/embed.dart';
 import '../routes.dart';
 import '../state/home_rows.dart';
@@ -232,6 +233,7 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(libraryHomeProvider);
+    final permissions = ref.watch(permissionsProvider);
     final offline = ref.watch(offlineProvider);
     final offlineCount = offline.doneUnits.length;
     final pullDepth = math.max(0.0, -_overscroll);
@@ -253,7 +255,7 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
                   parent: AlwaysScrollableScrollPhysics(),
                 ),
                 slivers: [
-                  _buildTopBar(context),
+                  _buildTopBar(context, isAdmin: permissions.isAdmin),
                   ..._content(state, offlineCount),
                   if (state.libraries != null && state.libraries!.isNotEmpty)
                     SliverToBoxAdapter(child: _statsFooter(state)),
@@ -286,7 +288,7 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
     );
   }
 
-  Widget _buildTopBar(BuildContext context) {
+  Widget _buildTopBar(BuildContext context, {required bool isAdmin}) {
     return McSliverTopBar(
       title: '媒体库',
       onSearch: () => context.push('/search'),
@@ -302,28 +304,29 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
           onSelected: (v) {
             if (v == 'customize') _openCustomize();
             if (v == 'collections') context.push(routeLibraryCollections);
-            if (v == 'manage') {
+            if (v == 'manage' && isAdmin) {
               context.push(routeLibraryManage).then((_) {
                 if (mounted) _controller.reload();
               });
             }
           },
-          itemBuilder: (_) => const [
-            PopupMenuItem(
+          itemBuilder: (_) => [
+            const PopupMenuItem(
               value: 'customize',
               child: _MenuRow(icon: McIcons.setting1, label: '自定义首页'),
             ),
-            PopupMenuItem(
+            const PopupMenuItem(
               value: 'collections',
               child: _MenuRow(icon: McIcons.mediaLibraryFill, label: '全部合集'),
             ),
-            PopupMenuItem(
-              value: 'manage',
-              child: _MenuRow(
-                icon: McIcons.folderSettings,
-                label: '管理媒体库与异常',
+            if (isAdmin)
+              const PopupMenuItem(
+                value: 'manage',
+                child: _MenuRow(
+                  icon: McIcons.folderSettings,
+                  label: '管理媒体库与异常',
+                ),
               ),
-            ),
           ],
           child: const IgnorePointer(
             child: McGlassIconButton(

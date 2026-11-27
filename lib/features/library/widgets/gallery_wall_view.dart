@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -473,15 +474,34 @@ class _McZoomableLightboxState extends State<McZoomableLightbox> {
     }
   }
 
+  void _stepPage(int delta) {
+    final target = _index + delta;
+    if (target < 0 || target >= widget.slides.length) return;
+    _pageCtrl.animateToPage(
+      target,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.slides.isEmpty) {
-      return Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(
-          child: TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('关闭'),
+      return CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.escape): () =>
+              Navigator.of(context).maybePop(),
+        },
+        child: Focus(
+          autofocus: true,
+          child: Scaffold(
+            backgroundColor: Colors.black,
+            body: Center(
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('关闭'),
+              ),
+            ),
           ),
         ),
       );
@@ -491,9 +511,18 @@ class _McZoomableLightboxState extends State<McZoomableLightbox> {
     final bottomPad = MediaQuery.of(context).padding.bottom;
     final overlay = widget.overlayBuilder?.call(_index);
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).maybePop(),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _stepPage(-1),
+        const SingleActivator(LogicalKeyboardKey.arrowRight): () => _stepPage(1),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: Stack(
         children: [
           // 主画布
           PageView.builder(
@@ -692,6 +721,8 @@ class _McZoomableLightboxState extends State<McZoomableLightbox> {
             ),
           ),
         ],
+      ),
+    ),
       ),
     );
   }
@@ -902,6 +933,9 @@ class LibraryGalleryWall extends ConsumerStatefulWidget {
     this.startOffset = 0,
     this.onOpenItem,
     this.onFirstVisible,
+    this.headerSlivers = const [],
+    this.padding = EdgeInsets.zero,
+    this.controller,
   });
 
   static const int pageSize = 24;
@@ -912,6 +946,9 @@ class LibraryGalleryWall extends ConsumerStatefulWidget {
       fetch;
   final void Function(LibraryGalleryGroupView group)? onOpenItem;
   final void Function(int offset)? onFirstVisible;
+  final List<Widget> headerSlivers;
+  final EdgeInsetsGeometry padding;
+  final ScrollController? controller;
 
   @override
   ConsumerState<LibraryGalleryWall> createState() => _LibraryGalleryWallState();
@@ -1006,7 +1043,7 @@ class _LibraryGalleryWallState extends ConsumerState<LibraryGalleryWall> {
 
   Future<void> _loadMore() async {
     if (_loadingMore || !_hasMore || _loading) return;
-    _loadingMore = true;
+    setState(() => _loadingMore = true);
     final g = _gen;
     var attempts = 0;
     try {
@@ -1028,7 +1065,13 @@ class _LibraryGalleryWallState extends ConsumerState<LibraryGalleryWall> {
     } catch (_) {
       if (mounted && g == _gen) setState(() => _hasMore = false);
     } finally {
-      if (g == _gen) _loadingMore = false;
+      if (g == _gen) {
+        if (mounted) {
+          setState(() => _loadingMore = false);
+        } else {
+          _loadingMore = false;
+        }
+      }
     }
   }
 
@@ -1189,26 +1232,55 @@ class _LibraryGalleryWallState extends ConsumerState<LibraryGalleryWall> {
 
   @override
   Widget build(BuildContext context) {
+    final resolvedPad = widget.padding.resolve(Directionality.of(context));
+
     if (_loading) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 80),
-        child: Center(child: CircularProgressIndicator()),
+      return CustomScrollView(
+        controller: widget.controller,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          ...widget.headerSlivers,
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 80),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          ),
+        ],
       );
     }
     if (_error != null) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 48),
-        child: McErrorView(text: _error!, onRetry: _reload),
+      return CustomScrollView(
+        controller: widget.controller,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          ...widget.headerSlivers,
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 48),
+              child: McErrorView(text: _error!, onRetry: _reload),
+            ),
+          ),
+        ],
       );
     }
     if (_entries.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 64),
-        child: McEmptyView(
-          icon: McIcons.imageAdd,
-          title: '暂无可浏览图片',
-          text: '作品生成海报、剧照或章节图后会出现在这里',
-        ),
+      return CustomScrollView(
+        controller: widget.controller,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          ...widget.headerSlivers,
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 64),
+              child: McEmptyView(
+                icon: McIcons.imageAdd,
+                title: '暂无可浏览图片',
+                text: '作品生成海报、剧照或章节图后会出现在这里',
+              ),
+            ),
+          ),
+        ],
       );
     }
 
@@ -1220,36 +1292,74 @@ class _LibraryGalleryWallState extends ConsumerState<LibraryGalleryWall> {
         final screenW = MediaQuery.of(context).size.width;
         final tileW = prefs.density.tileImageWidth(screenW, dpr);
 
-        return LayoutBuilder(
-          builder: (context, box) {
-            final rows = _buildRows(box.maxWidth, prefs.density, prefs.grouped);
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var r = 0; r < rows.length; r++)
-                  _buildRow(rows[r], r, rows.length, tileW),
-                if (_hasMore)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 20),
+        return NotificationListener<ScrollNotification>(
+          onNotification: (n) {
+            if (n is ScrollUpdateNotification &&
+                n.metrics.axis == Axis.vertical &&
+                n.metrics.extentAfter < 600 &&
+                _hasMore &&
+                !_loadingMore) {
+              _loadMore();
+            }
+            return false;
+          },
+          child: CustomScrollView(
+            controller: widget.controller,
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              ...widget.headerSlivers,
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  resolvedPad.left,
+                  resolvedPad.top,
+                  resolvedPad.right,
+                  _hasMore ? 0 : resolvedPad.bottom,
+                ),
+                sliver: SliverLayoutBuilder(
+                  builder: (context, constraints) {
+                    final rows = _buildRows(
+                      constraints.crossAxisExtent,
+                      prefs.density,
+                      prefs.grouped,
+                    );
+                    return SliverList.builder(
+                      itemCount: rows.length,
+                      itemBuilder: (_, r) => _buildRow(rows[r], r, tileW),
+                    );
+                  },
+                ),
+              ),
+              if (_hasMore)
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(
+                    resolvedPad.left,
+                    20,
+                    resolvedPad.right,
+                    20 + resolvedPad.bottom,
+                  ),
+                  sliver: SliverToBoxAdapter(
                     child: Center(
-                      child: OutlinedButton(
-                        onPressed: _loadMore,
-                        child: const Text('加载更多图片'),
-                      ),
+                      child: _loadingMore
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : OutlinedButton(
+                              onPressed: _loadMore,
+                              child: const Text('加载更多图片'),
+                            ),
                     ),
                   ),
-              ],
-            );
-          },
+                ),
+            ],
+          ),
         );
       },
     );
   }
 
-  Widget _buildRow(_GalleryRow row, int rowIndex, int totalRows, int tileW) {
-    if (rowIndex >= totalRows - 3 && _hasMore && !_loadingMore) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _loadMore());
-    }
+  Widget _buildRow(_GalleryRow row, int rowIndex, int tileW) {
     if (row.group != null) {
       final g = row.group!;
       final gIdx = _groups.indexOf(g);

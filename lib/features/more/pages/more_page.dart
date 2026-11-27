@@ -11,6 +11,7 @@ import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
+import '../../../core/l10n/mc_l10n.dart';
 import '../../../core/session/session_store.dart';
 import '../../offline/embed.dart';
 import '../state/controllers.dart';
@@ -64,10 +65,10 @@ class _MorePageState extends ConsumerState<MorePage> {
         _ => '访客',
       };
 
-  String _labelOf(MoreSection s) => switch (s) {
-        MoreSection.conversations => McStrings.sectionConversations,
-        MoreSection.downloads => McStrings.sectionDownloads,
-        MoreSection.server => McStrings.sectionServer,
+  String _labelOf(MoreSection s, McL10n l10n) => switch (s) {
+        MoreSection.conversations => l10n.moreSectionConversations,
+        MoreSection.downloads => l10n.moreSectionDownloads,
+        MoreSection.server => l10n.moreSectionServer,
       };
 
   IconData _iconOf(MoreSection s) => switch (s) {
@@ -78,6 +79,8 @@ class _MorePageState extends ConsumerState<MorePage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(mcLanguageProvider);
+    final l10n = McL10n.of(context);
     final state = ref.watch(moreProvider);
     final perms = ref.watch(mcPermissionsProvider);
     final offline = ref.watch(offlineProvider);
@@ -140,7 +143,7 @@ class _MorePageState extends ConsumerState<MorePage> {
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               McSliverTopBar(
-                title: McStrings.moreTab,
+                title: l10n.tabMore,
                 actions: [
                   if (!isOffline) ...[
                     McGlassIconButton(
@@ -178,7 +181,9 @@ class _MorePageState extends ConsumerState<MorePage> {
                         maxWidth: wide ? 760 : double.infinity,
                       ),
                       child: Padding(
-                        padding: const EdgeInsets.only(bottom: 120),
+                        padding: const EdgeInsets.only(
+                          bottom: McTokens.bottomBarClearance,
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
@@ -198,7 +203,9 @@ class _MorePageState extends ConsumerState<MorePage> {
                             ),
                             if (sections.length > 1)
                               SectionPicker(
-                                labels: [for (final s in sections) _labelOf(s)],
+                                labels: [
+                                  for (final s in sections) _labelOf(s, l10n),
+                                ],
                                 icons: [for (final s in sections) _iconOf(s)],
                                 selected: selectedIdx,
                                 badgeIndex:

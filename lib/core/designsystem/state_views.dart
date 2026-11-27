@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/mc_l10n.dart';
 import 'mc_chrome.dart';
 import 'mc_glass.dart';
 import 'mc_icons.dart';
@@ -59,7 +60,7 @@ class McEmptyView extends StatelessWidget {
             if (onRetry != null) ...[
               const SizedBox(height: 18),
               McActionPill(
-                label: actionLabel ?? '重试',
+                label: actionLabel ?? McL10n.of(context).retry,
                 primary: false,
                 tone: McGlassTone.secondary,
                 height: 36,
@@ -123,7 +124,7 @@ class McErrorView extends StatelessWidget {
       icon: McIcons.alert1,
       title: title,
       text: text,
-      actionLabel: '重试',
+      actionLabel: McL10n.of(context).retry,
       onRetry: onRetry,
     );
   }

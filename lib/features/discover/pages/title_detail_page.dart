@@ -459,7 +459,8 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
   TitleDetailData? _detail;
   bool _loading = true;
   String? _error;
-  double _scrollOffset = 0;
+  final ValueNotifier<double> _scrollOffset = ValueNotifier<double>(0);
+  final ValueNotifier<bool> _barTitleVisible = ValueNotifier<bool>(false);
   Color? _edgeColor;
   String? _sampledUrl;
   bool _overviewExpanded = false;
@@ -473,6 +474,13 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
       _detail = TitleDetailData.fromSeed(widget.seed!);
     }
     Future.microtask(_load);
+  }
+
+  @override
+  void dispose() {
+    _scrollOffset.dispose();
+    _barTitleVisible.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -634,6 +642,7 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
   @override
   Widget build(BuildContext context) {
     final topPad = MediaQuery.paddingOf(context).top;
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
     final form = McFormWatch.of(context);
     final pad = form == McDeviceForm.phone
         ? McTokens.pagePadding
@@ -684,11 +693,6 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
     final ambient = _edgeColor ?? McTokens.bg;
     final heroHeight = topPad + 360.0;
     final resolvedHero = McImageUrls.resolve(heroRaw, widthPx: 1920);
-    final stretch = _scrollOffset < 0
-        ? (1.0 + (-_scrollOffset) / heroHeight).clamp(1.0, 1.32)
-        : 1.0;
-    final parallax =
-        _scrollOffset > 0 ? math.min(_scrollOffset * 0.25, 68.0) : 0.0;
 
     final perms = ref.watch(permissionsProvider);
     final subs = ref.watch(discoverSubscriptionIndexProvider);
@@ -704,6 +708,210 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
     final place = [d.country, d.language]
         .where((e) => e.trim().isNotEmpty)
         .join(' · ');
+
+    final headerContent = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            if (d.posterUrl != null && d.posterUrl!.isNotEmpty) ...[
+              Container(
+                width: 96,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(
+                    McTokens.posterRadius,
+                  ),
+                  border: Border.all(
+                    color: McTokens.lineStrong,
+                    width: 1,
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x99000000),
+                      blurRadius: 20,
+                      offset: Offset(0, 8),
+                    ),
+                  ],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: McArtwork(
+                  url: d.posterUrl,
+                  widthPx: 320,
+                  fallbackText: d.title,
+                ),
+              ),
+              const SizedBox(width: 14),
+            ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    d.title,
+                    style: McText.titleLg.copyWith(
+                      fontSize: 26,
+                      height: 1.2,
+                    ),
+                  ),
+                  if (d.originalTitle.isNotEmpty &&
+                      d.originalTitle != d.title) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      d.originalTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: McText.caption.muted,
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (d.rating > 0)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              McIcons.star2Fill,
+                              size: 14,
+                              color: McTokens.warning,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              d.rating.toStringAsFixed(1),
+                              style: McText.titleSm
+                                  .copyWith(color: Colors.white)
+                                  .tabular,
+                            ),
+                          ],
+                        ),
+                      if (d.year != null)
+                        Text(
+                          '${d.year}',
+                          style: McText.sub.tabular,
+                        ),
+                      if (d.extentLabel.isNotEmpty)
+                        Text(
+                          '· ${d.extentLabel}',
+                          style: McText.sub.tabular,
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (place.isNotEmpty || d.genres.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              if (place.isNotEmpty)
+                Text(
+                  place,
+                  style: McText.sub.copyWith(
+                    color: const Color(0xA6FFFFFF),
+                  ),
+                ),
+              if (place.isNotEmpty && d.genres.isNotEmpty)
+                Text(
+                  '｜',
+                  style: McText.sub.copyWith(
+                    color: const Color(0x40FFFFFF),
+                  ),
+                ),
+              if (d.genres.isNotEmpty)
+                Text(
+                  d.genres.join(' · '),
+                  style: McText.sub.copyWith(
+                    color: const Color(0xB8FFFFFF),
+                  ),
+                ),
+            ],
+          ),
+        ],
+        if (d.released.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            '${d.isMovie ? '上映日期' : '首播日期'} · ${d.released}',
+            style: McText.caption.faint.tabular,
+          ),
+        ],
+        // 多媒体库在库条
+        if (d.libraryLinks.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _buildLibraryBar(d.libraryLinks),
+        ],
+        // 操作按钮行（遵循 iOS 规则：已入库电影隐藏未订阅的订阅与搜索）
+        if (showSubscribe || showSearch || sub != null) ...[
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (showSubscribe)
+                if (sub != null)
+                  McActionPill(
+                    label: '已订阅 · ${sub.statusLabel}',
+                    icon: McIcons.check,
+                    primary: false,
+                    onTap: () => _onSubscribe(d),
+                  )
+                else
+                  McActionPill(
+                    label: '订阅影片',
+                    icon: McIcons.bookmarkFill,
+                    primary: true,
+                    onTap: () => _onSubscribe(d),
+                  ),
+              if (showSearch)
+                McActionPill(
+                  label: '搜索资源',
+                  icon: McIcons.search,
+                  primary: false,
+                  onTap: () => _openSearch(d),
+                ),
+              if (sub != null && sub.progressNote.isNotEmpty)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: McTokens.ok,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      sub.progressNote,
+                      style: McText.caption.muted,
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ],
+        // 4 行可折叠简介
+        if (d.overview.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          _CollapsibleOverview(
+            text: d.overview,
+            expanded: _overviewExpanded,
+            onToggle: () => setState(
+              () => _overviewExpanded = !_overviewExpanded,
+            ),
+          ),
+        ],
+      ],
+    );
 
     return Scaffold(
       backgroundColor: McTokens.bg,
@@ -731,7 +939,12 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
           NotificationListener<ScrollNotification>(
             onNotification: (n) {
               if (n.metrics.axis == Axis.vertical && n.depth == 0) {
-                setState(() => _scrollOffset = n.metrics.pixels);
+                final px = n.metrics.pixels;
+                _scrollOffset.value = px;
+                final showTitle = px > 200;
+                if (_barTitleVisible.value != showTitle) {
+                  _barTitleVisible.value = showTitle;
+                }
               }
               return false;
             },
@@ -741,299 +954,112 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
               backgroundColor: McTokens.surfaceSolid,
               onRefresh: _load,
               child: ListView(
-                padding: const EdgeInsets.only(bottom: 56),
+                padding: EdgeInsets.only(bottom: 56 + bottomPad),
                 physics: const AlwaysScrollableScrollPhysics(),
                 children: [
-                  // 沉浸式剧照 Hero
+                  // 沉浸式剧照 Hero + 标题/操作区单 Stack 正向排版（杜绝负偏移死区与底部空隙）
                   if (resolvedHero.isNotEmpty)
-                    SizedBox(
-                      height: heroHeight,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          ClipRect(
-                            child: Transform.translate(
-                              offset: Offset(0, parallax),
-                              child: Transform.scale(
-                                scale: stretch,
-                                alignment: Alignment.bottomCenter,
-                                child: CachedNetworkImage(
-                                  imageUrl: resolvedHero,
-                                  httpHeaders: mcImageHeaders(),
-                                  fit: BoxFit.cover,
-                                  placeholder: (_, __) => const ColoredBox(
-                                    color: McTokens.posterPlaceholder,
-                                  ),
-                                  errorWidget: (_, __, ___) => const ColoredBox(
-                                    color: McTokens.posterPlaceholder,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                stops: const [0.0, 0.42, 0.78, 1.0],
-                                colors: [
-                                  const Color(0x55000000),
-                                  ambient.withValues(alpha: 0.14),
-                                  ambient.withValues(alpha: 0.85),
-                                  ambient,
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  else
-                    SizedBox(height: topPad + 64),
-
-                  // 标题、评分、地区/语言/类型、上映日期、在库条、订阅/搜索操作
-                  Transform.translate(
-                    offset: Offset(0, resolvedHero.isNotEmpty ? -96 : 0),
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: pad),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
+                    Stack(
+                      children: [
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          height: heroHeight,
+                          child: Stack(
+                            fit: StackFit.expand,
                             children: [
-                              if (d.posterUrl != null &&
-                                  d.posterUrl!.isNotEmpty) ...[
-                                Container(
-                                  width: 96,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(
-                                      McTokens.posterRadius,
+                              ClipRect(
+                                child: ValueListenableBuilder<double>(
+                                  valueListenable: _scrollOffset,
+                                  child: CachedNetworkImage(
+                                    imageUrl: resolvedHero,
+                                    httpHeaders: mcImageHeaders(),
+                                    fit: BoxFit.cover,
+                                    placeholder: (_, __) => const ColoredBox(
+                                      color: McTokens.posterPlaceholder,
                                     ),
-                                    border: Border.all(
-                                      color: McTokens.lineStrong,
-                                      width: 1,
+                                    errorWidget: (_, __, ___) =>
+                                        const ColoredBox(
+                                      color: McTokens.posterPlaceholder,
                                     ),
-                                    boxShadow: const [
-                                      BoxShadow(
-                                        color: Color(0x99000000),
-                                        blurRadius: 20,
-                                        offset: Offset(0, 8),
+                                  ),
+                                  builder: (_, offset, child) {
+                                    final stretch = offset < 0
+                                        ? (1.0 + (-offset) / heroHeight)
+                                            .clamp(1.0, 1.32)
+                                        : 1.0;
+                                    final parallax = offset > 0
+                                        ? math.min(offset * 0.25, 68.0)
+                                        : 0.0;
+                                    return Transform.translate(
+                                      offset: Offset(0, parallax),
+                                      child: Transform.scale(
+                                        scale: stretch,
+                                        alignment: Alignment.bottomCenter,
+                                        child: child,
                                       ),
-                                    ],
-                                  ),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: McArtwork(
-                                    url: d.posterUrl,
-                                    widthPx: 320,
-                                    fallbackText: d.title,
-                                  ),
+                                    );
+                                  },
                                 ),
-                                const SizedBox(width: 14),
-                              ],
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      d.title,
-                                      style: McText.titleLg.copyWith(
-                                        fontSize: 26,
-                                        height: 1.2,
-                                      ),
-                                    ),
-                                    if (d.originalTitle.isNotEmpty &&
-                                        d.originalTitle != d.title) ...[
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        d.originalTitle,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: McText.caption.muted,
-                                      ),
+                              ),
+                              DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    stops: const [0.0, 0.42, 0.78, 1.0],
+                                    colors: [
+                                      const Color(0x55000000),
+                                      ambient.withValues(alpha: 0.14),
+                                      ambient.withValues(alpha: 0.85),
+                                      ambient,
                                     ],
-                                    const SizedBox(height: 8),
-                                    Wrap(
-                                      spacing: 8,
-                                      runSpacing: 4,
-                                      crossAxisAlignment:
-                                          WrapCrossAlignment.center,
-                                      children: [
-                                        if (d.rating > 0)
-                                          Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              const Icon(
-                                                McIcons.star2Fill,
-                                                size: 14,
-                                                color: McTokens.warning,
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                d.rating.toStringAsFixed(1),
-                                                style: McText.titleSm
-                                                    .copyWith(
-                                                      color: Colors.white,
-                                                    )
-                                                    .tabular,
-                                              ),
-                                            ],
-                                          ),
-                                        if (d.year != null)
-                                          Text(
-                                            '${d.year}',
-                                            style: McText.sub.tabular,
-                                          ),
-                                        if (d.extentLabel.isNotEmpty)
-                                          Text(
-                                            '· ${d.extentLabel}',
-                                            style: McText.sub.tabular,
-                                          ),
-                                      ],
-                                    ),
-                                  ],
+                                  ),
                                 ),
                               ),
                             ],
                           ),
-                          if (place.isNotEmpty || d.genres.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: [
-                                if (place.isNotEmpty)
-                                  Text(
-                                    place,
-                                    style: McText.sub.copyWith(
-                                      color: const Color(0xA6FFFFFF),
-                                    ),
-                                  ),
-                                if (place.isNotEmpty && d.genres.isNotEmpty)
-                                  Text(
-                                    '｜',
-                                    style: McText.sub.copyWith(
-                                      color: const Color(0x40FFFFFF),
-                                    ),
-                                  ),
-                                if (d.genres.isNotEmpty)
-                                  Text(
-                                    d.genres.join(' · '),
-                                    style: McText.sub.copyWith(
-                                      color: const Color(0xB8FFFFFF),
-                                    ),
-                                  ),
-                              ],
+                        ),
+                        ConstrainedBox(
+                          constraints: BoxConstraints(minHeight: heroHeight),
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              pad,
+                              heroHeight - 96,
+                              pad,
+                              0,
                             ),
-                          ],
-                          if (d.released.isNotEmpty) ...[
-                            const SizedBox(height: 6),
-                            Text(
-                              '${d.isMovie ? '上映日期' : '首播日期'} · ${d.released}',
-                              style: McText.caption.faint.tabular,
-                            ),
-                          ],
-                          // 多媒体库在库条
-                          if (d.libraryLinks.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            _buildLibraryBar(d.libraryLinks),
-                          ],
-                          // 操作按钮行（遵循 iOS 规则：已入库电影隐藏未订阅的订阅与搜索）
-                          if (showSubscribe || showSearch || sub != null) ...[
-                            const SizedBox(height: 14),
-                            Wrap(
-                              spacing: 10,
-                              runSpacing: 10,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              children: [
-                                if (showSubscribe)
-                                  if (sub != null)
-                                    McActionPill(
-                                      label: '已订阅 · ${sub.statusLabel}',
-                                      icon: McIcons.check,
-                                      primary: false,
-                                      onTap: () => _onSubscribe(d),
-                                    )
-                                  else
-                                    McActionPill(
-                                      label: '订阅影片',
-                                      icon: McIcons.bookmarkFill,
-                                      primary: true,
-                                      onTap: () => _onSubscribe(d),
-                                    ),
-                                if (showSearch)
-                                  McActionPill(
-                                    label: '搜索资源',
-                                    icon: McIcons.search,
-                                    primary: false,
-                                    onTap: () => _openSearch(d),
-                                  ),
-                                if (sub != null && sub.progressNote.isNotEmpty)
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Container(
-                                        width: 6,
-                                        height: 6,
-                                        decoration: const BoxDecoration(
-                                          color: McTokens.ok,
-                                          shape: BoxShape.circle,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        sub.progressNote,
-                                        style: McText.caption.muted,
-                                      ),
-                                    ],
-                                  ),
-                              ],
-                            ),
-                          ],
-                          // 4 行可折叠简介
-                          if (d.overview.isNotEmpty) ...[
-                            const SizedBox(height: 20),
-                            _CollapsibleOverview(
-                              text: d.overview,
-                              expanded: _overviewExpanded,
-                              onToggle: () => setState(
-                                () => _overviewExpanded = !_overviewExpanded,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
+                            child: headerContent,
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(pad, topPad + 64, pad, 0),
+                      child: headerContent,
                     ),
-                  ),
 
                   // 下方各分区（演职员 -> 预告片 -> 剧照与海报 -> 同系列 -> 相似推荐 -> 外链）
-                  Transform.translate(
-                    offset: Offset(0, resolvedHero.isNotEmpty ? -72 : 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (d.people.isNotEmpty) _buildCastSection(d.people, pad),
-                        if (d.videos.isNotEmpty)
-                          _buildTrailersSection(d.videos, pad),
-                        if (d.backdrops.isNotEmpty || d.posters.isNotEmpty)
-                          _buildPhotoWall(d, pad),
-                        if (d.collection != null)
-                          _buildPosterShelf(
-                            title: d.collection!.name,
-                            items: d.collection!.titles,
-                            pad: pad,
-                          ),
-                        if (d.recommendations.isNotEmpty)
-                          _buildPosterShelf(
-                            title: '相似推荐',
-                            items: d.recommendations,
-                            pad: pad,
-                          ),
-                        _buildExternalLinks(d, pad),
-                      ],
+                  if (d.people.isNotEmpty) _buildCastSection(d.people, pad),
+                  if (d.videos.isNotEmpty)
+                    _buildTrailersSection(d.videos, pad),
+                  if (d.backdrops.isNotEmpty || d.posters.isNotEmpty)
+                    _buildPhotoWall(d, pad),
+                  if (d.collection != null)
+                    _buildPosterShelf(
+                      title: d.collection!.name,
+                      items: d.collection!.titles,
+                      pad: pad,
                     ),
-                  ),
+                  if (d.recommendations.isNotEmpty)
+                    _buildPosterShelf(
+                      title: '相似推荐',
+                      items: d.recommendations,
+                      pad: pad,
+                    ),
+                  _buildExternalLinks(d, pad),
                 ],
               ),
             ),
@@ -1042,10 +1068,13 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
             top: 0,
             left: 0,
             right: 0,
-            child: McFloatingDetailBar(
-              onBack: _back,
-              title: d.title.isEmpty ? '作品详情' : d.title,
-              titleVisible: _scrollOffset > 200,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _barTitleVisible,
+              builder: (_, visible, __) => McFloatingDetailBar(
+                onBack: _back,
+                title: d.title.isEmpty ? '作品详情' : d.title,
+                titleVisible: visible,
+              ),
             ),
           ),
         ],
@@ -1356,21 +1385,23 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
         children: [
           Padding(
             padding: EdgeInsets.symmetric(horizontal: pad),
-            child: Row(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                const Text('剧照与海报', style: McText.title),
-                if (tabs.length > 1) ...[
-                  const SizedBox(width: 12),
-                  for (final t in tabs) ...[
+                const Padding(
+                  padding: EdgeInsets.only(right: 4),
+                  child: Text('剧照与海报', style: McText.title),
+                ),
+                if (tabs.length > 1)
+                  for (final t in tabs)
                     McChip(
                       label: '${t.label} ${t.list.length}',
                       compact: true,
                       selected: t.id == active.id,
                       onTap: () => setState(() => _photoTab = t.id),
                     ),
-                    const SizedBox(width: 8),
-                  ],
-                ],
               ],
             ),
           ),
@@ -1485,12 +1516,16 @@ class _TitleDetailPageState extends ConsumerState<TitleDetailPage> {
                             ref,
                             titleRef: t.ref,
                           );
-                          if (out != null) {
-                            ref
-                                .read(
-                                  discoverSubscriptionIndexProvider.notifier,
-                                )
-                                .refresh();
+                          if (!mounted || out == null) return;
+                          ref
+                              .read(
+                                discoverSubscriptionIndexProvider.notifier,
+                              )
+                              .refresh();
+                          if (out == SubscribeSheetOutcome.created) {
+                            McToast.success('已加入追更订阅');
+                          } else if (out == SubscribeSheetOutcome.managed) {
+                            this.context.push('/subscriptions');
                           }
                         },
                       ),

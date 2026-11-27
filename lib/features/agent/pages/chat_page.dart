@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -79,6 +80,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   String? _editingMessageId;
   bool _followsLatest = true;
   bool _showScrollToBottom = false;
+  ScrollDirection _lastUserScrollDirection = ScrollDirection.idle;
   bool _routeReplacedForNewSession = false;
   String? _trackedVisiblePath;
 
@@ -206,29 +208,77 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   bool _handleScrollNotification(ScrollNotification n) {
-    if (!_scroll.hasClients) return false;
+    if (n.depth != 0 || n.metrics.axis != Axis.vertical || !_scroll.hasClients) {
+      return false;
+    }
     final pos = _scroll.position;
     final dist = pos.maxScrollExtent - pos.pixels;
-    final nearBottom = dist <= 88;
+    final nearBottom = dist <= 48;
 
-    if (n is UserScrollNotification ||
-        (n is ScrollUpdateNotification && n.dragDetails != null)) {
-      if (!nearBottom && _followsLatest) {
-        setState(() {
-          _followsLatest = false;
-          _showScrollToBottom = true;
-        });
-      } else if (nearBottom && (!_followsLatest || _showScrollToBottom)) {
-        setState(() {
-          _followsLatest = true;
-          _showScrollToBottom = false;
-        });
+    if (n is UserScrollNotification) {
+      if (n.direction == ScrollDirection.forward) {
+        // 用户向上滚动翻看历史消息：立即解除自动吸底，避免流式输出把页面拉回底部。
+        _lastUserScrollDirection = ScrollDirection.forward;
+        if (_followsLatest || !_showScrollToBottom) {
+          setState(() {
+            _followsLatest = false;
+            _showScrollToBottom = true;
+          });
+        }
+      } else if (n.direction == ScrollDirection.reverse) {
+        _lastUserScrollDirection = ScrollDirection.reverse;
+        if (nearBottom && (!_followsLatest || _showScrollToBottom)) {
+          setState(() {
+            _followsLatest = true;
+            _showScrollToBottom = false;
+          });
+        }
+      } else if (n.direction == ScrollDirection.idle) {
+        if (_lastUserScrollDirection == ScrollDirection.reverse &&
+            dist <= 24 &&
+            (!_followsLatest || _showScrollToBottom)) {
+          setState(() {
+            _followsLatest = true;
+            _showScrollToBottom = false;
+          });
+        }
       }
-    } else if (nearBottom && _showScrollToBottom) {
-      setState(() {
-        _followsLatest = true;
-        _showScrollToBottom = false;
-      });
+    } else if (n is ScrollUpdateNotification) {
+      final delta = n.scrollDelta ?? 0;
+      if (n.dragDetails != null) {
+        if (delta < 0) {
+          _lastUserScrollDirection = ScrollDirection.forward;
+          if (_followsLatest || !_showScrollToBottom) {
+            setState(() {
+              _followsLatest = false;
+              _showScrollToBottom = true;
+            });
+          }
+        } else if (delta > 0) {
+          _lastUserScrollDirection = ScrollDirection.reverse;
+          if (nearBottom && (!_followsLatest || _showScrollToBottom)) {
+            setState(() {
+              _followsLatest = true;
+              _showScrollToBottom = false;
+            });
+          }
+        }
+      } else {
+        // 惯性滚动阶段：仅当用户向下滚回底部时重新吸底，远离底部时解除吸底。
+        if (_lastUserScrollDirection == ScrollDirection.reverse &&
+            dist <= 24 &&
+            (!_followsLatest || _showScrollToBottom)) {
+          setState(() {
+            _followsLatest = true;
+            _showScrollToBottom = false;
+          });
+        } else if (dist > 88 && _followsLatest) {
+          setState(() {
+            _followsLatest = false;
+            _showScrollToBottom = true;
+          });
+        }
+      }
     }
     return false;
   }
@@ -374,6 +424,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       setState(() {
         _editingMessageId = null;
         _selectedSkills.clear();
+        _lastUserScrollDirection = ScrollDirection.idle;
         _followsLatest = true;
         _showScrollToBottom = false;
       });
@@ -389,11 +440,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _selectedSkills.clear();
         _attachedImages.clear();
         _uploadError = null;
+        _lastUserScrollDirection = ScrollDirection.idle;
         _followsLatest = true;
         _showScrollToBottom = false;
       });
     } else {
       setState(() {
+        _lastUserScrollDirection = ScrollDirection.idle;
         _followsLatest = true;
         _showScrollToBottom = false;
       });
@@ -439,6 +492,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (!confirmed || !mounted) return;
 
     setState(() {
+      _lastUserScrollDirection = ScrollDirection.idle;
       _followsLatest = true;
       _showScrollToBottom = false;
     });
@@ -841,6 +895,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         (_input.text.trim().isNotEmpty ||
             _selectedSkills.isNotEmpty ||
             _attachedImages.isNotEmpty);
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return Scaffold(
       backgroundColor: McTokens.bg,
@@ -850,19 +905,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           Column(
             children: [
               Expanded(
-                child: Stack(
-                  children: [
-                    if (chat.loading && chat.bubbles.isEmpty)
-                      const McLoadingView()
-                    else if (chat.bubbles.isEmpty)
-                      Center(
-                        child: SingleChildScrollView(
-                          padding: EdgeInsets.fromLTRB(
-                            24,
-                            topPad + 72,
-                            24,
-                            24,
-                          ),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {
+                    if (_focusNode.hasFocus) {
+                      FocusScope.of(context).unfocus();
+                    }
+                  },
+                  child: Stack(
+                    children: [
+                      if (chat.loading && chat.bubbles.isEmpty)
+                        _ChatLoadingSkeleton(topPad: topPad, wide: wide)
+                      else if (chat.bubbles.isEmpty)
+                        Center(
+                          child: SingleChildScrollView(
+                            keyboardDismissBehavior:
+                                ScrollViewKeyboardDismissBehavior.onDrag,
+                            padding: EdgeInsets.fromLTRB(
+                              24,
+                              topPad + 72,
+                              24,
+                              24,
+                            ),
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 680),
                             child: Column(
@@ -960,6 +1024,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             ),
                             child: ListView.builder(
                               controller: _scroll,
+                              keyboardDismissBehavior:
+                                  ScrollViewKeyboardDismissBehavior.onDrag,
                               padding: EdgeInsets.fromLTRB(
                                 McTokens.pagePadding,
                                 topPad + 64,
@@ -1002,47 +1068,49 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           ),
                         ),
                       ),
-                    // ── 悬浮「回到底部 ↓」按钮 ──
-                    if (_showScrollToBottom && chat.bubbles.isNotEmpty)
-                      Positioned(
-                        right: 18,
-                        bottom: 10,
-                        child: McPressable(
-                          onTap: () {
-                            setState(() {
-                              _followsLatest = true;
-                              _showScrollToBottom = false;
-                            });
-                            _scrollToBottom();
-                          },
-                          child: McLiquidGlass(
-                            radius: McTokens.pillRadius,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 7,
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  '回到底部',
-                                  style: McText.micro.copyWith(
-                                    color: McTokens.text,
-                                    fontWeight: FontWeight.w600,
+                      // ── 悬浮「回到底部 ↓」按钮 ──
+                      if (_showScrollToBottom && chat.bubbles.isNotEmpty)
+                        Positioned(
+                          right: 18,
+                          bottom: 10,
+                          child: McPressable(
+                            onTap: () {
+                              setState(() {
+                                _lastUserScrollDirection = ScrollDirection.idle;
+                                _followsLatest = true;
+                                _showScrollToBottom = false;
+                              });
+                              _scrollToBottom();
+                            },
+                            child: McLiquidGlass(
+                              radius: McTokens.pillRadius,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 7,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '回到底部',
+                                    style: McText.micro.copyWith(
+                                      color: McTokens.text,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 4),
-                                const Icon(
-                                  McIcons.arrowDown,
-                                  size: 13,
-                                  color: McTokens.accentStrong,
-                                ),
-                              ],
+                                  const SizedBox(width: 4),
+                                  const Icon(
+                                    McIcons.arrowDown,
+                                    size: 13,
+                                    color: McTokens.accentStrong,
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               // ── 未接入 LLM 服务商提示横幅（AgentLLMSetupNotice） ──
@@ -1144,16 +1212,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: Padding(
-                              padding: const EdgeInsets.only(right: 10),
-                              child: AgentMoonCompanion(
-                                activity: _companionActivity(chat),
-                                attentive: attentive,
+                          if (!keyboardOpen)
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 10),
+                                child: AgentMoonCompanion(
+                                  activity: _companionActivity(chat),
+                                  attentive: attentive,
+                                ),
                               ),
                             ),
-                          ),
                           McLiquidGlass(
                             radius: 26,
                             blurSigma: 24,
@@ -1162,57 +1231,74 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                // 已选技能芯片 + 图片缩略图托盘
+                                // 已选技能芯片 + 图片缩略图单行横向托盘（限制输入区高度不溢出小屏）
                                 if (_selectedSkills.isNotEmpty ||
                                     _attachedImages.isNotEmpty ||
                                     _uploadingCount > 0)
                                   Padding(
                                     padding:
                                         const EdgeInsets.fromLTRB(6, 2, 6, 8),
-                                    child: Wrap(
-                                      spacing: 8,
-                                      runSpacing: 8,
-                                      crossAxisAlignment:
-                                          WrapCrossAlignment.center,
-                                      children: [
-                                        for (final skillName in _selectedSkills)
-                                          _ComposerSkillChip(
-                                            name: skillName,
-                                            onRemove: () =>
-                                                _removeSkillChip(skillName),
-                                          ),
-                                        for (var i = 0;
-                                            i < _attachedImages.length;
-                                            i++)
-                                          _ComposerImageThumb(
-                                            image: _attachedImages[i],
-                                            onRemove: () => setState(
-                                              () => _attachedImages.removeAt(i),
-                                            ),
-                                          ),
-                                        if (_uploadingCount > 0)
-                                          Container(
-                                            width: 48,
-                                            height: 48,
-                                            decoration: BoxDecoration(
-                                              color: McTokens.surfaceInset,
-                                              borderRadius:
-                                                  BorderRadius.circular(10),
-                                              border: Border.all(
-                                                color: McTokens.line,
+                                    child: SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
+                                        children: [
+                                          for (var i = 0;
+                                              i < _selectedSkills.length;
+                                              i++) ...[
+                                            if (i > 0)
+                                              const SizedBox(width: 8),
+                                            _ComposerSkillChip(
+                                              name: _selectedSkills[i],
+                                              onRemove: () => _removeSkillChip(
+                                                _selectedSkills[i],
                                               ),
                                             ),
-                                            alignment: Alignment.center,
-                                            child: const SizedBox(
-                                              width: 18,
-                                              height: 18,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                color: McTokens.accentStrong,
+                                          ],
+                                          for (var i = 0;
+                                              i < _attachedImages.length;
+                                              i++) ...[
+                                            if (_selectedSkills.isNotEmpty ||
+                                                i > 0)
+                                              const SizedBox(width: 8),
+                                            _ComposerImageThumb(
+                                              image: _attachedImages[i],
+                                              onRemove: () => setState(
+                                                () =>
+                                                    _attachedImages.removeAt(i),
                                               ),
                                             ),
-                                          ),
-                                      ],
+                                          ],
+                                          if (_uploadingCount > 0) ...[
+                                            if (_selectedSkills.isNotEmpty ||
+                                                _attachedImages.isNotEmpty)
+                                              const SizedBox(width: 8),
+                                            Container(
+                                              width: 48,
+                                              height: 48,
+                                              decoration: BoxDecoration(
+                                                color: McTokens.surfaceInset,
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                                border: Border.all(
+                                                  color: McTokens.line,
+                                                ),
+                                              ),
+                                              alignment: Alignment.center,
+                                              child: const SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color: McTokens.accentStrong,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 Row(
@@ -1423,7 +1509,7 @@ class _AgentLlmSetupNotice extends StatelessWidget {
   }
 }
 
-/// 行内 `/` 技能自动补全列表。
+/// 行内 `/` 技能自动补全列表（限高可滚动，适配 667px 小屏软键盘弹起态）。
 class _SlashSkillPopup extends StatelessWidget {
   const _SlashSkillPopup({
     required this.skills,
@@ -1442,13 +1528,18 @@ class _SlashSkillPopup extends StatelessWidget {
         border: Border.all(color: McTokens.lineStrong),
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var i = 0; i < skills.length; i++) ...[
-            if (i > 0) const Divider(height: 1, color: McTokens.line),
-            McPressable(
-              onTap: () => onSelect(skills[i]),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 168),
+        child: ListView.separated(
+          shrinkWrap: true,
+          padding: EdgeInsets.zero,
+          itemCount: skills.length,
+          separatorBuilder: (_, __) =>
+              const Divider(height: 1, color: McTokens.line),
+          itemBuilder: (_, i) {
+            final skill = skills[i];
+            return McPressable(
+              onTap: () => onSelect(skill),
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1465,16 +1556,18 @@ class _SlashSkillPopup extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '⚡ ${skills[i].name}',
+                            '⚡ ${skill.name}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: McText.sub.copyWith(
                               color: McTokens.text,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                          if (skills[i].description != null &&
-                              skills[i].description!.isNotEmpty)
+                          if (skill.description != null &&
+                              skill.description!.isNotEmpty)
                             Text(
-                              skills[i].description!,
+                              skill.description!,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: McText.micro.muted,
@@ -1482,16 +1575,22 @@ class _SlashSkillPopup extends StatelessWidget {
                         ],
                       ),
                     ),
-                    Text(
-                      '/skill:${skills[i].name}',
-                      style: McText.micro.faint,
+                    const SizedBox(width: 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 112),
+                      child: Text(
+                        '/skill:${skill.name}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: McText.micro.faint,
+                      ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
-        ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -1509,7 +1608,8 @@ class _ComposerSkillChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(9, 4, 6, 4),
+      constraints: const BoxConstraints(minHeight: 32),
+      padding: const EdgeInsets.fromLTRB(10, 0, 2, 0),
       decoration: BoxDecoration(
         color: McTokens.accentSoft,
         borderRadius: BorderRadius.circular(10),
@@ -1525,13 +1625,26 @@ class _ComposerSkillChip extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(width: 4),
-          GestureDetector(
-            onTap: onRemove,
-            child: const Icon(
-              McIcons.close,
-              size: 12,
-              color: McTokens.textMuted,
+          Semantics(
+            button: true,
+            label: '移除技能 $name',
+            child: Tooltip(
+              message: '移除技能 $name',
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onRemove,
+                child: const SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: Center(
+                    child: Icon(
+                      McIcons.close,
+                      size: 13,
+                      color: McTokens.textMuted,
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ],
@@ -1551,46 +1664,73 @@ class _ComposerImageThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: SizedBox(
-            width: 48,
-            height: 48,
-            child: image.localPath != null && File(image.localPath!).existsSync()
-                ? Image.file(File(image.localPath!), fit: BoxFit.cover)
-                : Container(
-                    color: McTokens.surfaceInset,
-                    alignment: Alignment.center,
-                    child: const Icon(
-                      McIcons.image3Fill,
-                      size: 18,
-                      color: McTokens.textMuted,
-                    ),
-                  ),
-          ),
-        ),
-        Positioned(
-          top: -5,
-          right: -5,
-          child: GestureDetector(
-            onTap: onRemove,
-            child: Container(
-              width: 18,
-              height: 18,
-              decoration: BoxDecoration(
-                color: McTokens.surfaceSolid,
-                shape: BoxShape.circle,
-                border: Border.all(color: McTokens.lineStrong),
+    return SizedBox(
+      width: 56,
+      height: 56,
+      child: Stack(
+        children: [
+          Positioned(
+            left: 0,
+            bottom: 0,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 48,
+                height: 48,
+                child:
+                    image.localPath != null && File(image.localPath!).existsSync()
+                        ? Image.file(File(image.localPath!), fit: BoxFit.cover)
+                        : Container(
+                            color: McTokens.surfaceInset,
+                            alignment: Alignment.center,
+                            child: const Icon(
+                              McIcons.image3Fill,
+                              size: 18,
+                              color: McTokens.textMuted,
+                            ),
+                          ),
               ),
-              alignment: Alignment.center,
-              child: const Icon(McIcons.close, size: 11, color: McTokens.text),
             ),
           ),
-        ),
-      ],
+          Positioned(
+            top: 0,
+            right: 0,
+            child: Semantics(
+              button: true,
+              label: '移除图片附件',
+              child: Tooltip(
+                message: '移除图片',
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onRemove,
+                  child: SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: Align(
+                      alignment: Alignment.topRight,
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: McTokens.surfaceSolid,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: McTokens.lineStrong),
+                        ),
+                        alignment: Alignment.center,
+                        child: const Icon(
+                          McIcons.close,
+                          size: 12,
+                          color: McTokens.text,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1626,9 +1766,11 @@ class _AgentThinkingSection extends StatelessWidget {
           children: [
             const Icon(McIcons.lightning, size: 15, color: McTokens.textFaint),
             const SizedBox(width: 8),
-            Text(
-              '当前模型不支持自定义思考深度',
-              style: McText.caption.muted,
+            Expanded(
+              child: Text(
+                '当前模型不支持自定义思考深度',
+                style: McText.caption.muted,
+              ),
             ),
           ],
         ),
@@ -1657,9 +1799,13 @@ class _AgentThinkingSection extends StatelessWidget {
                   color: McTokens.accentStrong,
                 ),
                 const SizedBox(width: 6),
-                Text(
-                  '思考模式 · ${isOffStop ? (selectedCustom ? '关闭' : '开启（默认）') : AgentThinking.label(selected)}',
-                  style: McText.sub.copyWith(fontWeight: FontWeight.w600),
+                Expanded(
+                  child: Text(
+                    '思考模式 · ${isOffStop ? (selectedCustom ? '关闭' : '开启（默认）') : AgentThinking.label(selected)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: McText.sub.copyWith(fontWeight: FontWeight.w600),
+                  ),
                 ),
               ],
             ),
@@ -1762,18 +1908,69 @@ class _AgentThinkingSection extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('更快', style: McText.micro.faint),
-                Text(
-                  stops.map(AgentThinking.label).join(' · '),
-                  style: McText.micro.faint,
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(
+                      stops.map(AgentThinking.label).join(' · '),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: McText.micro.faint,
+                    ),
+                  ),
                 ),
                 Text('更聪明', style: McText.micro.faint),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ChatLoadingSkeleton extends StatelessWidget {
+  const _ChatLoadingSkeleton({required this.topPad, required this.wide});
+
+  final double topPad;
+  final bool wide;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: wide ? 780 : double.infinity),
+        child: ListView(
+          padding: EdgeInsets.fromLTRB(
+            McTokens.pagePadding,
+            topPad + 72,
+            McTokens.pagePadding,
+            24,
+          ),
+          physics: const NeverScrollableScrollPhysics(),
+          children: const [
+            Align(
+              alignment: Alignment.centerRight,
+              child: McShimmerBox(width: 190, height: 42, radius: 18),
+            ),
+            SizedBox(height: 18),
+            McShimmerBox(width: 260, height: 18, radius: 8),
+            SizedBox(height: 8),
+            McShimmerBox(height: 68, radius: 14),
+            SizedBox(height: 22),
+            Align(
+              alignment: Alignment.centerRight,
+              child: McShimmerBox(width: 150, height: 40, radius: 18),
+            ),
+            SizedBox(height: 18),
+            McShimmerBox(width: 220, height: 18, radius: 8),
+            SizedBox(height: 8),
+            McShimmerBox(height: 54, radius: 14),
+          ],
+        ),
       ),
     );
   }

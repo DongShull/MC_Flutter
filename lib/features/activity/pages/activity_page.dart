@@ -87,9 +87,8 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
               onSearch: () => context.push('/search'),
             ),
             if (snapshot.loading && playback == null && snapshot.jobs.isEmpty)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: McLoadingView(),
+              SliverToBoxAdapter(
+                child: _ActivityLoadingSkeleton(wide: wide),
               )
             else
               SliverToBoxAdapter(
@@ -99,7 +98,9 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
                       maxWidth: wide ? 780 : double.infinity,
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.only(bottom: 120),
+                      padding: EdgeInsets.only(
+                        bottom: 120 + MediaQuery.paddingOf(context).bottom,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -381,6 +382,47 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
       );
     }
     return rows;
+  }
+}
+
+class _ActivityLoadingSkeleton extends StatelessWidget {
+  const _ActivityLoadingSkeleton({required this.wide});
+
+  final bool wide;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: wide ? 780 : double.infinity),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            McTokens.pagePadding,
+            10,
+            McTokens.pagePadding,
+            120 + MediaQuery.paddingOf(context).bottom,
+          ),
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              McShimmerBox(width: 210, height: 18, radius: 6),
+              SizedBox(height: 24),
+              McShimmerBox(width: 96, height: 16, radius: 6),
+              SizedBox(height: 10),
+              McShimmerBox(height: 132, radius: McTokens.cardRadius),
+              SizedBox(height: 22),
+              McShimmerBox(width: 112, height: 16, radius: 6),
+              SizedBox(height: 10),
+              McShimmerBox(height: 112, radius: McTokens.cardRadius),
+              SizedBox(height: 22),
+              McShimmerBox(width: 100, height: 16, radius: 6),
+              SizedBox(height: 10),
+              McShimmerBox(height: 148, radius: McTokens.cardRadius),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

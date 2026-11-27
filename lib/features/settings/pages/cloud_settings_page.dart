@@ -9,6 +9,7 @@ import '../../../core/api/api_exception.dart';
 import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
@@ -479,19 +480,39 @@ class _CloudPairingPanelState extends State<CloudPairingPanel> {
               children: [
                 Text('配对码', style: McText.caption.muted),
                 const SizedBox(height: 6),
-                GestureDetector(
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: pending.userCode));
-                    McToast.success('已复制配对码');
-                  },
-                  child: SelectableText(
-                    pending.userCode,
-                    style: McText.display.copyWith(
-                      fontFamily: 'monospace',
-                      letterSpacing: 4,
-                      color: McTokens.accentStrong,
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    SelectableText(
+                      pending.userCode,
+                      onTap: () {
+                        Clipboard.setData(
+                          ClipboardData(text: pending.userCode),
+                        );
+                        McToast.success('已复制配对码');
+                      },
+                      style: McText.display.copyWith(
+                        fontFamily: 'monospace',
+                        letterSpacing: 4,
+                        color: McTokens.accentStrong,
+                      ),
                     ),
-                  ),
+                    McGlassIconButton(
+                      icon: McIcons.fileCopy2Fill,
+                      size: 36,
+                      iconSize: 16,
+                      tooltip: '复制配对码',
+                      onTap: () {
+                        Clipboard.setData(
+                          ClipboardData(text: pending.userCode),
+                        );
+                        McToast.success('已复制配对码');
+                      },
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 14),
                 McActionPill(

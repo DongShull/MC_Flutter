@@ -1,13 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
+import '../../../core/l10n/mc_l10n.dart';
 import '../state/account_state.dart';
 
-/// 设备行（设备管理）：设备名 + 平台 + 最近活跃 + 本机标记；点按弹出毛玻璃菜单（重命名与吊销）。
-class DeviceRow extends StatelessWidget {
+/// 设备行（设备管理）：设备名 + 平台 + 最近活跃 + 本机标记；点按弹出毛玻璃菜单（重命名与吊销，吊销带确认、防连点与错误提示）。
+class DeviceRow extends StatefulWidget {
   const DeviceRow({
     super.key,
     required this.device,
@@ -17,15 +20,87 @@ class DeviceRow extends StatelessWidget {
 
   final DeviceView device;
   final void Function(String name) onRename;
-  final VoidCallback onRevoke;
+  final FutureOr<void> Function() onRevoke;
+
+  @override
+  State<DeviceRow> createState() => _DeviceRowState();
+}
+
+class _DeviceRowState extends State<DeviceRow> {
+  bool _revoking = false;
+
+  Future<void> _confirmAndRevoke() async {
+    if (_revoking) return;
+    final d = widget.device;
+    final l10n = McL10n.of(context);
+    final confirmed = await showMcSheet<bool>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              d.current
+                  ? '退出当前设备登录？'
+                  : '吊销「${d.name ?? '未命名设备'}」？',
+              style: McText.titleSm,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              d.current
+                  ? '你正在吊销当前正在使用的设备。确认后将立即退出本机登录，需要重新输入密码才能继续使用。'
+                  : '吊销后该设备会立即掉线并需要重新登录才能访问服务器。',
+              style: McText.sub.muted,
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: l10n.cancel,
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: d.current ? '退出本机登录' : '吊销',
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _revoking = true);
+    try {
+      await widget.onRevoke();
+      if (mounted) McToast.success(d.current ? '已退出当前设备登录' : '已吊销该设备');
+    } catch (e) {
+      if (mounted) McToast.error('吊销设备失败：$e');
+    } finally {
+      if (mounted) setState(() => _revoking = false);
+    }
+  }
 
   Future<void> _openActions(BuildContext context) {
+    final d = widget.device;
     return showMcSheet<void>(
       context: context,
       builder: (ctx) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
         child: McInsetGroup(
-          header: device.name ?? '未命名设备',
+          header: d.name ?? '未命名设备',
           margin: EdgeInsets.zero,
           children: [
             McInsetRow(
@@ -38,12 +113,14 @@ class DeviceRow extends StatelessWidget {
             ),
             McInsetRow(
               icon: McIcons.logout,
-              title: '吊销此设备',
+              title: d.current ? '退出本机登录（吊销当前设备）' : '吊销此设备',
               destructive: true,
-              onTap: () {
-                Navigator.of(ctx).pop();
-                onRevoke();
-              },
+              onTap: _revoking
+                  ? null
+                  : () {
+                      Navigator.of(ctx).pop();
+                      _confirmAndRevoke();
+                    },
             ),
           ],
         ),
@@ -54,15 +131,16 @@ class DeviceRow extends StatelessWidget {
   Future<void> _openRenameSheet(BuildContext context) async {
     final next = await showMcSheet<String>(
       context: context,
-      builder: (_) => _RenameDeviceSheet(initial: device.name ?? ''),
+      builder: (_) => _RenameDeviceSheet(initial: widget.device.name ?? ''),
     );
     if (next != null && next.isNotEmpty) {
-      onRename(next);
+      widget.onRename(next);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final device = widget.device;
     final subtitle = [
       if (device.platform != null && device.platform!.isNotEmpty)
         device.platform!,
@@ -73,7 +151,7 @@ class DeviceRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: McPressable(
-        onTap: () => _openActions(context),
+        onTap: _revoking ? null : () => _openActions(context),
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -134,11 +212,21 @@ class DeviceRow extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(
-                McIcons.more,
-                size: 18,
-                color: McTokens.textMuted,
-              ),
+              if (_revoking)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: McTokens.accentStrong,
+                  ),
+                )
+              else
+                const Icon(
+                  McIcons.more,
+                  size: 18,
+                  color: McTokens.textMuted,
+                ),
             ],
           ),
         ),

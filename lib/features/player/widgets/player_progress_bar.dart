@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/theme.dart';
@@ -194,204 +194,212 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
-            height: 26,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final width = constraints.maxWidth;
-                Duration targetOf(double x) => Duration(
-                      milliseconds: ((x / width).clamp(0.0, 1.0) * total)
-                          .round(),
-                    );
-                final fileMs =
-                    widget.timelineOffsetMs + shown.inMilliseconds;
-                final tile = scrubbing
-                    ? TrickplaySpriteCache.instance.tileAt(
-                        widget.trickplay,
-                        fileMs,
-                        onLoaded: () {
-                          if (mounted) setState(() {});
-                        },
-                      )
-                    : null;
-                final chapter = scrubbing ? _chapterAt(fileMs) : null;
-                const previewWidth = 160.0;
-                final thumbX = _fraction * width;
-                final previewLeft = (thumbX - previewWidth / 2)
-                    .clamp(0.0, (width - previewWidth).clamp(0.0, width));
+          Semantics(
+            slider: true,
+            label: '播放进度',
+            value: mcFormatClock(shown.inSeconds),
+            child: SizedBox(
+              height: 44,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.maxWidth;
+                  Duration targetOf(double x) => Duration(
+                        milliseconds: ((x / width).clamp(0.0, 1.0) * total)
+                            .round(),
+                      );
+                  final fileMs =
+                      widget.timelineOffsetMs + shown.inMilliseconds;
+                  final tile = scrubbing
+                      ? TrickplaySpriteCache.instance.tileAt(
+                          widget.trickplay,
+                          fileMs,
+                          onLoaded: () {
+                            if (mounted) setState(() {});
+                          },
+                        )
+                      : null;
+                  final chapter = scrubbing ? _chapterAt(fileMs) : null;
+                  const previewWidth = 160.0;
+                  final thumbX = _fraction * width;
+                  final previewLeft = (thumbX - previewWidth / 2)
+                      .clamp(0.0, (width - previewWidth).clamp(0.0, width));
 
-                return Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    if (scrubbing)
-                      Positioned(
-                        left: previewLeft,
-                        bottom: 34,
-                        width: previewWidth,
-                        child: IgnorePointer(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (tile != null)
-                                Container(
-                                  width: previewWidth,
-                                  height: previewWidth *
-                                      (tile.srcRect.height /
-                                          tile.srcRect.width),
-                                  margin: const EdgeInsets.only(bottom: 6),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: const Color(0x55FFFFFF),
-                                      width: 1,
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      if (scrubbing)
+                        Positioned(
+                          left: previewLeft,
+                          bottom: 44,
+                          width: previewWidth,
+                          child: IgnorePointer(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (tile != null)
+                                  Container(
+                                    width: previewWidth,
+                                    height: previewWidth *
+                                        (tile.srcRect.height /
+                                            tile.srcRect.width),
+                                    margin: const EdgeInsets.only(bottom: 6),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: const Color(0x55FFFFFF),
+                                        width: 1,
+                                      ),
+                                      boxShadow: const [
+                                        BoxShadow(
+                                          color: Color(0x99000000),
+                                          blurRadius: 12,
+                                          offset: Offset(0, 4),
+                                        ),
+                                      ],
                                     ),
-                                    boxShadow: const [
+                                    clipBehavior: Clip.antiAlias,
+                                    child: CustomPaint(
+                                      painter: _SpriteTilePainter(
+                                        image: tile.image,
+                                        srcRect: tile.srcRect,
+                                      ),
+                                    ),
+                                  ),
+                                McLiquidGlass(
+                                  radius: McTokens.pillRadius,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  child: Text(
+                                    chapter != null
+                                        ? '${mcFormatClock(shown.inSeconds)} · $chapter'
+                                        : mcFormatClock(shown.inSeconds),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: McText.micro
+                                        .copyWith(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w600,
+                                        )
+                                        .tabular,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapUp: (d) {
+                          HapticFeedback.selectionClick();
+                          widget.onSeek(targetOf(d.localPosition.dx));
+                        },
+                        onHorizontalDragStart: (d) {
+                          HapticFeedback.selectionClick();
+                          final t = targetOf(d.localPosition.dx);
+                          setState(() => _scrub = t);
+                          widget.onScrubPreview?.call(t);
+                        },
+                        onHorizontalDragUpdate: (d) {
+                          final t = targetOf(d.localPosition.dx);
+                          setState(() => _scrub = t);
+                          widget.onScrubPreview?.call(t);
+                        },
+                        onHorizontalDragEnd: (_) {
+                          final t = _scrub;
+                          setState(() => _scrub = null);
+                          widget.onScrubPreview?.call(null);
+                          if (t != null) widget.onSeek(t);
+                        },
+                        onHorizontalDragCancel: () {
+                          setState(() => _scrub = null);
+                          widget.onScrubPreview?.call(null);
+                        },
+                        child: Center(
+                          child: Stack(
+                            alignment: Alignment.centerLeft,
+                            clipBehavior: Clip.none,
+                            children: [
+                              // 底层轨道
+                              Container(
+                                height: scrubbing ? 5.5 : 3.5,
+                                decoration: BoxDecoration(
+                                  color: const Color(0x38FFFFFF),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                              // 已缓冲轨道
+                              if (_bufferedFraction > 0)
+                                FractionallySizedBox(
+                                  widthFactor: _bufferedFraction,
+                                  child: Container(
+                                    height: scrubbing ? 5.5 : 3.5,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0x5CFFFFFF),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                  ),
+                                ),
+                              // 已播放轨道
+                              FractionallySizedBox(
+                                widthFactor: _fraction,
+                                child: Container(
+                                  height: scrubbing ? 5.5 : 3.5,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                ),
+                              ),
+                              // 片头 / 广告 / 预告等可跳过段标记
+                              for (final seg in widget.skipSegments)
+                                if (seg.endMs > seg.startMs &&
+                                    seg.startMs < total)
+                                  Positioned(
+                                    left: (seg.startMs / total).clamp(0.0, 1.0) *
+                                        width,
+                                    width: (((seg.endMs - seg.startMs) / total)
+                                                .clamp(0.0, 1.0) *
+                                            width)
+                                        .clamp(3.0, width),
+                                    child: Container(
+                                      height: scrubbing ? 6 : 4,
+                                      decoration: BoxDecoration(
+                                        color: McTokens.warning
+                                            .withValues(alpha: 0.92),
+                                        borderRadius: BorderRadius.circular(3),
+                                      ),
+                                    ),
+                                  ),
+                              // 圆形亮白滑块
+                              Align(
+                                alignment: Alignment(_fraction * 2 - 1, 0),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 100),
+                                  width: thumbSize,
+                                  height: thumbSize,
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
                                       BoxShadow(
-                                        color: Color(0x99000000),
-                                        blurRadius: 12,
-                                        offset: Offset(0, 4),
+                                        color: Color(0x80000000),
+                                        blurRadius: 6,
+                                        offset: Offset(0, 1),
                                       ),
                                     ],
                                   ),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: CustomPaint(
-                                    painter: _SpriteTilePainter(
-                                      image: tile.image,
-                                      srcRect: tile.srcRect,
-                                    ),
-                                  ),
-                                ),
-                              McLiquidGlass(
-                                radius: McTokens.pillRadius,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 4,
-                                ),
-                                child: Text(
-                                  chapter != null
-                                      ? '${mcFormatClock(shown.inSeconds)} · $chapter'
-                                      : mcFormatClock(shown.inSeconds),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: McText.micro
-                                      .copyWith(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600,
-                                      )
-                                      .tabular,
                                 ),
                               ),
                             ],
                           ),
                         ),
                       ),
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTapUp: (d) =>
-                          widget.onSeek(targetOf(d.localPosition.dx)),
-                      onHorizontalDragStart: (d) {
-                        final t = targetOf(d.localPosition.dx);
-                        setState(() => _scrub = t);
-                        widget.onScrubPreview?.call(t);
-                      },
-                      onHorizontalDragUpdate: (d) {
-                        final t = targetOf(d.localPosition.dx);
-                        setState(() => _scrub = t);
-                        widget.onScrubPreview?.call(t);
-                      },
-                      onHorizontalDragEnd: (_) {
-                        final t = _scrub;
-                        setState(() => _scrub = null);
-                        widget.onScrubPreview?.call(null);
-                        if (t != null) widget.onSeek(t);
-                      },
-                      onHorizontalDragCancel: () {
-                        setState(() => _scrub = null);
-                        widget.onScrubPreview?.call(null);
-                      },
-                      child: Center(
-                        child: Stack(
-                          alignment: Alignment.centerLeft,
-                          clipBehavior: Clip.none,
-                          children: [
-                            // 底层轨道
-                            Container(
-                              height: scrubbing ? 5.5 : 3.5,
-                              decoration: BoxDecoration(
-                                color: const Color(0x38FFFFFF),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                            ),
-                            // 已缓冲轨道
-                            if (_bufferedFraction > 0)
-                              FractionallySizedBox(
-                                widthFactor: _bufferedFraction,
-                                child: Container(
-                                  height: scrubbing ? 5.5 : 3.5,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0x5CFFFFFF),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                ),
-                              ),
-                            // 已播放轨道
-                            FractionallySizedBox(
-                              widthFactor: _fraction,
-                              child: Container(
-                                height: scrubbing ? 5.5 : 3.5,
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                              ),
-                            ),
-                            // 片头 / 广告 / 预告等可跳过段标记
-                            for (final seg in widget.skipSegments)
-                              if (seg.endMs > seg.startMs &&
-                                  seg.startMs < total)
-                                Positioned(
-                                  left: (seg.startMs / total).clamp(0.0, 1.0) *
-                                      width,
-                                  width: (((seg.endMs - seg.startMs) / total)
-                                              .clamp(0.0, 1.0) *
-                                          width)
-                                      .clamp(3.0, width),
-                                  child: Container(
-                                    height: scrubbing ? 6 : 4,
-                                    decoration: BoxDecoration(
-                                      color: McTokens.warning
-                                          .withValues(alpha: 0.92),
-                                      borderRadius: BorderRadius.circular(3),
-                                    ),
-                                  ),
-                                ),
-                            // 圆形亮白滑块
-                            Align(
-                              alignment: Alignment(_fraction * 2 - 1, 0),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 100),
-                                width: thumbSize,
-                                height: thumbSize,
-                                decoration: const BoxDecoration(
-                                  color: Colors.white,
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Color(0x80000000),
-                                      blurRadius: 6,
-                                      offset: Offset(0, 1),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
+                    ],
+                  );
+                },
+              ),
             ),
           ),
           Row(

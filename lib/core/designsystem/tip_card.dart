@@ -93,62 +93,70 @@ class _McTipCardState extends State<McTipCard>
         radius: 22,
         blurSigma: 22,
         withShadow: false,
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 12, 6, 14),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-              width: 30,
-              child: AnimatedBuilder(
-                animation: _bounceOffset,
-                builder: (context, child) => Transform.translate(
-                  offset: Offset(0, _bounceOffset.value),
-                  child: child,
-                ),
-                child: Icon(
-                  widget.icon,
-                  size: 24,
-                  color: McTokens.accent,
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: SizedBox(
+                width: 30,
+                child: AnimatedBuilder(
+                  animation: _bounceOffset,
+                  builder: (context, child) => Transform.translate(
+                    offset: Offset(0, _bounceOffset.value),
+                    child: child,
+                  ),
+                  child: Icon(
+                    widget.icon,
+                    size: 24,
+                    color: McTokens.accent,
+                  ),
                 ),
               ),
             ),
             const SizedBox(width: 14),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    widget.title,
-                    style: McText.titleSm.copyWith(fontSize: 16),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    widget.message,
-                    style: McText.sub.copyWith(color: McTokens.textMuted),
-                  ),
-                  if (widget.action != null) ...[
-                    const SizedBox(height: 10),
-                    widget.action!,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      widget.title,
+                      style: McText.titleSm.copyWith(fontSize: 16),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.message,
+                      style: McText.sub.copyWith(color: McTokens.textMuted),
+                    ),
+                    if (widget.action != null) ...[
+                      const SizedBox(height: 10),
+                      widget.action!,
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-            const SizedBox(width: 6),
             Semantics(
               button: true,
               label: l10n.close,
-              child: McPressable(
-                onTap: widget.onClose,
-                haptic: true,
-                child: const SizedBox(
-                  width: 28,
-                  height: 28,
-                  child: Center(
-                    child: Icon(
-                      McIcons.close2,
-                      size: 16,
-                      color: McTokens.textFaint,
+              child: Tooltip(
+                message: l10n.close,
+                child: McPressable(
+                  onTap: widget.onClose,
+                  haptic: true,
+                  child: const SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Center(
+                      child: Icon(
+                        McIcons.close2,
+                        size: 16,
+                        color: McTokens.textFaint,
+                      ),
                     ),
                   ),
                 ),

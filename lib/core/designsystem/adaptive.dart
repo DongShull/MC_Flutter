@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../l10n/mc_l10n.dart';
 import 'mc_chrome.dart';
 import 'mc_glass.dart';
 import 'mc_icons.dart';
@@ -161,6 +162,7 @@ class McAdaptiveScaffold extends ConsumerWidget {
     if (form == McDeviceForm.phone) return body;
 
     final collapsed = ref.watch(mcSidebarCollapsedProvider);
+    final l10n = McL10n.of(context);
     final canExtend =
         form == McDeviceForm.tv || MediaQuery.widthOf(context) >= 900;
     final extended = canExtend && !collapsed;
@@ -169,6 +171,35 @@ class McAdaptiveScaffold extends ConsumerWidget {
             defaultTargetPlatform == TargetPlatform.iOS
         ? '⌘K'
         : 'Ctrl+K';
+
+    Widget collapseToggleButton() {
+      final tip = extended
+          ? l10n.sidebarCollapseTooltip
+          : l10n.sidebarExpandTooltip;
+      return Semantics(
+        button: true,
+        label: tip,
+        child: Tooltip(
+          message: tip,
+          child: McPressable(
+            onTap: () => ref
+                .read(mcSidebarCollapsedProvider.notifier)
+                .state = !collapsed,
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Center(
+                child: Icon(
+                  extended ? McIcons.panelLeft : McIcons.panelRight,
+                  size: 17,
+                  color: McTokens.textMuted,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: McTokens.bg,
@@ -189,222 +220,259 @@ class McAdaptiveScaffold extends ConsumerWidget {
                 ),
                 child: SafeArea(
                   right: false,
-                  child: FocusTraversalGroup(
-                    child: Column(
-                      crossAxisAlignment: extended
-                          ? CrossAxisAlignment.stretch
-                          : CrossAxisAlignment.center,
-                      children: [
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            extended ? 18 : 0,
-                            16,
-                            extended ? 12 : 0,
-                            12,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: extended
-                                ? MainAxisAlignment.spaceBetween
-                                : MainAxisAlignment.center,
+                  child: ClipRect(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final showExpanded =
+                            extended && constraints.maxWidth >= 160;
+                        return FocusTraversalGroup(
+                          child: Column(
+                            crossAxisAlignment: showExpanded
+                                ? CrossAxisAlignment.stretch
+                                : CrossAxisAlignment.center,
                             children: [
-                              Flexible(
-                                child: McBrandMark(
-                                  size: 26,
-                                  showWordmark: extended,
+                              Padding(
+                                padding: EdgeInsets.fromLTRB(
+                                  showExpanded ? 18 : 0,
+                                  showExpanded ? 12 : 14,
+                                  showExpanded ? 6 : 0,
+                                  10,
                                 ),
-                              ),
-                              if (canExtend && form != McDeviceForm.tv)
-                                McPressable(
-                                  onTap: () => ref
-                                      .read(
-                                        mcSidebarCollapsedProvider.notifier,
-                                      )
-                                      .state = !collapsed,
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(6),
-                                    child: Icon(
-                                      extended
-                                          ? McIcons.panelLeft
-                                          : McIcons.panelRight,
-                                      size: 17,
-                                      color: McTokens.textMuted,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                        if (onOpenCommandPalette != null)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(
-                              12,
-                              0,
-                              12,
-                              10,
-                            ),
-                            child: McFocusRing(
-                              borderRadius: 12,
-                              child: McPressable(
-                                onTap: onOpenCommandPalette,
-                                child: Container(
-                                  height: 38,
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: extended ? 12 : 0,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: McTokens.surfaceInset,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: McTokens.line),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: extended
-                                        ? MainAxisAlignment.start
-                                        : MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(
-                                        McIcons.search,
-                                        size: 16,
-                                        color: McTokens.textMuted,
-                                      ),
-                                      if (extended) ...[
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            '搜索与命令…',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: McText.caption.muted,
+                                child: showExpanded
+                                    ? Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          const Flexible(
+                                            child: McBrandMark(
+                                              size: 26,
+                                              showWordmark: true,
+                                            ),
                                           ),
-                                        ),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                            vertical: 2,
+                                          if (canExtend &&
+                                              form != McDeviceForm.tv)
+                                            collapseToggleButton(),
+                                        ],
+                                      )
+                                    : Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const McBrandMark(
+                                            size: 26,
+                                            showWordmark: false,
+                                          ),
+                                          if (canExtend &&
+                                              form != McDeviceForm.tv)
+                                            collapseToggleButton(),
+                                        ],
+                                      ),
+                              ),
+                              if (onOpenCommandPalette != null)
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    0,
+                                    12,
+                                    10,
+                                  ),
+                                  child: McFocusRing(
+                                    borderRadius: 12,
+                                    child: Tooltip(
+                                      message: l10n.sidebarSearchPlaceholder,
+                                      child: McPressable(
+                                        onTap: onOpenCommandPalette,
+                                        child: Container(
+                                          height: 38,
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: showExpanded ? 12 : 0,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: McTokens.glassFillHover,
+                                            color: McTokens.surfaceInset,
                                             borderRadius:
-                                                BorderRadius.circular(6),
+                                                BorderRadius.circular(12),
                                             border: Border.all(
                                               color: McTokens.line,
                                             ),
                                           ),
-                                          child: Text(
-                                            shortcutLabel,
-                                            style: McText.micro.faint,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        if (railLeading != null) railLeading!,
-                        Expanded(
-                          child: ListView.separated(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 4,
-                            ),
-                            itemCount: destinations.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 4),
-                            itemBuilder: (context, i) {
-                              final d = destinations[i];
-                              final selected = i == currentIndex;
-                              return McFocusRing(
-                                borderRadius: McTokens.pillRadius,
-                                child: McPressable(
-                                  onTap: () => onSelect(i),
-                                  scaleDown: 0.98,
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 180),
-                                    height: 44,
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: extended ? 14 : 0,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: selected
-                                          ? McTokens.glassFillActive
-                                          : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(
-                                        McTokens.pillRadius,
-                                      ),
-                                      border: selected
-                                          ? Border.all(
-                                              color: McTokens.lineStrong,
-                                              width: 1,
-                                            )
-                                          : null,
-                                    ),
-                                    child: Row(
-                                      mainAxisAlignment: extended
-                                          ? MainAxisAlignment.start
-                                          : MainAxisAlignment.center,
-                                      children: [
-                                        Stack(
-                                          clipBehavior: Clip.none,
-                                          children: [
-                                            Icon(
-                                              selected
-                                                  ? d.selectedIcon
-                                                  : d.icon,
-                                              size: 20,
-                                              color: selected
-                                                  ? McTokens.text
-                                                  : McTokens.textMuted,
-                                            ),
-                                            if (d.dotColor != null)
-                                              Positioned(
-                                                right: -3,
-                                                top: -3,
-                                                child: Container(
-                                                  width: 7,
-                                                  height: 7,
-                                                  decoration: BoxDecoration(
-                                                    color: d.dotColor,
-                                                    shape: BoxShape.circle,
+                                          child: Row(
+                                            mainAxisAlignment: showExpanded
+                                                ? MainAxisAlignment.start
+                                                : MainAxisAlignment.center,
+                                            children: [
+                                              const Icon(
+                                                McIcons.search,
+                                                size: 16,
+                                                color: McTokens.textMuted,
+                                              ),
+                                              if (showExpanded) ...[
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: Text(
+                                                    l10n.sidebarSearchPlaceholder,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style:
+                                                        McText.caption.muted,
                                                   ),
                                                 ),
-                                              ),
-                                          ],
-                                        ),
-                                        if (extended) ...[
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: Text(
-                                              d.label,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: McText.sub.copyWith(
-                                                fontSize: 15,
-                                                color: selected
-                                                    ? McTokens.text
-                                                    : McTokens.textMuted,
-                                                fontWeight: selected
-                                                    ? FontWeight.w600
-                                                    : FontWeight.w500,
-                                              ),
-                                            ),
+                                                const SizedBox(width: 4),
+                                                Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color:
+                                                        McTokens.glassFillHover,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                      6,
+                                                    ),
+                                                    border: Border.all(
+                                                      color: McTokens.line,
+                                                    ),
+                                                  ),
+                                                  child: Text(
+                                                    shortcutLabel,
+                                                    style: McText.micro.faint,
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
                                           ),
-                                        ],
-                                      ],
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
-                              );
-                            },
+                              if (railLeading != null) railLeading!,
+                              Expanded(
+                                child: ListView.separated(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 4,
+                                  ),
+                                  itemCount: destinations.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 4),
+                                  itemBuilder: (context, i) {
+                                    final d = destinations[i];
+                                    final selected = i == currentIndex;
+                                    return McFocusRing(
+                                      borderRadius: McTokens.pillRadius,
+                                      child: Tooltip(
+                                        message: showExpanded ? '' : d.label,
+                                        child: McPressable(
+                                          onTap: () => onSelect(i),
+                                          scaleDown: 0.98,
+                                          child: AnimatedContainer(
+                                            duration: const Duration(
+                                              milliseconds: 180,
+                                            ),
+                                            height: 44,
+                                            padding: EdgeInsets.symmetric(
+                                              horizontal:
+                                                  showExpanded ? 14 : 0,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: selected
+                                                  ? McTokens.glassFillActive
+                                                  : Colors.transparent,
+                                              borderRadius:
+                                                  BorderRadius.circular(
+                                                McTokens.pillRadius,
+                                              ),
+                                              border: selected
+                                                  ? Border.all(
+                                                      color:
+                                                          McTokens.lineStrong,
+                                                      width: 1,
+                                                    )
+                                                  : null,
+                                            ),
+                                            child: Row(
+                                              mainAxisAlignment: showExpanded
+                                                  ? MainAxisAlignment.start
+                                                  : MainAxisAlignment.center,
+                                              children: [
+                                                Stack(
+                                                  clipBehavior: Clip.none,
+                                                  children: [
+                                                    Icon(
+                                                      selected
+                                                          ? d.selectedIcon
+                                                          : d.icon,
+                                                      size: 20,
+                                                      color: selected
+                                                          ? McTokens.text
+                                                          : McTokens.textMuted,
+                                                    ),
+                                                    if (d.dotColor != null)
+                                                      Positioned(
+                                                        right: -3,
+                                                        top: -3,
+                                                        child: Container(
+                                                          width: 7,
+                                                          height: 7,
+                                                          decoration:
+                                                              BoxDecoration(
+                                                            color: d.dotColor,
+                                                            shape:
+                                                                BoxShape.circle,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                  ],
+                                                ),
+                                                if (showExpanded) ...[
+                                                  const SizedBox(width: 12),
+                                                  Expanded(
+                                                    child: Text(
+                                                      d.label,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style:
+                                                          McText.sub.copyWith(
+                                                        fontSize: 15,
+                                                        color: selected
+                                                            ? McTokens.text
+                                                            : McTokens
+                                                                .textMuted,
+                                                        fontWeight: selected
+                                                            ? FontWeight.w600
+                                                            : FontWeight.w500,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              if (showExpanded && railTrailing != null)
+                                railTrailing!,
+                              if (footerAccount != null)
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    8,
+                                    12,
+                                    14,
+                                  ),
+                                  child: footerAccount!,
+                                ),
+                            ],
                           ),
-                        ),
-                        if (railTrailing != null) railTrailing!,
-                        if (footerAccount != null)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
-                            child: footerAccount!,
-                          ),
-                      ],
+                        );
+                      },
                     ),
                   ),
                 ),

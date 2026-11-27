@@ -963,7 +963,7 @@ class _WatchHistoryPageState extends ConsumerState<WatchHistoryPage> {
                 ],
               )
             : _loading && _entries.isEmpty
-                ? const McLoadingView()
+                ? const _PlayHistorySkeleton()
                 : _entries.isEmpty
                     ? ListView(
                         physics: const AlwaysScrollableScrollPhysics(),
@@ -999,7 +999,10 @@ class _WatchHistoryPageState extends ConsumerState<WatchHistoryPage> {
                     : ListView(
                         controller: _scroll,
                         physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.only(top: 6, bottom: 48),
+                        padding: EdgeInsets.only(
+                          top: 6,
+                          bottom: 48 + MediaQuery.paddingOf(context).bottom,
+                        ),
                         children: [
                           for (final g in groups) ...[
                             McInsetGroup(
@@ -1160,7 +1163,7 @@ class _WatchStatsPageState extends ConsumerState<WatchStatsPage> {
         backgroundColor: McTokens.surfaceSolid,
         onRefresh: _load,
         child: _loading && _stats == null
-            ? const McLoadingView()
+            ? const _WatchStatsSkeleton()
             : _error != null && _stats == null
                 ? ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
@@ -1175,7 +1178,9 @@ class _WatchStatsPageState extends ConsumerState<WatchStatsPage> {
                   )
                 : SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.only(bottom: 48),
+                    padding: EdgeInsets.only(
+                      bottom: 48 + MediaQuery.paddingOf(context).bottom,
+                    ),
                     child: WatchStatsPanel(
                       stats: _stats ?? const PlaybackWatchStatsView(),
                       days: _days,
@@ -1199,6 +1204,80 @@ class _WatchStatsPageState extends ConsumerState<WatchStatsPage> {
                     ),
                   ),
       ),
+    );
+  }
+}
+
+class _PlayHistorySkeleton extends StatelessWidget {
+  const _PlayHistorySkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: EdgeInsets.fromLTRB(
+        McTokens.pagePadding,
+        12,
+        McTokens.pagePadding,
+        48 + MediaQuery.paddingOf(context).bottom,
+      ),
+      physics: const NeverScrollableScrollPhysics(),
+      children: const [
+        McShimmerBox(width: 120, height: 14, radius: 5),
+        SizedBox(height: 10),
+        McShimmerBox(height: 176, radius: McTokens.cardRadius),
+        SizedBox(height: 18),
+        McShimmerBox(width: 110, height: 14, radius: 5),
+        SizedBox(height: 10),
+        McShimmerBox(height: 176, radius: McTokens.cardRadius),
+      ],
+    );
+  }
+}
+
+class _WatchStatsSkeleton extends StatelessWidget {
+  const _WatchStatsSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: EdgeInsets.fromLTRB(
+        McTokens.pagePadding,
+        16,
+        McTokens.pagePadding,
+        48 + MediaQuery.paddingOf(context).bottom,
+      ),
+      physics: const NeverScrollableScrollPhysics(),
+      children: const [
+        Row(
+          children: [
+            McShimmerBox(width: 58, height: 30, radius: 15),
+            SizedBox(width: 8),
+            McShimmerBox(width: 58, height: 30, radius: 15),
+            SizedBox(width: 8),
+            McShimmerBox(width: 58, height: 30, radius: 15),
+          ],
+        ),
+        SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(child: McShimmerBox(height: 98, radius: 14)),
+            SizedBox(width: 10),
+            Expanded(child: McShimmerBox(height: 98, radius: 14)),
+          ],
+        ),
+        SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(child: McShimmerBox(height: 98, radius: 14)),
+            SizedBox(width: 10),
+            Expanded(child: McShimmerBox(height: 98, radius: 14)),
+          ],
+        ),
+        SizedBox(height: 14),
+        McShimmerBox(height: 220, radius: 14),
+        SizedBox(height: 14),
+        McShimmerBox(height: 140, radius: 14),
+      ],
     );
   }
 }

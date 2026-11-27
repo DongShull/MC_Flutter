@@ -75,8 +75,8 @@ abstract final class McTokens {
   static const posterAspect = 2 / 3;
   static const backdropAspect = 16 / 9;
 
-  /// 手机悬浮底栏总让位高度（62dp 胶囊 + 22dp 距底 + 12dp 呼吸 + 可选接着看条余量）。
-  static const bottomBarClearance = 104.0;
+  /// 手机悬浮底栏总让位高度（60dp 胶囊 + 24dp 距底 + 54dp 接着看条与间距 + 呼吸余量）。
+  static const bottomBarClearance = 148.0;
 }
 
 /// 语义排版阶梯（对齐 Web `globals.css` 移动端 HIG 换档与 iOS Dynamic Type）。

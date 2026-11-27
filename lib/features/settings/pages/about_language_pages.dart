@@ -18,9 +18,14 @@ class LanguageSettingsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final current = ref.watch(mcLanguageProvider);
     final ctrl = ref.read(mcLanguageProvider.notifier);
+    final l10n = McL10n.of(context);
 
-    const options = <(McAppLanguage, String, String)>[
-      (McAppLanguage.system, '跟随系统', '随操作系统语言自动切换'),
+    final options = <(McAppLanguage, String, String)>[
+      (
+        McAppLanguage.system,
+        l10n.settingsLanguageSystem,
+        l10n.settingsLanguageSystemSubtitle,
+      ),
       (McAppLanguage.zhHans, '简体中文', 'Simplified Chinese'),
       (McAppLanguage.zhHant, '繁體中文', 'Traditional Chinese'),
       (McAppLanguage.en, 'English', 'English'),
@@ -28,13 +33,13 @@ class LanguageSettingsPage extends ConsumerWidget {
     ];
 
     return SettingsScaffold(
-      title: '语言设置',
+      title: l10n.settingsLanguagePageTitle,
       body: ListView(
         padding: const EdgeInsets.only(top: 8, bottom: 36),
         children: [
           McInsetGroup(
-            header: '应用界面语言',
-            footer: '切换后立即生效，并同步作为请求头 Accept-Language 发送给 MovieClaw 服务器。',
+            header: l10n.settingsLanguageHeader,
+            footer: l10n.settingsLanguageFooter,
             children: [
               for (final (lang, title, sub) in options)
                 McInsetRow(
@@ -53,7 +58,11 @@ class LanguageSettingsPage extends ConsumerWidget {
                       : null,
                   onTap: () async {
                     await ctrl.setLanguage(lang);
-                    McToast.success('语言已切换为 $title');
+                    final nextL10n = McL10n.current;
+                    final label = lang == McAppLanguage.system
+                        ? nextL10n.settingsLanguageSystem
+                        : lang.nativeName;
+                    McToast.success(nextL10n.languageSwitched(label));
                   },
                 ),
             ],

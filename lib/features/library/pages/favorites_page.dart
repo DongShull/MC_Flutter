@@ -351,30 +351,27 @@ class _LibraryFavoritesPageState extends ConsumerState<LibraryFavoritesPage> {
                     child: RefreshIndicator(
                       onRefresh: () => _loadMore(reset: true),
                       child: galleryOn
-                          ? SingleChildScrollView(
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              padding: const EdgeInsets.fromLTRB(
+                          ? LibraryGalleryWall(
+                              reloadKey: '$_sort|$_reversed',
+                              startOffset: _galleryStart,
+                              padding: EdgeInsets.fromLTRB(
                                 McTokens.pagePadding,
                                 8,
                                 McTokens.pagePadding,
-                                40,
+                                40 + MediaQuery.paddingOf(context).bottom,
                               ),
-                              child: LibraryGalleryWall(
-                                reloadKey: '$_sort|$_reversed',
-                                startOffset: _galleryStart,
-                                fetch: (offset, limit) {
-                                  final api = ref.read(libraryApiProvider);
-                                  return api.favoritesGallery(
-                                    limit: limit,
-                                    offset: offset,
-                                    sort: _sort == 'unwatched_first'
-                                        ? 'favorited_at'
-                                        : _sort,
-                                    order: sortOpt.orderParam(_reversed),
-                                  );
-                                },
-                                onFirstVisible: _recordOffset,
-                              ),
+                              fetch: (offset, limit) {
+                                final api = ref.read(libraryApiProvider);
+                                return api.favoritesGallery(
+                                  limit: limit,
+                                  offset: offset,
+                                  sort: _sort == 'unwatched_first'
+                                      ? 'favorited_at'
+                                      : _sort,
+                                  order: sortOpt.orderParam(_reversed),
+                                );
+                              },
+                              onFirstVisible: _recordOffset,
                             )
                           : _buildPosterBody(form),
                     ),

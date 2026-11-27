@@ -48,6 +48,20 @@ String routeLibraryKind(
   return '/library/kind/$kind?${Uri(queryParameters: params).query}';
 }
 
+/// 解析 `/library/manage?tab=...` 的页签参数（同时兼容命名与数字下标）。
+/// 顺序对齐 `LibraryManagePage`：0 媒体库 / 1 待处理 / 2 重复文件 / 3 回收站 / 4 活跃分享。
+int parseLibraryManageTab(String? raw) {
+  final value = raw?.trim().toLowerCase() ?? '';
+  return switch (value) {
+    'libraries' || 'library' => 0,
+    'issues' || 'pending' => 1,
+    'duplicates' || 'duplicate' => 2,
+    'trash' || 'recycle' => 3,
+    'shares' || 'share' => 4,
+    _ => (int.tryParse(value) ?? 0).clamp(0, 4),
+  };
+}
+
 final List<GoRoute> routes = [
   GoRoute(
     path: routeLibraryCollections,
@@ -64,8 +78,9 @@ final List<GoRoute> routes = [
   GoRoute(
     path: routeLibraryManage,
     builder: (context, state) => LibraryManagePage(
-      initialTab: int.tryParse(state.uri.queryParameters['tab'] ?? '') ?? 0,
+      initialTab: parseLibraryManageTab(state.uri.queryParameters['tab']),
       initialItemId: int.tryParse(state.uri.queryParameters['item'] ?? ''),
+      openCreate: state.uri.queryParameters['create'] == '1',
     ),
   ),
   GoRoute(

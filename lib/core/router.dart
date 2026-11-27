@@ -31,9 +31,11 @@ const _adminOnlySettingsPrefixes = <String>[
   '/settings/scrape',
   '/settings/ai',
   '/settings/system',
+  '/settings/plugins',
   '/settings/maintenance',
   '/settings/cloud',
   '/settings/push',
+  '/settings/webhook',
   '/settings/mcp',
   '/settings/overview',
 ];

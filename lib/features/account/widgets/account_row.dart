@@ -1,14 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
+import '../../../core/l10n/mc_l10n.dart';
 import '../../../core/session/permissions.dart';
 import '../state/account_state.dart';
 
 /// 账号行（对齐 Kotlin AccountRow）：银玻璃圆头像 + 昵称 + @username · 角色 + 当前标记；
-/// 过期提示「点一下重新输入密码」；非当前账号给移除按钮。
-class AccountRow extends StatelessWidget {
+/// 过期提示「点一下重新输入密码」；非当前账号给移除按钮（带二次确认、异常捕获与防重复点击）。
+class AccountRow extends StatefulWidget {
   const AccountRow({
     super.key,
     required this.server,
@@ -24,20 +28,85 @@ class AccountRow extends StatelessWidget {
   final bool isCurrent;
   final bool busy;
   final VoidCallback onSwitch;
-  final VoidCallback onRemove;
+  final FutureOr<void> Function() onRemove;
+
+  @override
+  State<AccountRow> createState() => _AccountRowState();
+}
+
+class _AccountRowState extends State<AccountRow> {
+  bool _removing = false;
+
+  Future<void> _confirmAndRemove() async {
+    if (_removing || widget.busy) return;
+    final displayName = widget.account.nickname ?? widget.account.username;
+    final l10n = McL10n.of(context);
+    final confirmed = await showMcSheet<bool>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('移除本机账号「$displayName」？', style: McText.titleSm),
+            const SizedBox(height: 8),
+            Text(
+              '将清除本机保存的登录凭证并注销该设备的登录令牌，下次切换需要重新输入密码。',
+              style: McText.sub.muted,
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: l10n.cancel,
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: '移除',
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _removing = true);
+    try {
+      await widget.onRemove();
+      if (mounted) McToast.success('已从本机移除 $displayName');
+    } catch (e) {
+      if (mounted) McToast.error('移除账号失败：$e');
+    } finally {
+      if (mounted) setState(() => _removing = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final displayName = account.nickname ?? account.username;
+    final displayName = widget.account.nickname ?? widget.account.username;
+    final disabled = widget.busy || _removing;
     return McPressable(
-      onTap: (!isCurrent && !busy) ? onSwitch : null,
+      onTap: (!widget.isCurrent && !disabled) ? widget.onSwitch : null,
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isCurrent ? McTokens.accentSoft : McTokens.surfaceRaised,
+          color: widget.isCurrent ? McTokens.accentSoft : McTokens.surfaceRaised,
           borderRadius: BorderRadius.circular(McTokens.cardRadius),
           border: Border.all(
-            color: isCurrent ? McTokens.lineStrong : McTokens.line,
+            color: widget.isCurrent ? McTokens.lineStrong : McTokens.line,
             width: 1,
           ),
         ),
@@ -55,7 +124,9 @@ class AccountRow extends StatelessWidget {
                   colors: [Color(0xFF2B3140), Color(0xFF171A24)],
                 ),
                 border: Border.all(
-                  color: isCurrent ? McTokens.accentStrong : McTokens.line,
+                  color: widget.isCurrent
+                      ? McTokens.accentStrong
+                      : McTokens.line,
                   width: 1,
                 ),
               ),
@@ -82,7 +153,7 @@ class AccountRow extends StatelessWidget {
                           style: McText.ui.semibold,
                         ),
                       ),
-                      if (isCurrent) ...[
+                      if (widget.isCurrent) ...[
                         const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -120,10 +191,10 @@ class AccountRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    "@${account.username} · ${account.role == 'admin' ? '超级管理员' : '成员'}",
+                    "@${widget.account.username} · ${widget.account.role == 'admin' ? '超级管理员' : '成员'}",
                     style: McText.caption.muted,
                   ),
-                  if (account.expired) ...[
+                  if (widget.account.expired) ...[
                     const SizedBox(height: 2),
                     Text(
                       '登录已失效，点一下重新输入密码',
@@ -133,13 +204,13 @@ class AccountRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (!isCurrent)
+            if (!widget.isCurrent)
               McGlassIconButton(
                 icon: McIcons.close,
                 size: 32,
                 iconSize: 15,
                 tooltip: '从本机移除',
-                onTap: onRemove,
+                onTap: disabled ? null : _confirmAndRemove,
               ),
           ],
         ),

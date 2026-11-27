@@ -89,10 +89,15 @@ Future<Map<String, dynamic>?> showCreateMemberSheet(
   BuildContext context, {
   required McClient mc,
 }) {
-  return showMcSheet<Map<String, dynamic>>(
+  return showModalBottomSheet<Map<String, dynamic>>(
     context: context,
-    maxWidth: 540,
-    builder: (_) => _CreateMemberSheet(mc: mc),
+    isScrollControlled: true,
+    isDismissible: false,
+    enableDrag: false,
+    backgroundColor: Colors.transparent,
+    barrierColor: const Color(0xB8000000),
+    constraints: const BoxConstraints(maxWidth: 540),
+    builder: (_) => McSheetFrame(child: _CreateMemberSheet(mc: mc)),
   );
 }
 
@@ -111,6 +116,8 @@ class _CreateMemberSheetState extends State<_CreateMemberSheet> {
   late String _password = _generatePassword();
   bool _busy = false;
   String? _error;
+  Map<String, dynamic>? _createdMember;
+  String _createdUsername = '';
 
   static String _generatePassword() {
     const alphabet =
@@ -151,17 +158,11 @@ class _CreateMemberSheetState extends State<_CreateMemberSheet> {
         },
       );
       if (!mounted) return;
-      final nav = Navigator.of(context);
-      nav.pop(member);
-      // 紧接着展示一次性凭据卡
-      if (context.mounted) {
-        await showMemberCredentialsSheet(
-          context,
-          title: '已创建家庭成员「${member['username'] ?? username}」',
-          username: (member['username'] ?? username).toString(),
-          password: _password,
-        );
-      }
+      // 原位切换到一次性凭据展示态，避免先 pop 再使用已销毁 context 弹窗。
+      setState(() {
+        _createdMember = member;
+        _createdUsername = (member['username'] ?? username).toString();
+      });
     } catch (e) {
       if (mounted) setState(() => _error = settingsErrorText(e));
     } finally {
@@ -169,8 +170,79 @@ class _CreateMemberSheetState extends State<_CreateMemberSheet> {
     }
   }
 
+  Future<void> _finishCreated() async {
+    final ok = await confirmDialog(
+      context,
+      title: '确认已经保存密码？',
+      message: '关闭后无法再次查看本次生成的明文密码。',
+      confirmLabel: '我已保存',
+      destructive: false,
+    );
+    if (ok && mounted) {
+      Navigator.of(context).pop(_createdMember);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final l10n = McL10n.of(context);
+    final created = _createdMember;
+    if (created != null) {
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _finishCreated();
+        },
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('保存成员登录凭据', style: McText.titleSm),
+              const SizedBox(height: 12),
+              SettingsNoticeBanner(
+                text:
+                    '已创建家庭成员「$_createdUsername」。初始密码仅本次明文显示，请先复制保存后再关闭。',
+                tone: SettingsTone.ok,
+                margin: EdgeInsets.zero,
+              ),
+              const SizedBox(height: 14),
+              Text('登录用户名', style: McText.caption.muted),
+              const SizedBox(height: 6),
+              SettingsCopyBox(value: _createdUsername, copyLabel: '复制账号'),
+              const SizedBox(height: 12),
+              Text('登录密码', style: McText.caption.muted),
+              const SizedBox(height: 6),
+              SettingsCopyBox(value: _password, copyLabel: '复制密码'),
+              const SizedBox(height: 14),
+              McActionPill(
+                icon: McIcons.fileCopy2Fill,
+                label: '一键复制账号与密码',
+                primary: false,
+                expanded: true,
+                onTap: () {
+                  Clipboard.setData(
+                    ClipboardData(
+                      text: '账号：$_createdUsername\n密码：$_password',
+                    ),
+                  );
+                  McToast.success('已复制账号和密码');
+                },
+              ),
+              const SizedBox(height: 10),
+              McActionPill(
+                label: l10n.done,
+                primary: true,
+                expanded: true,
+                onTap: _finishCreated,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final canCreate = !_busy && _userCtrl.text.trim().length >= 3;
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -226,11 +298,26 @@ class _CreateMemberSheetState extends State<_CreateMemberSheet> {
           const SizedBox(height: 6),
           SettingsCopyBox(value: _password, copyLabel: '复制'),
           const SizedBox(height: 18),
-          McActionPill(
-            label: _busy ? '创建中…' : '创建成员账号',
-            primary: true,
-            expanded: true,
-            onTap: canCreate ? _submit : null,
+          Row(
+            children: [
+              Expanded(
+                child: McActionPill(
+                  label: l10n.cancel,
+                  primary: false,
+                  expanded: true,
+                  onTap: _busy ? null : () => Navigator.of(context).pop(),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: McActionPill(
+                  label: _busy ? '创建中…' : '创建成员账号',
+                  primary: true,
+                  expanded: true,
+                  onTap: canCreate ? _submit : null,
+                ),
+              ),
+            ],
           ),
         ],
       ),

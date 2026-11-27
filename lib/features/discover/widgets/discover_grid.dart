@@ -237,13 +237,18 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
                                       ref,
                                       titleRef: t.ref,
                                     );
-                                    if (out != null) {
-                                      ref
-                                          .read(
-                                            discoverSubscriptionIndexProvider
-                                                .notifier,
-                                          )
-                                          .refresh();
+                                    if (!mounted || out == null) return;
+                                    ref
+                                        .read(
+                                          discoverSubscriptionIndexProvider
+                                              .notifier,
+                                        )
+                                        .refresh();
+                                    if (out == SubscribeSheetOutcome.created) {
+                                      McToast.success('已加入追更订阅');
+                                    } else if (out ==
+                                        SubscribeSheetOutcome.managed) {
+                                      this.context.push('/subscriptions');
                                     }
                                   },
                                 ),
@@ -281,8 +286,11 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
                     ),
                   ),
                 ),
-              const SliverToBoxAdapter(
-                child: SizedBox(height: McTokens.bottomBarClearance),
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: McTokens.bottomBarClearance +
+                      MediaQuery.paddingOf(context).bottom,
+                ),
               ),
             ],
           );

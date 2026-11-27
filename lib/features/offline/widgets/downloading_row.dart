@@ -69,6 +69,7 @@ class DownloadingRow extends StatelessWidget {
     required this.onPrioritize,
     this.onDelete,
     this.poster,
+    this.dragHandle,
     this.queueAhead = 0,
     this.waitingForWifi = false,
     this.canPrioritize = true,
@@ -80,6 +81,7 @@ class DownloadingRow extends StatelessWidget {
   final VoidCallback onPrioritize;
   final VoidCallback? onDelete;
   final Widget? poster;
+  final Widget? dragHandle;
   final int queueAhead;
   final bool waitingForWifi;
   final bool canPrioritize;
@@ -104,7 +106,7 @@ class DownloadingRow extends StatelessWidget {
         unit.speedBps > 0;
     final artUrl = unit.posterUrl ?? unit.stillUrl ?? unit.backdropUrl;
 
-    return McPressable(
+    final content = McPressable(
       onTap: () => _showMenu(context),
       onLongPress: () => _showMenu(context),
       child: Padding(
@@ -194,6 +196,16 @@ class DownloadingRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+
+    if (dragHandle == null) return content;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(child: content),
+        const SizedBox(width: 4),
+        dragHandle!,
+      ],
     );
   }
 

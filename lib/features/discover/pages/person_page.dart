@@ -182,7 +182,13 @@ class PersonPage extends ConsumerStatefulWidget {
 }
 
 class _PersonPageState extends ConsumerState<PersonPage> {
-  double _scrollOffset = 0;
+  final ValueNotifier<double> _scrollOffset = ValueNotifier<double>(0);
+
+  @override
+  void dispose() {
+    _scrollOffset.dispose();
+    super.dispose();
+  }
 
   void _back() {
     if (context.canPop()) {
@@ -218,6 +224,7 @@ class _PersonPageState extends ConsumerState<PersonPage> {
     final perms = ref.watch(permissionsProvider);
     final subs = ref.watch(discoverSubscriptionIndexProvider);
     final topPad = MediaQuery.paddingOf(context).top;
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
     final form = McFormWatch.of(context);
     final pad = form == McDeviceForm.phone
         ? McTokens.pagePadding
@@ -259,7 +266,7 @@ class _PersonPageState extends ConsumerState<PersonPage> {
                 return NotificationListener<ScrollNotification>(
                   onNotification: (n) {
                     if (n.metrics.axis == Axis.vertical && n.depth == 0) {
-                      setState(() => _scrollOffset = n.metrics.pixels);
+                      _scrollOffset.value = n.metrics.pixels;
                     }
                     return false;
                   },
@@ -321,7 +328,12 @@ class _PersonPageState extends ConsumerState<PersonPage> {
                             ),
                           ),
                           SliverPadding(
-                            padding: EdgeInsets.fromLTRB(pad, 0, pad, 48),
+                            padding: EdgeInsets.fromLTRB(
+                              pad,
+                              0,
+                              pad,
+                              48 + bottomPad,
+                            ),
                             sliver: SliverGrid(
                               gridDelegate: gridDelegate,
                               delegate: SliverChildBuilderDelegate(
@@ -377,13 +389,25 @@ class _PersonPageState extends ConsumerState<PersonPage> {
                                                 ref,
                                                 titleRef: t.ref,
                                               );
-                                              if (out != null) {
-                                                ref
-                                                    .read(
-                                                      discoverSubscriptionIndexProvider
-                                                          .notifier,
-                                                    )
-                                                    .refresh();
+                                              if (!mounted || out == null) {
+                                                return;
+                                              }
+                                              ref
+                                                  .read(
+                                                    discoverSubscriptionIndexProvider
+                                                        .notifier,
+                                                  )
+                                                  .refresh();
+                                              if (out ==
+                                                  SubscribeSheetOutcome
+                                                      .created) {
+                                                McToast.success('已加入追更订阅');
+                                              } else if (out ==
+                                                  SubscribeSheetOutcome
+                                                      .managed) {
+                                                this.context.push(
+                                                      '/subscriptions',
+                                                    );
                                               }
                                             },
                                           ),
@@ -406,10 +430,13 @@ class _PersonPageState extends ConsumerState<PersonPage> {
             top: 0,
             left: 0,
             right: 0,
-            child: McFloatingDetailBar(
-              onBack: _back,
-              title: s.name ?? '影人',
-              titleVisible: _scrollOffset > 88,
+            child: ValueListenableBuilder<double>(
+              valueListenable: _scrollOffset,
+              builder: (_, offset, __) => McFloatingDetailBar(
+                onBack: _back,
+                title: s.name ?? '影人',
+                titleVisible: offset > 88,
+              ),
             ),
           ),
         ],

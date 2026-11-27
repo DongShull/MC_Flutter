@@ -123,47 +123,58 @@ class SiteStatusPill extends StatelessWidget {
     final dotColor = streaming
         ? McTokens.accent
         : (failedCount > 0 ? McTokens.danger : McTokens.ok);
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: McTokens.surfaceInset,
-          borderRadius: BorderRadius.circular(McTokens.pillRadius),
-          border: Border.all(color: McTokens.lineStrong, width: 0.8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(
-                color: dotColor,
-                shape: BoxShape.circle,
-              ),
+    return Tooltip(
+      message: '查看各站点搜索状态',
+      child: Semantics(
+        button: true,
+        label: '查看各站点搜索状态',
+        child: GestureDetector(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onTap();
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: McTokens.surfaceInset,
+              borderRadius: BorderRadius.circular(McTokens.pillRadius),
+              border: Border.all(color: McTokens.lineStrong, width: 0.8),
             ),
-            const SizedBox(width: 6),
-            if (streaming)
-              Text('$settledCount/$totalSites 站点', style: McText.caption.tabular)
-            else ...[
-              Text('$totalSites 站点', style: McText.caption.tabular),
-              if (failedCount > 0) ...[
-                Text(
-                  ' · $failedCount 失败',
-                  style: McText.caption
-                      .copyWith(color: McTokens.danger)
-                      .tabular,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: dotColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                if (streaming)
+                  Text('$settledCount/$totalSites 站点',
+                      style: McText.caption.tabular)
+                else ...[
+                  Text('$totalSites 站点', style: McText.caption.tabular),
+                  if (failedCount > 0) ...[
+                    Text(
+                      ' · $failedCount 失败',
+                      style: McText.caption
+                          .copyWith(color: McTokens.danger)
+                          .tabular,
+                    ),
+                  ],
+                ],
+                const SizedBox(width: 3),
+                const Icon(
+                  McIcons.arrowDownS,
+                  size: 13,
+                  color: McTokens.textMuted,
                 ),
               ],
-            ],
-            const SizedBox(width: 3),
-            const Icon(
-              McIcons.arrowDownS,
-              size: 13,
-              color: McTokens.textMuted,
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -474,6 +485,7 @@ class TorrentConditionChipsBar extends StatelessWidget {
             )
           : null,
       onTap: () {
+        HapticFeedback.selectionClick();
         Navigator.of(ctx).pop();
         onChangeSort(sort.picking(key));
       },
@@ -482,11 +494,12 @@ class TorrentConditionChipsBar extends StatelessWidget {
 
   void _openDimSheet(BuildContext context, TorrentFilterDim dim) {
     final values = _dimValues(dim);
+    final localSelected = Set<String>.from(filters.values(dim));
     showMcSheet<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheetState) {
-          final selected = filters.values(dim);
+          final bottomPad = MediaQuery.paddingOf(ctx).bottom;
           return ConstrainedBox(
             constraints: BoxConstraints(
               maxHeight: MediaQuery.sizeOf(ctx).height * 0.72,
@@ -501,11 +514,12 @@ class TorrentConditionChipsBar extends StatelessWidget {
                       Expanded(
                         child: Text('筛选 · ${dim.title}', style: McText.titleSm),
                       ),
-                      if (selected.isNotEmpty)
+                      if (localSelected.isNotEmpty)
                         TextButton(
                           onPressed: () {
+                            HapticFeedback.selectionClick();
                             onClearDim(dim);
-                            Navigator.of(ctx).pop();
+                            setSheetState(localSelected.clear);
                           },
                           child: const Text(
                             '移除此条件',
@@ -523,57 +537,66 @@ class TorrentConditionChipsBar extends StatelessWidget {
                 Flexible(
                   child: ListView.builder(
                     shrinkWrap: true,
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
+                    padding: EdgeInsets.fromLTRB(16, 10, 16, 20 + bottomPad),
                     itemCount: values.length,
                     itemBuilder: (_, i) {
                       final f = values[i];
-                      final isOn = filters.values(dim).contains(f.value);
+                      final isOn = localSelected.contains(f.value);
                       final label = TorrentSearchLogic.facetLabel(
                         dim,
                         f.value,
                         siteNameOf,
                       );
-                      return InkWell(
-                        borderRadius: BorderRadius.circular(10),
-                        onTap: () {
-                          onToggleFacet(dim, f.value);
-                          Navigator.of(ctx).pop();
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 11,
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  label,
-                                  style: McText.sub.copyWith(
-                                    color: isOn
-                                        ? McTokens.text
-                                        : McTokens.textMuted,
-                                    fontWeight: isOn
-                                        ? FontWeight.w600
-                                        : FontWeight.w400,
+                      return Semantics(
+                        button: true,
+                        selected: isOn,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            onToggleFacet(dim, f.value);
+                            setSheetState(() {
+                              if (!localSelected.remove(f.value)) {
+                                localSelected.add(f.value);
+                              }
+                            });
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 11,
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    label,
+                                    style: McText.sub.copyWith(
+                                      color: isOn
+                                          ? McTokens.text
+                                          : McTokens.textMuted,
+                                      fontWeight: isOn
+                                          ? FontWeight.w600
+                                          : FontWeight.w400,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              Text(
-                                '${f.count} 条',
-                                style: McText.caption.faint.tabular,
-                              ),
-                              const SizedBox(width: 10),
-                              Icon(
-                                isOn
-                                    ? McIcons.checkCircleFill
-                                    : McIcons.circler,
-                                size: 18,
-                                color: isOn
-                                    ? McTokens.accentStrong
-                                    : McTokens.textFaint,
-                              ),
-                            ],
+                                Text(
+                                  '${f.count} 条',
+                                  style: McText.caption.faint.tabular,
+                                ),
+                                const SizedBox(width: 10),
+                                Icon(
+                                  isOn
+                                      ? McIcons.checkCircleFill
+                                      : McIcons.circler,
+                                  size: 18,
+                                  color: isOn
+                                      ? McTokens.accentStrong
+                                      : McTokens.textFaint,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       );
@@ -647,12 +670,14 @@ class TorrentGroupSection extends StatefulWidget {
     required this.rows,
     this.entity,
     required this.onTapHit,
+    this.onOpenImages,
   });
 
   final String entityKey;
   final List<TorrentHit> rows;
   final TorrentEntity? entity;
   final ValueChanged<TorrentHit> onTapHit;
+  final ValueChanged<TorrentHit>? onOpenImages;
 
   @override
   State<TorrentGroupSection> createState() => _TorrentGroupSectionState();
@@ -694,43 +719,56 @@ class _TorrentGroupSectionState extends State<TorrentGroupSection> {
         children: [
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => setState(() => _collapsed = !_collapsed),
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _collapsed = !_collapsed);
+            },
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      _collapsed ? McIcons.chevronRight : McIcons.arrowDownS,
-                      size: 15,
-                      color: McTokens.textFaint,
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Icon(
+                        _collapsed ? McIcons.chevronRight : McIcons.arrowDownS,
+                        size: 15,
+                        color: McTokens.textFaint,
+                      ),
                     ),
                     const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(
-                        entity?.nameZh ?? entity?.nameEn ?? '未识别作品',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: McText.ui.semibold,
+                    Expanded(
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 2,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            entity?.nameZh ?? entity?.nameEn ?? '未识别作品',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: McText.ui.semibold,
+                          ),
+                          if (entity != null &&
+                              entity.nameZh != null &&
+                              entity.nameEn != null)
+                            Text(
+                              entity.nameEn!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: McText.caption.muted,
+                            ),
+                          if (info.isNotEmpty)
+                            Text(
+                              info,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: McText.caption.faint,
+                            ),
+                        ],
                       ),
                     ),
-                    if (entity != null &&
-                        entity.nameZh != null &&
-                        entity.nameEn != null) ...[
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          entity.nameEn!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: McText.caption.muted,
-                        ),
-                      ),
-                    ],
-                    if (info.isNotEmpty) ...[
-                      const SizedBox(width: 6),
-                      Text(info, style: McText.caption.faint),
-                    ],
                   ],
                 ),
                 const SizedBox(height: 6),
@@ -771,6 +809,9 @@ class _TorrentGroupSectionState extends State<TorrentGroupSection> {
                   hit: hit,
                   grouped: true,
                   onTap: () => widget.onTapHit(hit),
+                  onOpenImages: widget.onOpenImages != null
+                      ? () => widget.onOpenImages!(hit)
+                      : null,
                 ),
               ),
             if (!_showAll && rows.length > _cap)
@@ -796,12 +837,14 @@ class TorrentRowCard extends StatelessWidget {
     this.grouped = false,
     this.rawTitles = false,
     required this.onTap,
+    this.onOpenImages,
   });
 
   final TorrentHit hit;
   final bool grouped;
   final bool rawTitles;
   final VoidCallback onTap;
+  final VoidCallback? onOpenImages;
 
   Color _seederColor(int n) {
     if (n == 0) return const Color(0xFFFF9999);
@@ -817,9 +860,10 @@ class TorrentRowCard extends StatelessWidget {
     final attrs = hit.attrs;
     final complete = TorrentSearchLogic.completeLabel(attrs);
     final size = TorrentSearchLogic.sizeText(hit);
+    final slidesCount = hit.slides.length;
 
     return GestureDetector(
-      onTap: hit.hasActions ? onTap : null,
+      onTap: (hit.hasActions || slidesCount > 0) ? onTap : null,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -891,6 +935,7 @@ class TorrentRowCard extends StatelessWidget {
                 children: [
                   if (name == null && hit.subtitle.isNotEmpty)
                     Expanded(
+                      flex: 2,
                       child: Text(
                         hit.subtitle,
                         maxLines: 1,
@@ -901,9 +946,14 @@ class TorrentRowCard extends StatelessWidget {
                   if (hit.siteCategoryName != null) ...[
                     if (name == null && hit.subtitle.isNotEmpty)
                       const SizedBox(width: 8),
-                    Text(
-                      hit.siteCategoryName!,
-                      style: McText.caption.faint,
+                    Flexible(
+                      flex: 1,
+                      child: Text(
+                        hit.siteCategoryName!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: McText.caption.faint,
+                      ),
                     ),
                   ],
                 ],
@@ -928,34 +978,96 @@ class TorrentRowCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                if (size.isNotEmpty) ...[
-                  Text(size, style: McText.caption.muted.tabular),
-                  const SizedBox(width: 10),
-                ],
-                Text(
-                  '↑${hit.seeders}',
-                  style: McText.caption
-                      .copyWith(
-                        color: _seederColor(hit.seeders),
-                        fontWeight: hit.seeders >= 100
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                      )
-                      .tabular,
+                Expanded(
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (size.isNotEmpty)
+                        Text(size, style: McText.caption.muted.tabular),
+                      Text(
+                        '↑${hit.seeders}',
+                        style: McText.caption
+                            .copyWith(
+                              color: _seederColor(hit.seeders),
+                              fontWeight: hit.seeders >= 100
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            )
+                            .tabular,
+                      ),
+                      Text(
+                        '↓${hit.leechers}',
+                        style: McText.caption.faint.tabular,
+                      ),
+                      if (hit.snatched > 0)
+                        Text(
+                          '完成 ${hit.snatched}',
+                          style: McText.caption.faint.tabular,
+                        ),
+                    ],
+                  ),
                 ),
-                const SizedBox(width: 8),
-                Text('↓${hit.leechers}', style: McText.caption.faint.tabular),
-                if (hit.snatched > 0) ...[
-                  const SizedBox(width: 10),
-                  Text('完成 ${hit.snatched}', style: McText.caption.faint.tabular),
-                ],
-                const Spacer(),
-                if (hit.uploadTime != null)
+                if (hit.uploadTime != null) ...[
+                  const SizedBox(width: 8),
                   Text(
                     mcFromNowIso(hit.uploadTime, empty: ''),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: McText.caption.faint,
                   ),
+                ],
+                if (slidesCount > 0 && onOpenImages != null) ...[
+                  const SizedBox(width: 8),
+                  Tooltip(
+                    message: '查看截图（$slidesCount）',
+                    child: Semantics(
+                      button: true,
+                      label: '查看截图，共 $slidesCount 张',
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          onOpenImages!();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0x18FFFFFF),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: McTokens.lineStrong,
+                              width: 0.8,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                McIcons.image3Fill,
+                                size: 12,
+                                color: McTokens.textMuted,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                '$slidesCount',
+                                style: McText.micro
+                                    .copyWith(color: McTokens.text)
+                                    .tabular,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ],
@@ -1179,7 +1291,7 @@ class TorrentActionsSheet extends StatelessWidget {
     required this.downloadState,
     required this.grabState,
     this.grabTarget,
-    this.showsImages = false,
+    this.showsImages = true,
     this.onOpenImages,
     this.onGrab,
     this.onDownload,
@@ -1202,7 +1314,7 @@ class TorrentActionsSheet extends StatelessWidget {
     required TorrentSubmitState downloadState,
     required TorrentSubmitState grabState,
     ({int id, String title})? grabTarget,
-    bool showsImages = false,
+    bool showsImages = true,
     VoidCallback? onOpenImages,
     VoidCallback? onGrab,
     VoidCallback? onDownload,
@@ -1390,6 +1502,9 @@ class TorrentScreenshotLightbox extends StatefulWidget {
 class _TorrentScreenshotLightboxState extends State<TorrentScreenshotLightbox> {
   int _index = 0;
   final PageController _pageCtrl = PageController();
+  final ScrollController _thumbCtrl = ScrollController();
+  final FocusNode _focusNode = FocusNode();
+  bool _isZoomed = false;
 
   @override
   void initState() {
@@ -1400,8 +1515,45 @@ class _TorrentScreenshotLightboxState extends State<TorrentScreenshotLightbox> {
   @override
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    _focusNode.dispose();
     _pageCtrl.dispose();
+    _thumbCtrl.dispose();
     super.dispose();
+  }
+
+  void _jumpTo(int i) {
+    final len = widget.hit.slides.length;
+    if (!_pageCtrl.hasClients || len == 0) return;
+    final target = i.clamp(0, len - 1);
+    if (target == _index) return;
+    if (_isZoomed) setState(() => _isZoomed = false);
+    _pageCtrl.animateToPage(
+      target,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _prev() {
+    if (_index > 0) _jumpTo(_index - 1);
+  }
+
+  void _next() {
+    if (_index < widget.hit.slides.length - 1) _jumpTo(_index + 1);
+  }
+
+  void _scrollThumbIntoView(int i) {
+    if (!_thumbCtrl.hasClients) return;
+    const itemW = 48.0;
+    final target = (i * itemW - 120).clamp(
+      0.0,
+      _thumbCtrl.position.maxScrollExtent,
+    );
+    _thumbCtrl.animateTo(
+      target,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOut,
+    );
   }
 
   @override
@@ -1409,222 +1561,352 @@ class _TorrentScreenshotLightboxState extends State<TorrentScreenshotLightbox> {
     final slides = widget.hit.slides;
     final topPad = MediaQuery.paddingOf(context).top;
     final bottomPad = MediaQuery.paddingOf(context).bottom;
+    final compactHeader = MediaQuery.sizeOf(context).width < 460;
     final dlDisabled = widget.downloadState == TorrentSubmitState.submitting ||
         widget.downloadState == TorrentSubmitState.done ||
         widget.downloadState == TorrentSubmitState.exists;
     final grabDisabled = widget.grabState == TorrentSubmitState.submitting ||
         widget.grabState == TorrentSubmitState.done;
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          PageView.builder(
-            controller: _pageCtrl,
-            itemCount: slides.length,
-            onPageChanged: (i) => setState(() => _index = i),
-            itemBuilder: (_, i) => _TorrentZoomSlide(rawUrl: slides[i]),
+    final actionButtons = <Widget>[
+      if (widget.hit.detailUrl != null && widget.hit.detailUrl!.isNotEmpty)
+        McGlassButton(
+          onTap: () => ExternalMediaLink.open(widget.hit.detailUrl!),
+          tone: McGlassTone.secondary,
+          radius: McTokens.pillRadius,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 6,
           ),
-          // 顶部信息与操作栏（关闭 + 标题/序号 + 详情/投给订阅/下载）
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              padding: EdgeInsets.fromLTRB(12, topPad + 8, 12, 14),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xC7000000), Colors.transparent],
-                ),
-              ),
-              child: Row(
-                children: [
-                  McGlassIconButton(
-                    icon: McIcons.close,
-                    tooltip: '关闭',
-                    onTap: () => Navigator.of(context).pop(),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          widget.hit.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: McText.caption.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Text(
-                          '${_index + 1} / ${slides.length}',
-                          style: McText.micro
-                              .copyWith(color: const Color(0xB3FFFFFF))
-                              .tabular,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  if (widget.hit.detailUrl != null &&
-                      widget.hit.detailUrl!.isNotEmpty) ...[
-                    McGlassButton(
-                      onTap: () => ExternalMediaLink.open(widget.hit.detailUrl!),
-                      tone: McGlassTone.secondary,
-                      radius: McTokens.pillRadius,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      child: Text('详情', style: McText.caption.semibold),
-                    ),
-                    const SizedBox(width: 6),
-                  ],
-                  if (widget.grabTarget != null &&
-                      widget.hit.downloadUrl != null &&
-                      widget.onGrab != null) ...[
-                    McGlassButton(
-                      onTap: grabDisabled
-                          ? null
-                          : () {
-                              Navigator.of(context).pop();
-                              widget.onGrab!();
-                            },
-                      tone: McGlassTone.secondary,
-                      radius: McTokens.pillRadius,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      child: Text(
-                        widget.grabState.grabLabel,
-                        style: McText.caption.semibold,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                  ],
-                  if (widget.perms.canDirectDownload &&
-                      widget.hit.downloadUrl != null &&
-                      widget.onDownload != null)
-                    McGlassButton(
-                      onTap: dlDisabled
-                          ? null
-                          : () {
-                              Navigator.of(context).pop();
-                              widget.onDownload!();
-                            },
-                      tone: McGlassTone.primary,
-                      radius: McTokens.pillRadius,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      child: Text(
-                        widget.downloadState.downloadLabel,
-                        style: McText.caption.copyWith(
-                          color: McTokens.onAccent,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+          child: Text('详情', style: McText.caption.semibold),
+        ),
+      if (widget.grabTarget != null &&
+          widget.hit.downloadUrl != null &&
+          widget.onGrab != null)
+        McGlassButton(
+          onTap: grabDisabled
+              ? null
+              : () {
+                  Navigator.of(context).pop();
+                  widget.onGrab!();
+                },
+          tone: McGlassTone.secondary,
+          radius: McTokens.pillRadius,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 6,
+          ),
+          child: Text(
+            widget.grabState.grabLabel,
+            style: McText.caption.semibold,
+          ),
+        ),
+      if (widget.perms.canDirectDownload &&
+          widget.hit.downloadUrl != null &&
+          widget.onDownload != null)
+        McGlassButton(
+          onTap: dlDisabled
+              ? null
+              : () {
+                  Navigator.of(context).pop();
+                  widget.onDownload!();
+                },
+          tone: McGlassTone.primary,
+          radius: McTokens.pillRadius,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 6,
+          ),
+          child: Text(
+            widget.downloadState.downloadLabel,
+            style: McText.caption.copyWith(
+              color: McTokens.onAccent,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          if (slides.length > 1)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: bottomPad + 12,
-              child: SizedBox(
-                height: 58,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: slides.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (_, i) {
-                    final active = i == _index;
-                    final thumb = McImageUrls.resolve(slides[i], widthPx: 160);
-                    return GestureDetector(
-                      onTap: () => _pageCtrl.animateToPage(
-                        i,
-                        duration: const Duration(milliseconds: 240),
-                        curve: Curves.easeOut,
-                      ),
-                      child: Opacity(
-                        opacity: active ? 1.0 : 0.55,
-                        child: Container(
-                          width: 40,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: active
-                                  ? McTokens.accentStrong
-                                  : Colors.transparent,
-                              width: 2,
-                            ),
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: CachedNetworkImage(
-                            imageUrl: thumb,
-                            httpHeaders: mcImageHeaders(),
-                            fit: BoxFit.cover,
-                            errorWidget: (_, __, ___) => const Icon(
-                              McIcons.image3Fill,
-                              size: 16,
-                              color: McTokens.textFaint,
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
+        ),
+    ];
+
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).pop(),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft): _prev,
+        const SingleActivator(LogicalKeyboardKey.arrowRight): _next,
+      },
+      child: Focus(
+        focusNode: _focusNode,
+        autofocus: true,
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              PageView.builder(
+                controller: _pageCtrl,
+                physics: _isZoomed
+                    ? const NeverScrollableScrollPhysics()
+                    : const BouncingScrollPhysics(),
+                itemCount: slides.length,
+                onPageChanged: (i) {
+                  setState(() {
+                    _index = i;
+                    _isZoomed = false;
+                  });
+                  _scrollThumbIntoView(i);
+                },
+                itemBuilder: (_, i) => _TorrentZoomSlide(
+                  rawUrl: slides[i],
+                  isActive: i == _index,
+                  onZoomChanged: (zoomed) {
+                    if (i == _index && _isZoomed != zoomed && mounted) {
+                      setState(() => _isZoomed = zoomed);
+                    }
                   },
                 ),
               ),
-            ),
-        ],
+              // 顶部信息与操作栏（关闭 + 标题/序号 + 详情/投给订阅/下载）
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Container(
+                  padding: EdgeInsets.fromLTRB(12, topPad + 8, 12, 14),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xC7000000), Colors.transparent],
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          McGlassIconButton(
+                            icon: McIcons.close,
+                            tooltip: '关闭',
+                            onTap: () => Navigator.of(context).pop(),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  widget.hit.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: McText.caption.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  '${_index + 1} / ${slides.length}',
+                                  style: McText.micro
+                                      .copyWith(color: const Color(0xB3FFFFFF))
+                                      .tabular,
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (!compactHeader && actionButtons.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: actionButtons,
+                            ),
+                          ],
+                        ],
+                      ),
+                      if (compactHeader && actionButtons.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            alignment: WrapAlignment.end,
+                            children: actionButtons,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              if (slides.length > 1)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: bottomPad + 12,
+                  child: SizedBox(
+                    height: 58,
+                    child: ListView.separated(
+                      controller: _thumbCtrl,
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: slides.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (_, i) {
+                        final active = i == _index;
+                        final thumb =
+                            McImageUrls.resolve(slides[i], widthPx: 160);
+                        return Semantics(
+                          button: true,
+                          selected: active,
+                          label: '第 ${i + 1} 张截图',
+                          child: GestureDetector(
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              _jumpTo(i);
+                            },
+                            child: Opacity(
+                              opacity: active ? 1.0 : 0.55,
+                              child: Container(
+                                width: 40,
+                                height: 56,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: active
+                                        ? McTokens.accentStrong
+                                        : Colors.transparent,
+                                    width: 2,
+                                  ),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: CachedNetworkImage(
+                                  imageUrl: thumb,
+                                  httpHeaders: mcImageHeaders(),
+                                  fit: BoxFit.cover,
+                                  errorWidget: (_, __, ___) => const Icon(
+                                    McIcons.image3Fill,
+                                    size: 16,
+                                    color: McTokens.textFaint,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
 class _TorrentZoomSlide extends StatefulWidget {
-  const _TorrentZoomSlide({required this.rawUrl});
+  const _TorrentZoomSlide({
+    required this.rawUrl,
+    required this.isActive,
+    required this.onZoomChanged,
+  });
 
   final String rawUrl;
+  final bool isActive;
+  final ValueChanged<bool> onZoomChanged;
 
   @override
   State<_TorrentZoomSlide> createState() => _TorrentZoomSlideState();
 }
 
-class _TorrentZoomSlideState extends State<_TorrentZoomSlide> {
+class _TorrentZoomSlideState extends State<_TorrentZoomSlide>
+    with SingleTickerProviderStateMixin {
   final TransformationController _ctrl = TransformationController();
+  late final AnimationController _zoomAnim = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+  );
+  Animation<Matrix4>? _matrixAnim;
   TapDownDetails? _tap;
+  bool _zoomed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl.addListener(_onTransformChanged);
+    _zoomAnim.addListener(_onZoomAnimTick);
+  }
+
+  @override
+  void didUpdateWidget(covariant _TorrentZoomSlide oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive && !widget.isActive) {
+      _resetZoom();
+    }
+  }
 
   @override
   void dispose() {
+    _zoomAnim.removeListener(_onZoomAnimTick);
+    _ctrl.removeListener(_onTransformChanged);
+    _zoomAnim.dispose();
     _ctrl.dispose();
     super.dispose();
   }
 
-  void _onDoubleTap() {
-    if (_ctrl.value.getMaxScaleOnAxis() > 1.1) {
+  void _onZoomAnimTick() {
+    final v = _matrixAnim?.value;
+    if (v != null) _ctrl.value = v;
+  }
+
+  void _onTransformChanged() {
+    final zoomed = _ctrl.value.getMaxScaleOnAxis() > 1.01;
+    if (zoomed != _zoomed) {
+      _zoomed = zoomed;
+      widget.onZoomChanged(zoomed);
+      if (mounted) setState(() {});
+    }
+  }
+
+  void _resetZoom() {
+    _zoomAnim.stop();
+    if (_ctrl.value != Matrix4.identity()) {
       _ctrl.value = Matrix4.identity();
+    }
+  }
+
+  void _animateTo(Matrix4 target) {
+    _zoomAnim.stop();
+    _matrixAnim = Matrix4Tween(
+      begin: _ctrl.value.clone(),
+      end: target,
+    ).animate(
+      CurvedAnimation(parent: _zoomAnim, curve: Curves.easeOutCubic),
+    );
+    _zoomAnim.forward(from: 0);
+  }
+
+  void _onDoubleTap() {
+    if (_ctrl.value.getMaxScaleOnAxis() > 1.01) {
+      _animateTo(Matrix4.identity());
       return;
     }
     final p = _tap?.localPosition ?? Offset.zero;
     const s = 2.5;
-    _ctrl.value = Matrix4.identity()
-      ..translate(-p.dx * (s - 1), -p.dy * (s - 1))
+    final boxSize = context.size;
+    var tx = -p.dx * (s - 1);
+    var ty = -p.dy * (s - 1);
+    if (boxSize != null) {
+      tx = tx.clamp(-boxSize.width * (s - 1), 0.0);
+      ty = ty.clamp(-boxSize.height * (s - 1), 0.0);
+    }
+    final target = Matrix4.identity()
+      ..translate(tx, ty)
       ..scale(s);
+    _animateTo(target);
   }
 
   @override
@@ -1635,8 +1917,10 @@ class _TorrentZoomSlideState extends State<_TorrentZoomSlide> {
       onDoubleTap: _onDoubleTap,
       child: InteractiveViewer(
         transformationController: _ctrl,
+        panEnabled: _zoomed,
         minScale: 1,
         maxScale: 5,
+        onInteractionStart: (_) => _zoomAnim.stop(),
         child: Center(
           child: CachedNetworkImage(
             imageUrl: resolved,

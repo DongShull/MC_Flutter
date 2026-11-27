@@ -417,6 +417,12 @@ class ReelInlineSession {
     paused.value = true;
   }
 
+  Future<void> resume() async {
+    if (_destroyed) return;
+    await service.play();
+    paused.value = false;
+  }
+
   Future<void> setHoldSpeed(bool holding) async {
     if (_destroyed) return;
     holdSpeed.value = holding;

@@ -59,7 +59,8 @@ class DetailPage extends ConsumerStatefulWidget {
 
 class _DetailPageState extends ConsumerState<DetailPage> {
   late final String _key = '${widget.libraryId}:${widget.itemId}';
-  double _scrollOffset = 0;
+  final ValueNotifier<double> _scrollOffset = ValueNotifier<double>(0);
+  final ValueNotifier<bool> _titleVisible = ValueNotifier<bool>(false);
   Color? _edgeColor;
   String? _sampledUrl;
   int? _activeRangeIndex;
@@ -73,6 +74,13 @@ class _DetailPageState extends ConsumerState<DetailPage> {
             initialEpisode: widget.initialEpisode,
           );
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollOffset.dispose();
+    _titleVisible.dispose();
+    super.dispose();
   }
 
   void _ensureEdgeColor(DetailEntry entry) {
@@ -607,17 +615,26 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                   ),
                 ),
               ),
-              if (wide && resumable) ...[
+              if (resumable) ...[
                 const SizedBox(width: 10),
                 McFocusRing(
                   borderRadius: McTokens.pillRadius,
-                  child: McActionPill(
-                    label: '从头播放',
-                    icon: McIcons.replay2,
-                    primary: false,
-                    height: 44,
-                    onTap: () => _play(overrideStart: Duration.zero),
-                  ),
+                  child: wide
+                      ? McActionPill(
+                          label: '从头播放',
+                          icon: McIcons.replay2,
+                          primary: false,
+                          height: 44,
+                          onTap: () => _play(overrideStart: Duration.zero),
+                        )
+                      : McGlassIconButton(
+                          icon: McIcons.replay2,
+                          tooltip: '从头播放',
+                          size: 44,
+                          iconSize: 19,
+                          tone: McGlassTone.secondary,
+                          onTap: () => _play(overrideStart: Duration.zero),
+                        ),
                 ),
               ],
             ],
@@ -710,7 +727,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     return seasonNum == 0 ? '特别篇' : '第 $seasonNum 季';
   }
 
-  Widget _buildTvSeasons(
+  List<Widget> _buildTvSeasonSlivers(
     DetailEntry entry,
     DetailState state,
     DetailController controller,
@@ -751,150 +768,160 @@ class _DetailPageState extends ConsumerState<DetailPage> {
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 20),
-        McSectionHeader(
-          title: '剧集',
-          countLabel: episodes.isNotEmpty
-              ? '${episodes.where((e) => e.owned).length}/${episodes.length}'
-              : null,
-          trailingText: ranges.isNotEmpty
-              ? '全部 ${episodes.length} 集'
-              : (schedule != null ? '播出日历' : null),
-          onTap: ranges.isNotEmpty
-              ? () async {
-                  final picked = await showEpisodeGridSheet(
-                    context: context,
-                    episodes: episodes,
-                    ranges: ranges,
-                    anchorEpisode: anchor,
-                    selectedEpisode: state.selectedEpisodeNumber,
-                  );
-                  if (picked == null || !mounted) return;
-                  setState(
-                    () => _activeRangeIndex = EpisodeRangesHelper.indexOf(picked),
-                  );
-                  await controller.selectEpisode(seasonNum, picked);
-                }
-              : (schedule != null ? openAirSheet : null),
-        ),
-        if (entry.seasons.length > 1) ...[
-          const SizedBox(height: 10),
-          SizedBox(
-            height: 36,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(
-                horizontal: McTokens.pagePadding,
-              ),
-              itemCount: entry.seasons.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (_, i) {
-                final s = entry.seasons[i];
-                final label = s.name ??
-                    (s.number == 0 ? '特别篇' : '第 ${s.number} 季');
-                return McChip(
-                  label: label,
-                  selected: state.selectedSeason == s.number,
-                  onTap: () {
-                    setState(() => _activeRangeIndex = null);
-                    controller.loadSeason(s.number);
+    return [
+      SliverToBoxAdapter(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 20),
+            McSectionHeader(
+              title: '剧集',
+              countLabel: episodes.isNotEmpty
+                  ? '${episodes.where((e) => e.owned).length}/${episodes.length}'
+                  : null,
+              trailingText: ranges.isNotEmpty
+                  ? '全部 ${episodes.length} 集'
+                  : (schedule != null ? '播出日历' : null),
+              onTap: ranges.isNotEmpty
+                  ? () async {
+                      final picked = await showEpisodeGridSheet(
+                        context: context,
+                        episodes: episodes,
+                        ranges: ranges,
+                        anchorEpisode: anchor,
+                        selectedEpisode: state.selectedEpisodeNumber,
+                      );
+                      if (picked == null || !mounted) return;
+                      setState(
+                        () => _activeRangeIndex =
+                            EpisodeRangesHelper.indexOf(picked),
+                      );
+                      await controller.selectEpisode(seasonNum, picked);
+                    }
+                  : (schedule != null ? openAirSheet : null),
+            ),
+            if (entry.seasons.length > 1) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 36,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: McTokens.pagePadding,
+                  ),
+                  itemCount: entry.seasons.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (_, i) {
+                    final s = entry.seasons[i];
+                    final label = s.name ??
+                        (s.number == 0 ? '特别篇' : '第 ${s.number} 季');
+                    return McChip(
+                      label: label,
+                      selected: state.selectedSeason == s.number,
+                      onTap: () {
+                        setState(() => _activeRangeIndex = null);
+                        controller.loadSeason(s.number);
+                      },
+                    );
                   },
-                );
-              },
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            if (schedule != null || state.airSchedule != null)
+              AirSchedule(
+                schedule: schedule,
+                legacyBanner: state.airSchedule,
+                episodes: episodes,
+                onOpenSheet: schedule != null ? openAirSheet : null,
+              ),
+            if (ranges.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              EpisodeRangeChips(
+                ranges: ranges,
+                currentIndex: currentRangeIndex,
+                anchorEpisode: anchor,
+                onSelect: (r) {
+                  setState(() => _activeRangeIndex = r.index);
+                  final targetEp =
+                      EpisodeRangesHelper.entryOf(r, anchor: anchor);
+                  controller.selectEpisode(seasonNum, targetEp);
+                },
+              ),
+              const SizedBox(height: 6),
+            ] else if (schedule == null)
+              EpisodeRanges(episodes: episodes),
+          ],
+        ),
+      ),
+      if (state.episodesLoading && episodes.isEmpty)
+        const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: CircularProgressIndicator(color: McTokens.accent),
             ),
           ),
-        ],
-        const SizedBox(height: 8),
-        if (schedule != null || state.airSchedule != null)
-          AirSchedule(
-            schedule: schedule,
-            legacyBanner: state.airSchedule,
-            episodes: episodes,
-            onOpenSheet: schedule != null ? openAirSheet : null,
-          ),
-        if (ranges.isNotEmpty) ...[
-          const SizedBox(height: 4),
-          EpisodeRangeChips(
-            ranges: ranges,
-            currentIndex: currentRangeIndex,
-            anchorEpisode: anchor,
-            onSelect: (r) {
-              setState(() => _activeRangeIndex = r.index);
-              final targetEp = EpisodeRangesHelper.entryOf(r, anchor: anchor);
-              controller.selectEpisode(seasonNum, targetEp);
-            },
-          ),
-          const SizedBox(height: 6),
-        ] else if (schedule == null)
-          EpisodeRanges(episodes: episodes),
-        if (state.episodesLoading && episodes.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: Center(child: CircularProgressIndicator(color: McTokens.accent)),
-          )
-        else
-          EpisodeList(
-            mediaItemId: entry.id,
-            episodes: episodes,
-            selectedEpisodeNumber: state.selectedEpisodeNumber,
-            anchorEpisode: anchor,
-            airSchedule: schedule,
-            activeRangeIndex: ranges.isNotEmpty ? currentRangeIndex : null,
-            onRangeChanged: (r) {
-              setState(() => _activeRangeIndex = r.index);
-              final targetEp = EpisodeRangesHelper.entryOf(r, anchor: anchor);
-              controller.selectEpisode(seasonNum, targetEp);
-            },
-            onEpisodeSelect: (ep) =>
-                controller.selectEpisode(ep.seasonNumber, ep.episodeNumber),
-            onEpisodeTap: _playEpisode,
-            onTogglePlayed: (ep) async {
-              final err = await controller.toggleEpisodePlayed(ep);
-              if (!mounted) return;
-              if (err != null) {
-                McToast.error(err);
-              } else {
-                McToast.success(ep.played ? '已标为未看' : '已标为看完');
+        )
+      else
+        SliverEpisodeList(
+          mediaItemId: entry.id,
+          episodes: episodes,
+          selectedEpisodeNumber: state.selectedEpisodeNumber,
+          anchorEpisode: anchor,
+          airSchedule: schedule,
+          activeRangeIndex: ranges.isNotEmpty ? currentRangeIndex : null,
+          onRangeChanged: (r) {
+            setState(() => _activeRangeIndex = r.index);
+            final targetEp = EpisodeRangesHelper.entryOf(r, anchor: anchor);
+            controller.selectEpisode(seasonNum, targetEp);
+          },
+          onEpisodeSelect: (ep) =>
+              controller.selectEpisode(ep.seasonNumber, ep.episodeNumber),
+          onEpisodeTap: _playEpisode,
+          onTogglePlayed: (ep) async {
+            final err = await controller.toggleEpisodePlayed(ep);
+            if (!mounted) return;
+            if (err != null) {
+              McToast.error(err);
+            } else {
+              McToast.success(ep.played ? '已标为未看' : '已标为看完');
+            }
+          },
+          onDownloadEpisode: (ep) {
+            if (ep.playFileId == null) {
+              McToast.error('该集无在位文件');
+              return;
+            }
+            _download(
+              specificFileId: ep.playFileId,
+              episodeSubtitle:
+                  'S${ep.seasonNumber.toString().padLeft(2, '0')}E${ep.episodeNumber.toString().padLeft(2, '0')}',
+            );
+          },
+          onSubtitleEpisode: (ep) {
+            if (ep.playFileId == null) {
+              McToast.error('该集无在位文件');
+              return;
+            }
+            DetailFileInfo? epFile;
+            for (final f in entry.files) {
+              if (f.id == ep.playFileId) {
+                epFile = f;
+                break;
               }
-            },
-            onDownloadEpisode: (ep) {
-              if (ep.playFileId == null) {
-                McToast.error('该集无在位文件');
-                return;
-              }
-              _download(
-                specificFileId: ep.playFileId,
-                episodeSubtitle:
-                    'S${ep.seasonNumber.toString().padLeft(2, '0')}E${ep.episodeNumber.toString().padLeft(2, '0')}',
-              );
-            },
-            onSubtitleEpisode: (ep) {
-              if (ep.playFileId == null) {
-                McToast.error('该集无在位文件');
-                return;
-              }
-              DetailFileInfo? epFile;
-              for (final f in entry.files) {
-                if (f.id == ep.playFileId) {
-                  epFile = f;
-                  break;
-                }
-              }
-              showSubtitleGenSheet(
-                context: context,
-                controller: controller,
-                fileId: ep.playFileId,
-                file: epFile,
-                label:
-                    'S${ep.seasonNumber.toString().padLeft(2, '0')}E${ep.episodeNumber.toString().padLeft(2, '0')}',
-              );
-            },
-          ),
-      ],
-    );
+            }
+            showSubtitleGenSheet(
+              context: context,
+              controller: controller,
+              fileId: ep.playFileId,
+              file: epFile,
+              label:
+                  'S${ep.seasonNumber.toString().padLeft(2, '0')}E${ep.episodeNumber.toString().padLeft(2, '0')}',
+            );
+          },
+        ),
+    ];
   }
 
   Widget _buildRelatedAndFiles(
@@ -1000,7 +1027,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(detailControllerProvider(_key));
-    if (state.loading && state.entry == null) {
+    if (state.entry == null && (state.loading || state.error == null)) {
       return Scaffold(
         backgroundColor: McTokens.bg,
         body: Stack(
@@ -1040,13 +1067,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
         ),
       );
     }
-    final entry = state.entry;
-    if (entry == null) {
-      return const Scaffold(
-        backgroundColor: McTokens.bg,
-        body: SizedBox.shrink(),
-      );
-    }
+    final entry = state.entry!;
 
     _ensureEdgeColor(entry);
     final ambient = _edgeColor ?? McTokens.bg;
@@ -1054,58 +1075,83 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     final episodes = state.currentSeasonEpisodes;
     final form = McFormWatch.of(context);
     final wide = form != McDeviceForm.phone;
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
     final plot = entry.isTv
         ? (state.selectedEpisode?.overview ?? entry.overview)
         : entry.overview;
 
     final Widget scrollBody = wide
-        ? ListView(
-            padding: const EdgeInsets.only(bottom: 52),
+        ? CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            children: [
-              DetailHeader(
-                entry: entry,
-                selectedEpisode: state.selectedEpisode,
-                activeFile: state.activeTrackFile,
-                ambientColor: ambient,
-                scrollOffset: _scrollOffset,
+            slivers: [
+              SliverToBoxAdapter(
+                child: DetailHeader(
+                  entry: entry,
+                  selectedEpisode: state.selectedEpisode,
+                  activeFile: state.activeTrackFile,
+                  ambientColor: ambient,
+                  scrollOffsetListenable: _scrollOffset,
+                ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
                   McTokens.pagePaddingWide,
                   18,
-                  McTokens.pagePaddingWide,
-                  0,
+                  McTokens.pagePaddingWide - McTokens.pagePadding,
+                  52 + bottomPad,
                 ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 340,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildActionZone(state, controller, wide: true),
-                          const SizedBox(height: 16),
-                          _buildMetaAndTracks(entry, state, controller),
-                        ],
+                sliver: SliverCrossAxisGroup(
+                  slivers: [
+                    SliverConstrainedCrossAxis(
+                      maxExtent: 340,
+                      sliver: SliverToBoxAdapter(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildActionZone(state, controller, wide: true),
+                            const SizedBox(height: 16),
+                            _buildMetaAndTracks(entry, state, controller),
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 28),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (plot != null && plot.isNotEmpty)
-                            _Overview(
-                              text: plot,
-                              expanded: state.overviewExpanded,
-                              onToggle: controller.toggleOverview,
+                    SliverCrossAxisExpanded(
+                      flex: 1,
+                      sliver: SliverPadding(
+                        padding: const EdgeInsets.only(
+                          left: 28 - McTokens.pagePadding,
+                        ),
+                        sliver: SliverMainAxisGroup(
+                          slivers: [
+                            if (plot != null && plot.isNotEmpty)
+                              SliverToBoxAdapter(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: McTokens.pagePadding,
+                                  ),
+                                  child: _Overview(
+                                    text: plot,
+                                    expanded: state.overviewExpanded,
+                                    onToggle: controller.toggleOverview,
+                                  ),
+                                ),
+                              ),
+                            if (entry.isTv)
+                              ..._buildTvSeasonSlivers(
+                                entry,
+                                state,
+                                controller,
+                                episodes,
+                              ),
+                            SliverToBoxAdapter(
+                              child: _buildRelatedAndFiles(
+                                entry,
+                                state,
+                                controller,
+                              ),
                             ),
-                          if (entry.isTv)
-                            _buildTvSeasons(entry, state, controller, episodes),
-                          _buildRelatedAndFiles(entry, state, controller),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -1113,54 +1159,67 @@ class _DetailPageState extends ConsumerState<DetailPage> {
               ),
             ],
           )
-        : ListView(
-            padding: const EdgeInsets.only(bottom: 52),
+        : CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            children: [
-              DetailHeader(
-                entry: entry,
-                selectedEpisode: state.selectedEpisode,
-                activeFile: state.activeTrackFile,
-                ambientColor: ambient,
-                scrollOffset: _scrollOffset,
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  McTokens.pagePadding,
-                  14,
-                  McTokens.pagePadding,
-                  0,
-                ),
-                child: Center(
-                  child: _buildActionZone(state, controller, wide: false),
+            slivers: [
+              SliverToBoxAdapter(
+                child: DetailHeader(
+                  entry: entry,
+                  selectedEpisode: state.selectedEpisode,
+                  activeFile: state.activeTrackFile,
+                  ambientColor: ambient,
+                  scrollOffsetListenable: _scrollOffset,
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  McTokens.pagePadding,
-                  14,
-                  McTokens.pagePadding,
-                  0,
+              SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        McTokens.pagePadding,
+                        14,
+                        McTokens.pagePadding,
+                        0,
+                      ),
+                      child: Center(
+                        child: _buildActionZone(state, controller, wide: false),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        McTokens.pagePadding,
+                        14,
+                        McTokens.pagePadding,
+                        0,
+                      ),
+                      child: _buildMetaAndTracks(entry, state, controller),
+                    ),
+                    if (plot != null && plot.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          McTokens.pagePadding,
+                          14,
+                          McTokens.pagePadding,
+                          0,
+                        ),
+                        child: _Overview(
+                          text: plot,
+                          expanded: state.overviewExpanded,
+                          onToggle: controller.toggleOverview,
+                        ),
+                      ),
+                  ],
                 ),
-                child: _buildMetaAndTracks(entry, state, controller),
               ),
-              if (plot != null && plot.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    McTokens.pagePadding,
-                    14,
-                    McTokens.pagePadding,
-                    0,
-                  ),
-                  child: _Overview(
-                    text: plot,
-                    expanded: state.overviewExpanded,
-                    onToggle: controller.toggleOverview,
-                  ),
-                ),
               if (entry.isTv)
-                _buildTvSeasons(entry, state, controller, episodes),
-              _buildRelatedAndFiles(entry, state, controller),
+                ..._buildTvSeasonSlivers(entry, state, controller, episodes),
+              SliverToBoxAdapter(
+                child: _buildRelatedAndFiles(entry, state, controller),
+              ),
+              SliverPadding(
+                padding: EdgeInsets.only(bottom: 52 + bottomPad),
+              ),
             ],
           );
 
@@ -1172,7 +1231,14 @@ class _DetailPageState extends ConsumerState<DetailPage> {
           NotificationListener<ScrollNotification>(
             onNotification: (n) {
               if (n.metrics.axis == Axis.vertical && n.depth == 0) {
-                setState(() => _scrollOffset = n.metrics.pixels);
+                final px = n.metrics.pixels;
+                if (_scrollOffset.value != px) {
+                  _scrollOffset.value = px;
+                }
+                final showTitle = px > 220;
+                if (_titleVisible.value != showTitle) {
+                  _titleVisible.value = showTitle;
+                }
               }
               return false;
             },
@@ -1188,35 +1254,38 @@ class _DetailPageState extends ConsumerState<DetailPage> {
             top: 0,
             left: 0,
             right: 0,
-            child: McFloatingDetailBar(
-              onBack: _back,
-              title: entry.title,
-              titleVisible: _scrollOffset > 220,
-              trailing: [
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    McGlassIconButton(
-                      icon: McIcons.more,
-                      tooltip: '更多操作',
-                      onTap: () => _showActionMenu(controller),
-                    ),
-                    if (entry.scraping)
-                      Positioned(
-                        right: 4,
-                        top: 4,
-                        child: Container(
-                          width: 7,
-                          height: 7,
-                          decoration: const BoxDecoration(
-                            color: McTokens.info,
-                            shape: BoxShape.circle,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _titleVisible,
+              builder: (_, titleVisible, __) => McFloatingDetailBar(
+                onBack: _back,
+                title: entry.title,
+                titleVisible: titleVisible,
+                trailing: [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      McGlassIconButton(
+                        icon: McIcons.more,
+                        tooltip: '更多操作',
+                        onTap: () => _showActionMenu(controller),
+                      ),
+                      if (entry.scraping)
+                        Positioned(
+                          right: 4,
+                          top: 4,
+                          child: Container(
+                            width: 7,
+                            height: 7,
+                            decoration: const BoxDecoration(
+                              color: McTokens.info,
+                              shape: BoxShape.circle,
+                            ),
                           ),
                         ),
-                      ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ],

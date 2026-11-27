@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -54,7 +55,7 @@ class _DiscoverCollectionPageState
   String? _error;
   String _query = '';
   final List<String> _selectedGenres = [];
-  double _scrollOffset = 0;
+  final ValueNotifier<double> _scrollOffset = ValueNotifier<double>(0);
 
   String get _provider {
     final parts = widget.collectionRef.split(':');
@@ -106,6 +107,7 @@ class _DiscoverCollectionPageState
 
   @override
   void dispose() {
+    _scrollOffset.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -208,6 +210,7 @@ class _DiscoverCollectionPageState
   @override
   Widget build(BuildContext context) {
     final topPad = MediaQuery.paddingOf(context).top;
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
     final form = McFormWatch.of(context);
     final pad = form == McDeviceForm.phone
         ? McTokens.pagePadding
@@ -225,9 +228,7 @@ class _DiscoverCollectionPageState
           NotificationListener<ScrollNotification>(
             onNotification: (n) {
               if (n.metrics.axis == Axis.vertical && n.depth == 0) {
-                if ((n.metrics.pixels - _scrollOffset).abs() > 4) {
-                  setState(() => _scrollOffset = n.metrics.pixels);
-                }
+                _scrollOffset.value = n.metrics.pixels;
                 if (n.metrics.extentAfter < 500 && !_filteringLoaded) {
                   _loadNextPage();
                 }
@@ -298,8 +299,9 @@ class _DiscoverCollectionPageState
                                     width: 1,
                                   ),
                                 ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
+                                padding: EdgeInsets.only(
+                                  left: 14,
+                                  right: _query.isNotEmpty ? 0 : 14,
                                 ),
                                 child: Row(
                                   children: [
@@ -334,15 +336,30 @@ class _DiscoverCollectionPageState
                                       ),
                                     ),
                                     if (_query.isNotEmpty)
-                                      GestureDetector(
-                                        onTap: () {
-                                          _searchCtrl.clear();
-                                          setState(() => _query = '');
-                                        },
-                                        child: const Icon(
-                                          McIcons.close,
-                                          size: 15,
-                                          color: McTokens.textMuted,
+                                      Tooltip(
+                                        message: '清空筛选',
+                                        child: Semantics(
+                                          button: true,
+                                          label: '清空筛选',
+                                          child: GestureDetector(
+                                            behavior: HitTestBehavior.opaque,
+                                            onTap: () {
+                                              HapticFeedback.selectionClick();
+                                              _searchCtrl.clear();
+                                              setState(() => _query = '');
+                                            },
+                                            child: const SizedBox(
+                                              width: 40,
+                                              height: 40,
+                                              child: Center(
+                                                child: Icon(
+                                                  McIcons.close,
+                                                  size: 15,
+                                                  color: McTokens.textMuted,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
                                         ),
                                       ),
                                   ],
@@ -512,13 +529,21 @@ class _DiscoverCollectionPageState
                                               ref,
                                               titleRef: t.ref,
                                             );
-                                            if (out != null) {
-                                              ref
-                                                  .read(
-                                                    discoverSubscriptionIndexProvider
-                                                        .notifier,
-                                                  )
-                                                  .refresh();
+                                            if (!mounted || out == null) return;
+                                            ref
+                                                .read(
+                                                  discoverSubscriptionIndexProvider
+                                                      .notifier,
+                                                )
+                                                .refresh();
+                                            if (out ==
+                                                SubscribeSheetOutcome.created) {
+                                              McToast.success('已加入追更订阅');
+                                            } else if (out ==
+                                                SubscribeSheetOutcome.managed) {
+                                              this.context.push(
+                                                    '/subscriptions',
+                                                  );
                                             }
                                           },
                                         ),
@@ -596,7 +621,9 @@ class _DiscoverCollectionPageState
                             ),
                           ),
                         ),
-                      const SliverToBoxAdapter(child: SizedBox(height: 40)),
+                      SliverToBoxAdapter(
+                        child: SizedBox(height: 40 + bottomPad),
+                      ),
                     ],
                   ),
                 );
@@ -607,10 +634,13 @@ class _DiscoverCollectionPageState
             top: 0,
             left: 0,
             right: 0,
-            child: McFloatingDetailBar(
-              onBack: _back,
-              title: _title,
-              titleVisible: _scrollOffset > 56,
+            child: ValueListenableBuilder<double>(
+              valueListenable: _scrollOffset,
+              builder: (_, offset, __) => McFloatingDetailBar(
+                onBack: _back,
+                title: _title,
+                titleVisible: offset > 56,
+              ),
             ),
           ),
         ],

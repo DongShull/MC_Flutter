@@ -48,7 +48,10 @@ class SectionPicker extends StatelessWidget {
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
                   curve: Curves.easeOutCubic,
-                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 9,
+                  ),
                   decoration: i == selected
                       ? McGlass.decoration(
                           McGlassTone.strong,
@@ -88,16 +91,21 @@ class SectionPicker extends StatelessWidget {
                             ),
                         ],
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        labels[i],
-                        style: McText.sub.copyWith(
-                          color: i == selected
-                              ? McTokens.text
-                              : McTokens.textMuted,
-                          fontWeight: i == selected
-                              ? FontWeight.w600
-                              : FontWeight.w500,
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          labels[i],
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          softWrap: false,
+                          style: McText.sub.copyWith(
+                            color: i == selected
+                                ? McTokens.text
+                                : McTokens.textMuted,
+                            fontWeight: i == selected
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                          ),
                         ),
                       ),
                     ],

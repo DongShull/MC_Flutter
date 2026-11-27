@@ -73,6 +73,8 @@ class McCommandPaletteHost extends ConsumerStatefulWidget {
 class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
   final TextEditingController _inputCtrl = TextEditingController();
   final FocusNode _inputFocus = FocusNode();
+  final ScrollController _listScrollCtrl = ScrollController();
+  final Map<int, GlobalKey> _itemKeys = <int, GlobalKey>{};
   _PaletteVertical _vertical = _PaletteVertical.media;
   int _selectedIndex = 0;
   bool _loading = false;
@@ -92,7 +94,38 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
     _debounce?.cancel();
     _inputCtrl.dispose();
     _inputFocus.dispose();
+    _listScrollCtrl.dispose();
     super.dispose();
+  }
+
+  void _scrollSelectedIntoView(int totalCount) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_listScrollCtrl.hasClients || totalCount <= 0) return;
+      final idx = _selectedIndex.clamp(0, totalCount - 1);
+      final keyCtx = _itemKeys[idx]?.currentContext;
+      if (keyCtx != null) {
+        Scrollable.ensureVisible(
+          keyCtx,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOutCubic,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+        );
+        Scrollable.ensureVisible(
+          keyCtx,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOutCubic,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+        );
+        return;
+      }
+      final pos = _listScrollCtrl.position;
+      final estimated = (idx * 56.0).clamp(0.0, pos.maxScrollExtent);
+      _listScrollCtrl.animateTo(
+        estimated,
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   void _onVisibilityChanged() {
@@ -389,6 +422,7 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
       }
       if (key == LogicalKeyboardKey.arrowDown && items.isNotEmpty) {
         setState(() => _selectedIndex = (_selectedIndex + 1) % items.length);
+        _scrollSelectedIntoView(items.length);
         return KeyEventResult.handled;
       }
       if (key == LogicalKeyboardKey.arrowUp && items.isNotEmpty) {
@@ -396,6 +430,7 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
           () => _selectedIndex =
               (_selectedIndex - 1 + items.length) % items.length,
         );
+        _scrollSelectedIntoView(items.length);
         return KeyEventResult.handled;
       }
       if (key == LogicalKeyboardKey.enter && items.isNotEmpty) {
@@ -461,18 +496,25 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
                 child: ColoredBox(
                   color: const Color(0xA6000000),
                   child: SafeArea(
-                    child: Align(
-                      alignment: const Alignment(0, -0.55),
-                      child: GestureDetector(
-                        onTap: () {},
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            maxWidth: 620,
-                            maxHeight: 520,
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: _buildPaletteCard(items, perms),
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        top: 12,
+                        bottom: MediaQuery.viewInsetsOf(context).bottom + 12,
+                      ),
+                      child: Align(
+                        alignment: const Alignment(0, -0.55),
+                        child: GestureDetector(
+                          onTap: () {},
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxWidth: 620,
+                              maxHeight: 520,
+                            ),
+                            child: Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              child: _buildPaletteCard(items, perms),
+                            ),
                           ),
                         ),
                       ),
@@ -609,6 +651,7 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
                 const Divider(height: 1, color: McTokens.line),
                 Flexible(
                   child: ListView.builder(
+                    controller: _listScrollCtrl,
                     shrinkWrap: true,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 10,
@@ -618,10 +661,13 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
                     itemBuilder: (context, i) {
                       final item = items[i];
                       final active = i == _selectedIndex;
+                      final itemKey =
+                          _itemKeys.putIfAbsent(i, GlobalKey.new);
                       final poster = item.posterUrl == null
                           ? ''
                           : McImageUrls.resolve(item.posterUrl, widthPx: 160);
                       return McPressable(
+                        key: itemKey,
                         onTap: item.onActivate,
                         child: Container(
                           padding: const EdgeInsets.symmetric(

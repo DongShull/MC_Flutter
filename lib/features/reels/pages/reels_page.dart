@@ -13,7 +13,6 @@ import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
-import '../../../core/effects/mc_stretch.dart';
 import '../../../core/network/server_routes.dart';
 import '../../../core/player/player_page_args.dart';
 import '../state/controllers.dart';
@@ -387,42 +386,39 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
               onRetry: state.filter.isActive ? controller.clearFilter : null,
             )
           else
-            McStretchContainer(
-              axis: Axis.vertical,
-              child: PageView.builder(
-                controller: _pageController,
-                scrollDirection: Axis.vertical,
-                itemCount: state.items.length,
-                onPageChanged: (index) {
-                  setState(() => _currentIndex = index);
-                  _activateCurrent(index);
-                  controller.loadMoreIfNeeded(index);
-                },
-                itemBuilder: (context, index) {
-                  final item = state.items[index];
-                  final isCurrent = index == _currentIndex;
-                  final session = _activeSession?.item.id == item.id
-                      ? _activeSession
-                      : (_standbySession?.item.id == item.id
-                          ? _standbySession
-                          : null);
-                  return ReelPage(
-                    item: item,
-                    active: isCurrent,
-                    session: session,
-                    qualityMaxHeight: state.qualityMaxHeight,
-                    favorite: controller.isFavorite(item),
-                    played: controller.isPlayed(item),
-                    onToggleFavorite: () => controller.toggleFavorite(item),
-                    onTogglePlayed: () => controller.togglePlayed(item),
-                    onOpenDetail: () => _openDetail(item),
-                    onShare: () => _share(item),
-                    onFullscreen: () => _openFullscreen(item),
-                    onPickQuality: _changeQuality,
-                    onOpenPerson: _openPerson,
-                  );
-                },
-              ),
+            PageView.builder(
+              controller: _pageController,
+              scrollDirection: Axis.vertical,
+              itemCount: state.items.length,
+              onPageChanged: (index) {
+                setState(() => _currentIndex = index);
+                _activateCurrent(index);
+                controller.loadMoreIfNeeded(index);
+              },
+              itemBuilder: (context, index) {
+                final item = state.items[index];
+                final isCurrent = index == _currentIndex;
+                final session = _activeSession?.item.id == item.id
+                    ? _activeSession
+                    : (_standbySession?.item.id == item.id
+                        ? _standbySession
+                        : null);
+                return ReelPage(
+                  item: item,
+                  active: isCurrent,
+                  session: session,
+                  qualityMaxHeight: state.qualityMaxHeight,
+                  favorite: controller.isFavorite(item),
+                  played: controller.isPlayed(item),
+                  onToggleFavorite: () => controller.toggleFavorite(item),
+                  onTogglePlayed: () => controller.togglePlayed(item),
+                  onOpenDetail: () => _openDetail(item),
+                  onShare: () => _share(item),
+                  onFullscreen: () => _openFullscreen(item),
+                  onPickQuality: _changeQuality,
+                  onOpenPerson: _openPerson,
+                );
+              },
             ),
 
           if (_notice != null)
@@ -534,41 +530,58 @@ class _ReelsPageState extends ConsumerState<ReelsPage> {
   }
 
   Widget _filterCapsule(ReelsState state, ReelsController controller) {
-    return McFocusRing(
-      borderRadius: 22,
-      child: McPressable(
-        haptic: true,
-        onTap: () async {
-          final filter = await showReelFilterSheet(context, state);
-          if (filter != null && filter != state.filter) {
-            _teardownPlayers(recordLeave: true);
-            controller.applyFilter(filter);
-          }
-        },
-        child: McLiquidGlass(
-          tone: state.filter.isActive
-              ? McGlassTone.strong
-              : McGlassTone.regular,
-          radius: McTokens.pillRadius,
-          withShadow: false,
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                filterLabel(state.filter, state.facets),
-                style: McText.caption.copyWith(
-                  color: McTokens.text,
-                  fontWeight: FontWeight.w600,
-                ),
+    return Tooltip(
+      message: '筛选片段',
+      child: Semantics(
+        button: true,
+        label: '筛选片段',
+        child: McFocusRing(
+          borderRadius: 22,
+          child: McPressable(
+            haptic: true,
+            onTap: () async {
+              final session = _activeSession;
+              final wasPlaying = session != null &&
+                  !session.paused.value &&
+                  session.service.playing.value;
+              if (wasPlaying) {
+                unawaited(session.pause());
+              }
+              final filter = await showReelFilterSheet(context, state);
+              if (!mounted) return;
+              if (filter != null && filter != state.filter) {
+                _teardownPlayers(recordLeave: true);
+                controller.applyFilter(filter);
+              } else if (wasPlaying && _activeSession == session) {
+                unawaited(session.resume());
+              }
+            },
+            child: McLiquidGlass(
+              tone: state.filter.isActive
+                  ? McGlassTone.strong
+                  : McGlassTone.regular,
+              radius: McTokens.pillRadius,
+              withShadow: false,
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    filterLabel(state.filter, state.facets),
+                    style: McText.caption.copyWith(
+                      color: McTokens.text,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    McIcons.filterS,
+                    size: 14,
+                    color: McTokens.textMuted,
+                  ),
+                ],
               ),
-              const SizedBox(width: 4),
-              const Icon(
-                McIcons.filterS,
-                size: 14,
-                color: McTokens.textMuted,
-              ),
-            ],
+            ),
           ),
         ),
       ),

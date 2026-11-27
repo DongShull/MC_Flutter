@@ -17,6 +17,7 @@ import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/image/image_urls.dart';
+import '../../../core/l10n/mc_l10n.dart';
 import '../../../core/network/server_routes.dart';
 import '../../../core/platform/download_channel.dart';
 import '../../../core/session/permissions.dart';
@@ -576,6 +577,7 @@ class _AccountSwitcherSheetState extends ConsumerState<_AccountSwitcherSheet> {
                 icon: McIcons.close,
                 size: 32,
                 iconSize: 16,
+                tooltip: McL10n.of(context).close,
                 onTap: () => Navigator.of(context).pop(),
               ),
             ],
@@ -600,11 +602,15 @@ class _AccountSwitcherSheetState extends ConsumerState<_AccountSwitcherSheet> {
                               color: McTokens.textMuted,
                             ),
                             const SizedBox(width: 6),
-                            Text(
-                              ServerRoutes.hostLabelOf(entry.key),
-                              style: McText.caption.copyWith(
-                                color: McTokens.textMuted,
-                                fontWeight: FontWeight.w600,
+                            Flexible(
+                              child: Text(
+                                ServerRoutes.hostLabelOf(entry.key),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: McText.caption.copyWith(
+                                  color: McTokens.textMuted,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                             if (_serverUnreachable[entry.key] == true) ...[

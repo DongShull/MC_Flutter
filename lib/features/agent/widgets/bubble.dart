@@ -136,12 +136,14 @@ class BubbleView extends ConsumerWidget {
                       if (parsed.text.isNotEmpty) const SizedBox(height: 8),
                     ],
                     if (parsed.text.isNotEmpty)
-                      Text(
-                        parsed.text,
-                        style: McText.body.copyWith(
-                          color: McTokens.onAccent,
-                          fontWeight: FontWeight.w500,
-                          height: 1.45,
+                      SelectionArea(
+                        child: Text(
+                          parsed.text,
+                          style: McText.body.copyWith(
+                            color: McTokens.onAccent,
+                            fontWeight: FontWeight.w500,
+                            height: 1.45,
+                          ),
                         ),
                       ),
                   ],
@@ -674,14 +676,16 @@ class McAgentMarkdownView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final blocks = _parseBlocks(markdown);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (var i = 0; i < blocks.length; i++) ...[
-          if (i > 0) const SizedBox(height: 8),
-          _buildBlock(context, blocks[i]),
+    return SelectionArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < blocks.length; i++) ...[
+            if (i > 0) const SizedBox(height: 8),
+            _buildBlock(context, blocks[i]),
+          ],
         ],
-      ],
+      ),
     );
   }
 
@@ -728,54 +732,57 @@ class McAgentMarkdownView extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: const BoxDecoration(
-                  border: Border(bottom: BorderSide(color: McTokens.line)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      McIcons.codeBox,
-                      size: 13,
-                      color: McTokens.textMuted,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        block.lang.isEmpty ? 'code' : block.lang,
-                        style: McText.micro.muted,
+              SelectionContainer.disabled(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: const BoxDecoration(
+                    border: Border(bottom: BorderSide(color: McTokens.line)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        McIcons.codeBox,
+                        size: 13,
+                        color: McTokens.textMuted,
                       ),
-                    ),
-                    McPressable(
-                      onTap: () {
-                        Clipboard.setData(ClipboardData(text: block.text));
-                        McToast.success('代码已复制');
-                      },
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            McIcons.copy,
-                            size: 12,
-                            color: McTokens.accent,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '复制',
-                            style: McText.micro.copyWith(color: McTokens.accent),
-                          ),
-                        ],
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          block.lang.isEmpty ? 'code' : block.lang,
+                          style: McText.micro.muted,
+                        ),
                       ),
-                    ),
-                  ],
+                      McPressable(
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: block.text));
+                          McToast.success('代码已复制');
+                        },
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              McIcons.copy,
+                              size: 12,
+                              color: McTokens.accent,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '复制',
+                              style:
+                                  McText.micro.copyWith(color: McTokens.accent),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.all(12),
-                child: SelectableText(
+                child: Text(
                   block.text,
                   style: McText.body.copyWith(
                     fontFamily: 'monospace',
@@ -1285,7 +1292,7 @@ class _InlineMarkdownTextState extends State<_InlineMarkdownText> {
 
   @override
   Widget build(BuildContext context) {
-    return SelectableText.rich(TextSpan(children: _buildSpans(context)));
+    return Text.rich(TextSpan(children: _buildSpans(context)));
   }
 }
 

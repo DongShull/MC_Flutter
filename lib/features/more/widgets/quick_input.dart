@@ -10,6 +10,7 @@ import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
 import '../../../core/designsystem/theme.dart';
+import '../../../core/l10n/mc_l10n.dart';
 
 /// AI 快捷发起胶囊（`McAgentQuickBar`：一句话直接新建 AI 任务并跳入对话页）。
 class QuickInputCard extends ConsumerStatefulWidget {
@@ -52,6 +53,7 @@ class _QuickInputCardState extends ConsumerState<QuickInputCard> {
         throw StateError('missing session id');
       }
       _controller.clear();
+      if (mounted) setState(() {});
       context.push('/agent/session/$newId');
     } catch (_) {
       if (!mounted) return;
@@ -63,6 +65,10 @@ class _QuickInputCardState extends ConsumerState<QuickInputCard> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = McL10n.of(context);
+    final hasText = _controller.text.trim().isNotEmpty;
+    final canSend = hasText && !_sending;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         McTokens.pagePadding,
@@ -71,7 +77,7 @@ class _QuickInputCardState extends ConsumerState<QuickInputCard> {
         0,
       ),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 5, 6, 5),
+        padding: const EdgeInsets.fromLTRB(14, 3, 4, 3),
         decoration: BoxDecoration(
           color: McTokens.surfaceRaised,
           borderRadius: BorderRadius.circular(McTokens.pillRadius),
@@ -92,6 +98,7 @@ class _QuickInputCardState extends ConsumerState<QuickInputCard> {
                 minLines: 1,
                 maxLines: 3,
                 textInputAction: TextInputAction.send,
+                onChanged: (_) => setState(() {}),
                 onSubmitted: (_) => _send(),
                 style: McText.body,
                 decoration: InputDecoration(
@@ -106,32 +113,50 @@ class _QuickInputCardState extends ConsumerState<QuickInputCard> {
                 ),
               ),
             ),
-            const SizedBox(width: 6),
-            McPressable(
-              onTap: _sending ? null : _send,
-              haptic: true,
-              child: Container(
-                width: 34,
-                height: 34,
-                decoration: const BoxDecoration(
-                  color: McTokens.accentStrong,
-                  shape: BoxShape.circle,
-                ),
-                alignment: Alignment.center,
-                child: _sending
-                    ? const SizedBox(
-                        width: 15,
-                        height: 15,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: McTokens.onAccent,
+            const SizedBox(width: 2),
+            Semantics(
+              button: true,
+              enabled: canSend,
+              label: l10n.send,
+              child: Tooltip(
+                message: l10n.send,
+                child: McPressable(
+                  onTap: canSend ? _send : null,
+                  haptic: true,
+                  child: SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Center(
+                      child: AnimatedOpacity(
+                        opacity: (hasText || _sending) ? 1.0 : 0.35,
+                        duration: const Duration(milliseconds: 150),
+                        child: Container(
+                          width: 34,
+                          height: 34,
+                          decoration: const BoxDecoration(
+                            color: McTokens.accentStrong,
+                            shape: BoxShape.circle,
+                          ),
+                          alignment: Alignment.center,
+                          child: _sending
+                              ? const SizedBox(
+                                  width: 15,
+                                  height: 15,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: McTokens.onAccent,
+                                  ),
+                                )
+                              : const Icon(
+                                  McIcons.arrowUp,
+                                  size: 18,
+                                  color: McTokens.onAccent,
+                                ),
                         ),
-                      )
-                    : const Icon(
-                        McIcons.arrowUp,
-                        size: 18,
-                        color: McTokens.onAccent,
                       ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ],

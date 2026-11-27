@@ -56,7 +56,9 @@ enum _GestureIntent { undecided, scrub, adjust, hold, pinch, cancel }
 class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
   static const double _activatePx = 12;
   static const double _edgeGuardPx = 32;
+  static const double _horizontalEdgeGuardPx = 24;
   static const int _doubleTapWindowMs = 230;
+  static const double _doubleTapMaxDistancePx = 48;
   static const int _holdDelayMs = 500;
   static const double _fullSweepRatio = 0.6;
   static const double _adjustTopExclude = 0.12;
@@ -72,11 +74,58 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
   Timer? _holdTimer;
   Timer? _singleTapTimer;
   int _lastTapAt = 0;
+  Offset? _lastTapPos;
+
+  @override
+  void didUpdateWidget(covariant PlayerGestureLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.enabled && !widget.enabled) {
+      _cancelActiveGesture();
+    } else if (oldWidget.canHold && !widget.canHold) {
+      _holdTimer?.cancel();
+      _holdTimer = null;
+      if (_intent == _GestureIntent.hold) {
+        _intent = _GestureIntent.cancel;
+        widget.onHoldEnd();
+      }
+    }
+  }
+
+  void _cancelActiveGesture() {
+    _holdTimer?.cancel();
+    _holdTimer = null;
+    _singleTapTimer?.cancel();
+    _singleTapTimer = null;
+    _lastTapAt = 0;
+    _lastTapPos = null;
+    switch (_intent) {
+      case _GestureIntent.hold:
+        widget.onHoldEnd();
+      case _GestureIntent.scrub:
+        widget.onScrubEnd();
+      case _GestureIntent.adjust:
+        widget.onAdjustEnd();
+      case _GestureIntent.undecided:
+      case _GestureIntent.pinch:
+      case _GestureIntent.cancel:
+        break;
+    }
+    _intent = _GestureIntent.undecided;
+    _pointerId = null;
+    _activePointers.clear();
+    _pinchBaseDistance = null;
+    _pinchTriggered = false;
+  }
 
   bool _insideEdgeGuard(Offset p, Size size) =>
       p.dy > _edgeGuardPx && p.dy < size.height - _edgeGuardPx;
 
+  bool _insideHorizontalEdgeGuard(Offset p, Size size) =>
+      p.dx > _horizontalEdgeGuardPx &&
+      p.dx < size.width - _horizontalEdgeGuardPx;
+
   bool _insideAdjustBand(Offset p, Size size) {
+    if (size.height <= 0 || size.width <= 0) return false;
     final ratio = p.dy / size.height;
     final withinVertical =
         ratio >= _adjustTopExclude && ratio <= 1 - _adjustBottomExclude;
@@ -93,7 +142,8 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
 
   void _onDown(PointerDownEvent event, Size size) {
     if (!widget.enabled) return;
-    _activePointers[event.pointer] = event.position;
+    final localPos = event.localPosition;
+    _activePointers[event.pointer] = localPos;
 
     if (_activePointers.length == 2) {
       // 双指落下 -> 立即切为 pinch 意图，取消单击/长按/拖拽
@@ -110,7 +160,7 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
 
     if (_activePointers.length > 2) return;
 
-    _start = event.position;
+    _start = localPos;
     _intent = _GestureIntent.undecided;
     _isBrightness = false;
     if (!_insideEdgeGuard(_start, size)) return;
@@ -118,6 +168,7 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
     if (widget.canHold) {
       _holdTimer?.cancel();
       _holdTimer = Timer(const Duration(milliseconds: _holdDelayMs), () {
+        if (!mounted || !widget.enabled) return;
         if (_intent == _GestureIntent.undecided && _activePointers.length == 1) {
           _singleTapTimer?.cancel();
           _intent = _GestureIntent.hold;
@@ -128,8 +179,10 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
   }
 
   void _onMove(PointerMoveEvent event, Size size) {
+    if (!widget.enabled) return;
     if (!_activePointers.containsKey(event.pointer)) return;
-    _activePointers[event.pointer] = event.position;
+    final localPos = event.localPosition;
+    _activePointers[event.pointer] = localPos;
 
     if (_intent == _GestureIntent.pinch) {
       if (_activePointers.length >= 2 &&
@@ -150,16 +203,19 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
     }
 
     if (_pointerId != event.pointer) return;
-    final position = event.position;
     if (_intent == _GestureIntent.undecided) {
-      final dx = position.dx - _start.dx;
-      final dy = position.dy - _start.dy;
+      final dx = localPos.dx - _start.dx;
+      final dy = localPos.dy - _start.dy;
       if (math.sqrt(dx * dx + dy * dy) > _activatePx) {
         _holdTimer?.cancel();
         _singleTapTimer?.cancel();
         if (dx.abs() >= dy.abs()) {
-          _intent = _GestureIntent.scrub;
-          widget.onScrubStart();
+          if (_insideHorizontalEdgeGuard(_start, size)) {
+            _intent = _GestureIntent.scrub;
+            widget.onScrubStart();
+          } else {
+            _intent = _GestureIntent.cancel;
+          }
         } else if (_insideAdjustBand(_start, size)) {
           _intent = _GestureIntent.adjust;
           _isBrightness = _start.dx < size.width / 2;
@@ -171,12 +227,16 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
     }
     switch (_intent) {
       case _GestureIntent.scrub:
-        widget.onScrubTo((position.dx - _start.dx) / size.width);
+        if (size.width > 0) {
+          widget.onScrubTo((localPos.dx - _start.dx) / size.width);
+        }
       case _GestureIntent.adjust:
-        widget.onAdjust(
-          _isBrightness,
-          -(position.dy - _start.dy) / (size.height * _fullSweepRatio),
-        );
+        if (size.height > 0) {
+          widget.onAdjust(
+            _isBrightness,
+            -(localPos.dy - _start.dy) / (size.height * _fullSweepRatio),
+          );
+        }
       default:
         break;
     }
@@ -209,8 +269,22 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
       return;
     }
     if (_pointerId != event.pointer) return;
-    _intent = _GestureIntent.cancel;
-    _finish(size);
+    _holdTimer?.cancel();
+    _holdTimer = null;
+    _pointerId = null;
+    switch (_intent) {
+      case _GestureIntent.hold:
+        widget.onHoldEnd();
+      case _GestureIntent.scrub:
+        widget.onScrubEnd();
+      case _GestureIntent.adjust:
+        widget.onAdjustEnd();
+      case _GestureIntent.undecided:
+      case _GestureIntent.pinch:
+      case _GestureIntent.cancel:
+        break;
+    }
+    _intent = _GestureIntent.undecided;
   }
 
   void _finish(Size size) {
@@ -226,20 +300,28 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
         widget.onAdjustEnd();
       case _GestureIntent.undecided:
         final now = DateTime.now().millisecondsSinceEpoch;
-        final isDouble = now - _lastTapAt <= _doubleTapWindowMs;
+        final isDouble = _lastTapAt > 0 &&
+            now - _lastTapAt <= _doubleTapWindowMs &&
+            _lastTapPos != null &&
+            (_start - _lastTapPos!).distance <= _doubleTapMaxDistancePx;
         if (isDouble) {
           _singleTapTimer?.cancel();
           _singleTapTimer = null;
           _lastTapAt = 0;
-          widget.onDoubleTap((_start.dx / size.width).clamp(0.0, 1.0));
+          _lastTapPos = null;
+          final ratio =
+              size.width > 0 ? (_start.dx / size.width).clamp(0.0, 1.0) : 0.5;
+          widget.onDoubleTap(ratio);
         } else {
           _lastTapAt = now;
+          _lastTapPos = _start;
           _singleTapTimer?.cancel();
           _singleTapTimer = Timer(
             const Duration(milliseconds: _doubleTapWindowMs),
             () {
               if (!mounted) return;
               _lastTapAt = 0;
+              _lastTapPos = null;
               widget.onTap();
             },
           );

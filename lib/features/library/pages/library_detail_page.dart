@@ -50,21 +50,24 @@ class LibraryDetailPage extends ConsumerStatefulWidget {
 class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
   final ScrollController _scroll = ScrollController();
   LibraryIndexEntry? _activeIndexEntry;
+  String? _lastIndexLetter;
   int? _recallOffset;
   bool _offeredRecall = false;
   int _lastRecordedOffset = -1;
   int _galleryStart = 0;
   PhotoWallJump? _photoJump;
   bool _didAutoOpenPending = false;
-
-  LibraryDetailArg get _arg =>
-      LibraryDetailArg(libraryId: widget.libraryId, initialQuery: widget.query);
+  late LibraryDetailArg _arg;
 
   String get _recallScope => 'library:${widget.libraryId}';
 
   @override
   void initState() {
     super.initState();
+    _arg = LibraryDetailArg(
+      libraryId: widget.libraryId,
+      initialQuery: Map<String, String>.unmodifiable(widget.query),
+    );
     Future.microtask(() {
       ref.read(libraryDetailProvider(_arg).notifier);
       if (widget.query['pending'] == '1' && !_didAutoOpenPending) {
@@ -74,6 +77,18 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
         });
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant LibraryDetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final nextArg = LibraryDetailArg(
+      libraryId: widget.libraryId,
+      initialQuery: Map<String, String>.unmodifiable(widget.query),
+    );
+    if (nextArg != _arg) {
+      _arg = nextArg;
+    }
   }
 
   @override
@@ -314,12 +329,15 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
   }
 
   Future<void> _jumpToEntry(LibraryIndexEntry entry, int cols) async {
+    if (_lastIndexLetter == entry.initial) return;
+    _lastIndexLetter = entry.initial;
     setState(() => _activeIndexEntry = entry);
     HapticFeedback.selectionClick();
     if (entry.count == 0) {
       Future<void>.delayed(const Duration(milliseconds: 550), () {
         if (mounted && _activeIndexEntry?.initial == entry.initial) {
           setState(() => _activeIndexEntry = null);
+          if (_lastIndexLetter == entry.initial) _lastIndexLetter = null;
         }
       });
       return;
@@ -341,6 +359,7 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
     Future<void>.delayed(const Duration(milliseconds: 650), () {
       if (mounted && _activeIndexEntry?.initial == entry.initial) {
         setState(() => _activeIndexEntry = null);
+        if (_lastIndexLetter == entry.initial) _lastIndexLetter = null;
       }
     });
   }
@@ -539,37 +558,51 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
   Widget _buildPhotoBody(LibraryView library, LibraryDetailState state) {
     final notifier = ref.read(libraryDetailProvider(_arg).notifier);
     final grouped = state.filter.sort != 'added_at';
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
     return RefreshIndicator(
       onRefresh: () async {
         await notifier.refreshLibraryMeta();
         await notifier.reload();
       },
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(
+      child: PhotoWallView(
+        libraryId: widget.libraryId,
+        reloadKey: state.filter.filterKey,
+        grouped: grouped,
+        refreshToken: state.photoRefreshToken,
+        jumpRequest: _photoJump,
+        headerSlivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              McTokens.pagePadding,
+              4,
+              McTokens.pagePadding,
+              0,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _healthChipsSection(library, state),
+                  if (state.metadataRefresh?.refreshing == true)
+                    _metadataRefreshPanel(state.metadataRefresh!, notifier),
+                ],
+              ),
+            ),
+          ),
+        ],
+        padding: EdgeInsets.fromLTRB(
           McTokens.pagePadding,
           4,
           McTokens.pagePadding,
-          48,
+          48 + bottomPad,
         ),
-        children: [
-          _healthChipsSection(library, state),
-          if (state.metadataRefresh?.refreshing == true)
-            _metadataRefreshPanel(state.metadataRefresh!, notifier),
-          PhotoWallView(
-            libraryId: widget.libraryId,
-            reloadKey: state.filter.filterKey,
-            grouped: grouped,
-            refreshToken: state.photoRefreshToken,
-            jumpRequest: _photoJump,
-            fetch: (offset, limit) => ref.read(libraryApiProvider).libraryItems(
-                  widget.libraryId,
-                  offset: offset,
-                  limit: limit,
-                  filterQuery: state.filter.toQuery(),
-                ),
-            onFirstVisible: (off) => _recordOffset(state, off),
-          ),
-        ],
+        fetch: (offset, limit) => ref.read(libraryApiProvider).libraryItems(
+              widget.libraryId,
+              offset: offset,
+              limit: limit,
+              filterQuery: state.filter.toQuery(),
+            ),
+        onFirstVisible: (off) => _recordOffset(state, off),
       ),
     );
   }
@@ -585,6 +618,36 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
     required List<LibraryIndexEntry> displayIndex,
   }) {
     final notifier = ref.read(libraryDetailProvider(_arg).notifier);
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
+    final headerSlivers = <Widget>[
+      if (library != null)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: McTokens.pagePadding,
+            ),
+            child: _healthChipsSection(library, state),
+          ),
+        ),
+      if (state.metadataRefresh?.refreshing == true)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              McTokens.pagePadding,
+              6,
+              McTokens.pagePadding,
+              4,
+            ),
+            child: _metadataRefreshPanel(
+              state.metadataRefresh!,
+              notifier,
+            ),
+          ),
+        ),
+      SliverToBoxAdapter(
+        child: _filterBar(context, state),
+      ),
+    ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -610,136 +673,107 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
                           text: state.error!,
                           onRetry: notifier.reload,
                         )
-                      : NotificationListener<ScrollNotification>(
-                          onNotification: (n) {
-                            if (!galleryOn &&
-                                n.metrics.pixels >
-                                    n.metrics.maxScrollExtent - 400) {
-                              notifier.loadMore();
-                            }
-                            if (!galleryOn &&
-                                n is ScrollEndNotification &&
-                                state.items.isNotEmpty) {
-                              final approxRow = (n.metrics.pixels / 215)
-                                  .floor()
-                                  .clamp(0, 99999);
-                              _recordOffset(
-                                state,
-                                state.baseOffset + approxRow * cols,
-                              );
-                            }
-                            return false;
-                          },
-                          child: CustomScrollView(
-                            controller: _scroll,
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            slivers: [
-                              if (library != null)
-                                SliverToBoxAdapter(
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: McTokens.pagePadding,
-                                    ),
-                                    child: _healthChipsSection(library, state),
-                                  ),
-                                ),
-                              if (state.metadataRefresh?.refreshing == true)
-                                SliverToBoxAdapter(
-                                  child: Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      McTokens.pagePadding,
-                                      6,
-                                      McTokens.pagePadding,
-                                      4,
-                                    ),
-                                    child: _metadataRefreshPanel(
-                                      state.metadataRefresh!,
-                                      notifier,
-                                    ),
-                                  ),
-                                ),
-                              SliverToBoxAdapter(
-                                child: _filterBar(context, state),
+                      : galleryOn
+                          ? LibraryGalleryWall(
+                              reloadKey: state.filter.filterKey,
+                              startOffset: _galleryStart,
+                              controller: _scroll,
+                              headerSlivers: headerSlivers,
+                              padding: EdgeInsets.fromLTRB(
+                                McTokens.pagePadding,
+                                8,
+                                McTokens.pagePadding,
+                                40 + bottomPad,
                               ),
-                              if (galleryOn)
-                                SliverPadding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    McTokens.pagePadding,
-                                    8,
-                                    McTokens.pagePadding,
-                                    40,
+                              fetch: (offset, limit) => ref
+                                  .read(libraryApiProvider)
+                                  .libraryGallery(
+                                    widget.libraryId,
+                                    offset: offset,
+                                    limit: limit,
+                                    filterQuery: state.filter.toQuery(),
                                   ),
-                                  sliver: SliverToBoxAdapter(
-                                    child: LibraryGalleryWall(
-                                      reloadKey: state.filter.filterKey,
-                                      startOffset: _galleryStart,
-                                      fetch: (offset, limit) => ref
-                                          .read(libraryApiProvider)
-                                          .libraryGallery(
-                                            widget.libraryId,
-                                            offset: offset,
-                                            limit: limit,
-                                            filterQuery: state.filter.toQuery(),
+                              onFirstVisible: (off) =>
+                                  _recordOffset(state, off),
+                            )
+                          : NotificationListener<ScrollNotification>(
+                              onNotification: (n) {
+                                if (n.metrics.pixels >
+                                    n.metrics.maxScrollExtent - 400) {
+                                  notifier.loadMore();
+                                }
+                                if (n is ScrollEndNotification &&
+                                    state.items.isNotEmpty) {
+                                  final approxRow = (n.metrics.pixels / 215)
+                                      .floor()
+                                      .clamp(0, 99999);
+                                  _recordOffset(
+                                    state,
+                                    state.baseOffset + approxRow * cols,
+                                  );
+                                }
+                                return false;
+                              },
+                              child: CustomScrollView(
+                                controller: _scroll,
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                slivers: [
+                                  ...headerSlivers,
+                                  if (state.baseOffset > 0)
+                                    SliverToBoxAdapter(
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(
+                                          top: 6,
+                                          bottom: 4,
+                                        ),
+                                        child: Center(
+                                          child: McActionPill(
+                                            label: state.loadingPrevious
+                                                ? '加载中…'
+                                                : '加载前面已跳过的作品',
+                                            icon: Icons.arrow_upward_rounded,
+                                            onTap: state.loadingPrevious
+                                                ? null
+                                                : notifier.loadPrevious,
                                           ),
-                                      onFirstVisible: (off) =>
-                                          _recordOffset(state, off),
-                                    ),
-                                  ),
-                                )
-                              else ...[
-                                if (state.baseOffset > 0)
-                                  SliverToBoxAdapter(
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(
-                                        top: 6,
-                                        bottom: 4,
-                                      ),
-                                      child: Center(
-                                        child: McActionPill(
-                                          label: state.loadingPrevious
-                                              ? '加载中…'
-                                              : '加载前面已跳过的作品',
-                                          icon: Icons.arrow_upward_rounded,
-                                          onTap: state.loadingPrevious
-                                              ? null
-                                              : notifier.loadPrevious,
                                         ),
                                       ),
                                     ),
-                                  ),
-                                ..._buildItemWallSlivers(
-                                  context,
-                                  library,
-                                  state,
-                                  cols,
-                                  showIndex: showIndex,
-                                ),
-                                if (state.provisionalItems.isNotEmpty)
-                                  ..._buildProvisionalSection(
+                                  ..._buildItemWallSlivers(
                                     context,
-                                    state.provisionalItems,
+                                    library,
+                                    state,
                                     cols,
                                     showIndex: showIndex,
                                   ),
-                              ],
-                              const SliverPadding(
-                                padding: EdgeInsets.only(bottom: 44),
+                                  if (state.provisionalItems.isNotEmpty)
+                                    ..._buildProvisionalSection(
+                                      context,
+                                      state.provisionalItems,
+                                      cols,
+                                      showIndex: showIndex,
+                                    ),
+                                  SliverPadding(
+                                    padding: EdgeInsets.only(
+                                      bottom: 44 + bottomPad,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                        ),
+                            ),
             ),
 
             // 右侧 A–Z 索引条（倒序自动反向）
             if (showIndex)
               Positioned(
                 top: 32,
-                bottom: 32,
+                bottom: 32 + bottomPad,
                 right: 4,
                 child: _AlphaIndexRail(
                   entries: displayIndex,
                   activeInitial: _activeIndexEntry?.initial,
                   onPick: (e) => _jumpToEntry(e, cols),
+                  onInteractionEnd: () => _lastIndexLetter = null,
                 ),
               ),
 
@@ -1299,11 +1333,11 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
       onRefresh: () => ref.read(libraryDetailProvider(_arg).notifier).reload(),
       child: GridView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(
+        padding: EdgeInsets.fromLTRB(
           McTokens.pagePadding,
           10,
           McTokens.pagePadding,
-          36,
+          36 + MediaQuery.paddingOf(context).bottom,
         ),
         gridDelegate: form == McDeviceForm.phone
             ? const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -1398,119 +1432,31 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
       ...filter.resolutions,
     ];
     final suggested = parts.take(3).join(' · ');
-    final ctrl = TextEditingController(text: suggested);
-    var snapshot = false;
-    var privateOnly = false;
-    var saving = false;
 
     await showMcSheet<void>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
-          padding: const EdgeInsets.fromLTRB(20, 6, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('存为合集', style: McText.titleSm),
-              const SizedBox(height: 4),
-              Text(
-                '当前筛选命中 ${state.total} 部作品',
-                style: McText.caption.muted,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: ctrl,
-                autofocus: suggested.isEmpty,
-                style: McText.body,
-                decoration: InputDecoration(
-                  labelText: '合集名称',
-                  hintText: suggested.isEmpty ? '例如：90 年代科幻佳作' : suggested,
-                ),
-              ),
-              const SizedBox(height: 14),
-              McInsetGroup(
-                margin: EdgeInsets.zero,
-                children: [
-                  McInsetRow(
-                    title: '自动收录（动态规则）',
-                    subtitle: '以后入库的新片只要符合这组条件也会自动归入',
-                    trailing: Icon(
-                      !snapshot
-                          ? Icons.check_circle_rounded
-                          : Icons.radio_button_unchecked_rounded,
-                      color: !snapshot
-                          ? McTokens.accentStrong
-                          : McTokens.textFaint,
-                    ),
-                    onTap: () => setSheet(() => snapshot = false),
-                  ),
-                  McInsetRow(
-                    title: '固定这批（${state.total} 部快照）',
-                    subtitle: '定格为手动名单，后续新入库作品不会自动加入',
-                    trailing: Icon(
-                      snapshot
-                          ? Icons.check_circle_rounded
-                          : Icons.radio_button_unchecked_rounded,
-                      color: snapshot
-                          ? McTokens.accentStrong
-                          : McTokens.textFaint,
-                    ),
-                    onTap: () => setSheet(() => snapshot = true),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                value: privateOnly,
-                onChanged: (v) => setSheet(() => privateOnly = v),
-                title: const Text('仅自己可见', style: McText.body),
-                subtitle: const Text(
-                  '关闭则与家庭所有有权限的成员共享',
-                  style: TextStyle(fontSize: 12, color: McTokens.textMuted),
-                ),
-              ),
-              const SizedBox(height: 14),
-              McActionPill(
-                label: saving ? '保存中…' : '创建合集',
-                primary: true,
-                expanded: true,
-                onTap: saving
-                    ? null
-                    : () async {
-                        final name = ctrl.text.trim().isEmpty
-                            ? suggested
-                            : ctrl.text.trim();
-                        if (name.isEmpty) {
-                          McToast.error('请输入合集名称');
-                          return;
-                        }
-                        setSheet(() => saving = true);
-                        try {
-                          final created = await ref
-                              .read(libraryDetailProvider(_arg).notifier)
-                              .saveAsCollection(
-                                name: name,
-                                snapshot: snapshot,
-                                visibility:
-                                    privateOnly ? 'private' : 'household',
-                              );
-                          if (!ctx.mounted) return;
-                          Navigator.of(ctx).pop();
-                          McToast.success('已保存为合集「${created.name}」');
-                          if (mounted) {
-                            context.push(routeLibraryCollection(created.id));
-                          }
-                        } catch (e) {
-                          setSheet(() => saving = false);
-                          McToast.error('保存失败：$e');
-                        }
-                      },
-              ),
-            ],
-          ),
-        ),
+      builder: (ctx) => _SaveAsCollectionSheet(
+        suggested: suggested,
+        total: state.total,
+        onSave: ({
+          required String name,
+          required bool snapshot,
+          required String visibility,
+        }) async {
+          final created = await ref
+              .read(libraryDetailProvider(_arg).notifier)
+              .saveAsCollection(
+                name: name,
+                snapshot: snapshot,
+                visibility: visibility,
+              );
+          if (!ctx.mounted) return;
+          Navigator.of(ctx).pop();
+          McToast.success('已保存为合集「${created.name}」');
+          if (mounted) {
+            context.push(routeLibraryCollection(created.id));
+          }
+        },
       ),
     );
   }
@@ -1537,7 +1483,8 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
             ('last_played', '按最近观看'),
             ('random', '随机'),
           ];
-    final currentOrder = state.filter.order ?? 'desc';
+    final currentOrder =
+        state.filter.order ?? (state.filter.sort == 'title' ? 'asc' : 'desc');
     showMcSheet<void>(
       context: context,
       builder: (sheetContext) => Padding(
@@ -1876,26 +1823,175 @@ class _LibraryDetailPageState extends ConsumerState<LibraryDetailPage> {
   }
 }
 
-/// 右侧 A–Z 索引条（支持点按与垂直滑擦定位）。
-class _AlphaIndexRail extends StatelessWidget {
+/// 「存为合集」弹层内容（独立 StatefulWidget 管理并安全释放 TextEditingController）。
+class _SaveAsCollectionSheet extends StatefulWidget {
+  const _SaveAsCollectionSheet({
+    required this.suggested,
+    required this.total,
+    required this.onSave,
+  });
+
+  final String suggested;
+  final int total;
+  final Future<void> Function({
+    required String name,
+    required bool snapshot,
+    required String visibility,
+  }) onSave;
+
+  @override
+  State<_SaveAsCollectionSheet> createState() => _SaveAsCollectionSheetState();
+}
+
+class _SaveAsCollectionSheetState extends State<_SaveAsCollectionSheet> {
+  late final TextEditingController _ctrl =
+      TextEditingController(text: widget.suggested);
+  bool _snapshot = false;
+  bool _privateOnly = false;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('存为合集', style: McText.titleSm),
+          const SizedBox(height: 4),
+          Text(
+            '当前筛选命中 ${widget.total} 部作品',
+            style: McText.caption.muted,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _ctrl,
+            autofocus: widget.suggested.isEmpty,
+            style: McText.body,
+            decoration: InputDecoration(
+              labelText: '合集名称',
+              hintText:
+                  widget.suggested.isEmpty ? '例如：90 年代科幻佳作' : widget.suggested,
+            ),
+          ),
+          const SizedBox(height: 14),
+          McInsetGroup(
+            margin: EdgeInsets.zero,
+            children: [
+              McInsetRow(
+                title: '自动收录（动态规则）',
+                subtitle: '以后入库的新片只要符合这组条件也会自动归入',
+                trailing: Icon(
+                  !_snapshot
+                      ? Icons.check_circle_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  color:
+                      !_snapshot ? McTokens.accentStrong : McTokens.textFaint,
+                ),
+                onTap: () => setState(() => _snapshot = false),
+              ),
+              McInsetRow(
+                title: '固定这批（${widget.total} 部快照）',
+                subtitle: '定格为手动名单，后续新入库作品不会自动加入',
+                trailing: Icon(
+                  _snapshot
+                      ? Icons.check_circle_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  color: _snapshot ? McTokens.accentStrong : McTokens.textFaint,
+                ),
+                onTap: () => setState(() => _snapshot = true),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _privateOnly,
+            onChanged: (v) => setState(() => _privateOnly = v),
+            title: const Text('仅自己可见', style: McText.body),
+            subtitle: const Text(
+              '关闭则与家庭所有有权限的成员共享',
+              style: TextStyle(fontSize: 12, color: McTokens.textMuted),
+            ),
+          ),
+          const SizedBox(height: 14),
+          McActionPill(
+            label: _saving ? '保存中…' : '创建合集',
+            primary: true,
+            expanded: true,
+            onTap: _saving
+                ? null
+                : () async {
+                    final name = _ctrl.text.trim().isEmpty
+                        ? widget.suggested
+                        : _ctrl.text.trim();
+                    if (name.isEmpty) {
+                      McToast.error('请输入合集名称');
+                      return;
+                    }
+                    setState(() => _saving = true);
+                    try {
+                      await widget.onSave(
+                        name: name,
+                        snapshot: _snapshot,
+                        visibility: _privateOnly ? 'private' : 'household',
+                      );
+                    } catch (e) {
+                      if (mounted) setState(() => _saving = false);
+                      McToast.error('保存失败：$e');
+                    }
+                  },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 右侧 A–Z 索引条（支持点按与垂直滑擦定位；同一字母不重复触发震动与请求）。
+class _AlphaIndexRail extends StatefulWidget {
   const _AlphaIndexRail({
     required this.entries,
     required this.activeInitial,
     required this.onPick,
+    this.onInteractionEnd,
   });
 
   final List<LibraryIndexEntry> entries;
   final String? activeInitial;
   final ValueChanged<LibraryIndexEntry> onPick;
+  final VoidCallback? onInteractionEnd;
+
+  @override
+  State<_AlphaIndexRail> createState() => _AlphaIndexRailState();
+}
+
+class _AlphaIndexRailState extends State<_AlphaIndexRail> {
+  String? _lastPickedInitial;
 
   void _pickAt(Offset localPos, double totalHeight) {
-    if (entries.isEmpty || totalHeight <= 0) return;
+    if (widget.entries.isEmpty || totalHeight <= 0) return;
     final idx =
-        ((localPos.dy / totalHeight) * entries.length).floor().clamp(
+        ((localPos.dy / totalHeight) * widget.entries.length).floor().clamp(
               0,
-              entries.length - 1,
+              widget.entries.length - 1,
             );
-    onPick(entries[idx]);
+    final entry = widget.entries[idx];
+    if (_lastPickedInitial == entry.initial) return;
+    _lastPickedInitial = entry.initial;
+    widget.onPick(entry);
+  }
+
+  void _endInteraction() {
+    _lastPickedInitial = null;
+    widget.onInteractionEnd?.call();
   }
 
   @override
@@ -1904,8 +2000,19 @@ class _AlphaIndexRail extends StatelessWidget {
       builder: (_, box) {
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTapDown: (d) => _pickAt(d.localPosition, box.maxHeight),
+          onTapDown: (d) {
+            _lastPickedInitial = null;
+            _pickAt(d.localPosition, box.maxHeight);
+          },
+          onTapUp: (_) => _endInteraction(),
+          onTapCancel: _endInteraction,
+          onVerticalDragStart: (d) {
+            _lastPickedInitial = null;
+            _pickAt(d.localPosition, box.maxHeight);
+          },
           onVerticalDragUpdate: (d) => _pickAt(d.localPosition, box.maxHeight),
+          onVerticalDragEnd: (_) => _endInteraction(),
+          onVerticalDragCancel: _endInteraction,
           child: Container(
             width: 22,
             padding: const EdgeInsets.symmetric(vertical: 6),
@@ -1917,15 +2024,15 @@ class _AlphaIndexRail extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                for (final e in entries)
+                for (final e in widget.entries)
                   Text(
                     e.initial,
                     style: TextStyle(
                       fontSize: 9.5,
-                      fontWeight: activeInitial == e.initial
+                      fontWeight: widget.activeInitial == e.initial
                           ? FontWeight.w800
                           : FontWeight.w500,
-                      color: activeInitial == e.initial
+                      color: widget.activeInitial == e.initial
                           ? McTokens.accentStrong
                           : (e.count > 0
                               ? McTokens.textMuted

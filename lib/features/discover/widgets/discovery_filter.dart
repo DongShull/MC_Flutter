@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/api/api_exception.dart';
 import '../../../core/api/mc_client.dart';
@@ -406,6 +407,7 @@ class _DiscoveryFilterOptionsPanelState
             children: [
               if (widget.onBack != null)
                 IconButton(
+                  tooltip: '返回',
                   onPressed: widget.onBack,
                   icon: const Icon(McIcons.arrowLeftS, size: 20),
                 ),
@@ -681,27 +683,34 @@ class _OptionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: McText.sub.copyWith(
-                  color: selected ? McTokens.text : McTokens.textMuted,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onTap();
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: McText.sub.copyWith(
+                    color: selected ? McTokens.text : McTokens.textMuted,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  ),
                 ),
               ),
-            ),
-            if (selected)
-              const Icon(McIcons.check, size: 16, color: McTokens.accentStrong),
-          ],
+              if (selected)
+                const Icon(McIcons.check, size: 16, color: McTokens.accentStrong),
+            ],
+          ),
         ),
       ),
     );

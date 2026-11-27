@@ -364,7 +364,9 @@ String _fmtGbMb(int bytes) {
 
 /// 6) 刮削与整理（完整 9 张卡片 + 真后端 schema）& 网盘账号管理页。
 class ScrapeDrivesAdminPage extends ConsumerStatefulWidget {
-  const ScrapeDrivesAdminPage({super.key});
+  const ScrapeDrivesAdminPage({super.key, this.initialTab = 0});
+
+  final int initialTab;
 
   @override
   ConsumerState<ScrapeDrivesAdminPage> createState() =>
@@ -372,7 +374,7 @@ class ScrapeDrivesAdminPage extends ConsumerStatefulWidget {
 }
 
 class _ScrapeDrivesAdminPageState extends ConsumerState<ScrapeDrivesAdminPage> {
-  int _tab = 0; // 0=刮削与整理, 1=网盘账号
+  late int _tab = widget.initialTab.clamp(0, 1); // 0=刮削与整理, 1=网盘账号
   Map<String, dynamic> _setting = {};
   Map<String, dynamic> _effective = {};
   Map<String, List<String>> _overridesByField = {};

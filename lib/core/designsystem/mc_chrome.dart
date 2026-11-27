@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/mc_l10n.dart';
 import 'mc_glass.dart';
 import 'mc_icons.dart';
 import 'theme.dart';
@@ -169,7 +170,7 @@ class McSliverTopBar extends StatelessWidget {
         if (onSearch != null)
           McGlassIconButton(
             icon: McIcons.search,
-            tooltip: '搜索',
+            tooltip: McL10n.of(context).search,
             onTap: onSearch,
           ),
         const SizedBox(width: 10),
@@ -215,7 +216,7 @@ class McFloatingDetailBar extends StatelessWidget {
                 McGlassIconButton(
                   icon: McIcons.arrowLeftS,
                   iconSize: 22,
-                  tooltip: '返回',
+                  tooltip: McL10n.of(context).back,
                   onTap: onBack,
                 ),
                 const SizedBox(width: 10),
@@ -234,7 +235,7 @@ class McFloatingDetailBar extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 if (trailing.isEmpty)
-                  const SizedBox(width: 42)
+                  const SizedBox(width: 44)
                 else
                   Row(mainAxisSize: MainAxisSize.min, children: trailing),
               ],
@@ -449,35 +450,41 @@ class McChip extends StatelessWidget {
     return McPressable(
       onTap: onTap,
       haptic: true,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: EdgeInsets.symmetric(
-          horizontal: compact ? 10 : 14,
-          vertical: compact ? 5 : 7,
-        ),
-        decoration: BoxDecoration(
-          color: selected ? McTokens.accentStrong : McTokens.surfaceInset,
-          borderRadius: BorderRadius.circular(McTokens.pillRadius),
-          border: Border.all(
-            color: selected ? Colors.transparent : McTokens.line,
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: compact ? 13 : 15, color: fg),
-              const SizedBox(width: 5),
-            ],
-            Text(
-              label,
-              style: (compact ? McText.caption : McText.sub).copyWith(
-                color: fg,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: compact ? 36 : 40),
+        child: Center(
+          widthFactor: 1.0,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 10 : 14,
+              vertical: compact ? 5 : 7,
+            ),
+            decoration: BoxDecoration(
+              color: selected ? McTokens.accentStrong : McTokens.surfaceInset,
+              borderRadius: BorderRadius.circular(McTokens.pillRadius),
+              border: Border.all(
+                color: selected ? Colors.transparent : McTokens.line,
+                width: 1,
               ),
             ),
-          ],
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: compact ? 13 : 15, color: fg),
+                  const SizedBox(width: 5),
+                ],
+                Text(
+                  label,
+                  style: (compact ? McText.caption : McText.sub).copyWith(
+                    color: fg,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -758,8 +765,17 @@ class McToast {
   McToast._();
 
   static final _notifier = ValueNotifier<_ToastEntry?>(null);
+  static final _bottomAccessoryOffset = ValueNotifier<double>(0.0);
   static int _seq = 0;
   static Timer? _timer;
+
+  /// 由主壳（如 `_PhoneBottomDock` 的「接着看」浮条）上报额外底部占用高度，防止 Toast 重叠遮挡。
+  static void setBottomAccessoryOffset(double offset) {
+    final clamped = offset < 0 ? 0.0 : offset;
+    if (_bottomAccessoryOffset.value != clamped) {
+      _bottomAccessoryOffset.value = clamped;
+    }
+  }
 
   static void show(
     String message, {
@@ -806,94 +822,103 @@ class McToastHost extends StatelessWidget {
   Widget build(BuildContext context) {
     final kb = MediaQuery.viewInsetsOf(context).bottom;
     final safeBottom = MediaQuery.paddingOf(context).bottom;
-    final bottomOffset = kb > 0 ? kb + 16 : safeBottom + 88;
 
     return Stack(
       children: [
         child,
-        Positioned(
-          left: 20,
-          right: 20,
-          bottom: bottomOffset,
-          child: ValueListenableBuilder<_ToastEntry?>(
-            valueListenable: McToast._notifier,
-            builder: (context, entry, _) {
-              return AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                switchInCurve: Curves.easeOutBack,
-                switchOutCurve: Curves.easeIn,
-                transitionBuilder: (w, anim) => FadeTransition(
-                  opacity: anim,
-                  child: SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(0, 0.25),
-                      end: Offset.zero,
-                    ).animate(anim),
-                    child: w,
-                  ),
-                ),
-                child: entry == null
-                    ? const SizedBox.shrink()
-                    : Center(
-                        key: ValueKey(entry.id),
-                        child: GestureDetector(
-                          onTap: McToast.dismiss,
-                          onVerticalDragUpdate: (d) {
-                            if (d.primaryDelta != null && d.primaryDelta! > 4) {
-                              McToast.dismiss();
-                            }
-                          },
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 420),
-                            child: McLiquidGlass(
-                              tone: switch (entry.tone) {
-                                McToastTone.error => McGlassTone.danger,
-                                McToastTone.success => McGlassTone.regular,
-                                McToastTone.info => McGlassTone.regular,
+        ValueListenableBuilder<double>(
+          valueListenable: McToast._bottomAccessoryOffset,
+          builder: (context, extraOffset, _) {
+            final bottomOffset =
+                kb > 0 ? kb + 16 : safeBottom + 88 + extraOffset;
+            return Positioned(
+              left: 20,
+              right: 20,
+              bottom: bottomOffset,
+              child: ValueListenableBuilder<_ToastEntry?>(
+                valueListenable: McToast._notifier,
+                builder: (context, entry, _) {
+                  return AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: Curves.easeOutBack,
+                    switchOutCurve: Curves.easeIn,
+                    transitionBuilder: (w, anim) => FadeTransition(
+                      opacity: anim,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0, 0.25),
+                          end: Offset.zero,
+                        ).animate(anim),
+                        child: w,
+                      ),
+                    ),
+                    child: entry == null
+                        ? const SizedBox.shrink()
+                        : Center(
+                            key: ValueKey(entry.id),
+                            child: GestureDetector(
+                              onTap: McToast.dismiss,
+                              onVerticalDragUpdate: (d) {
+                                if (d.primaryDelta != null &&
+                                    d.primaryDelta! > 4) {
+                                  McToast.dismiss();
+                                }
                               },
-                              radius: McTokens.pillRadius,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 10,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    switch (entry.tone) {
-                                      McToastTone.success =>
-                                        McIcons.checkCircleFill,
-                                      McToastTone.error => McIcons.alert1,
-                                      McToastTone.info => McIcons.information,
-                                    },
-                                    size: 17,
-                                    color: switch (entry.tone) {
-                                      McToastTone.success => McTokens.ok,
-                                      McToastTone.error => McTokens.danger,
-                                      McToastTone.info => McTokens.info,
-                                    },
+                              child: ConstrainedBox(
+                                constraints:
+                                    const BoxConstraints(maxWidth: 420),
+                                child: McLiquidGlass(
+                                  tone: switch (entry.tone) {
+                                    McToastTone.error => McGlassTone.danger,
+                                    McToastTone.success => McGlassTone.regular,
+                                    McToastTone.info => McGlassTone.regular,
+                                  },
+                                  radius: McTokens.pillRadius,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 10,
                                   ),
-                                  const SizedBox(width: 8),
-                                  Flexible(
-                                    child: Text(
-                                      entry.message,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: McText.sub.copyWith(
-                                        color: McTokens.text,
-                                        fontWeight: FontWeight.w500,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        switch (entry.tone) {
+                                          McToastTone.success =>
+                                            McIcons.checkCircleFill,
+                                          McToastTone.error => McIcons.alert1,
+                                          McToastTone.info =>
+                                            McIcons.information,
+                                        },
+                                        size: 17,
+                                        color: switch (entry.tone) {
+                                          McToastTone.success => McTokens.ok,
+                                          McToastTone.error => McTokens.danger,
+                                          McToastTone.info => McTokens.info,
+                                        },
                                       ),
-                                    ),
+                                      const SizedBox(width: 8),
+                                      Flexible(
+                                        child: Text(
+                                          entry.message,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: McText.sub.copyWith(
+                                            color: McTokens.text,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
-              );
-            },
-          ),
+                  );
+                },
+              ),
+            );
+          },
         ),
       ],
     );

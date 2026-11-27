@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -366,7 +367,7 @@ class _PlayerEpisodePickerState extends State<PlayerEpisodePicker> {
                     : drawerWidth,
                 height: widget.asDrawer
                     ? (isLandscape ? double.infinity : screen.height * 0.56)
-                    : 400,
+                    : math.min(400.0, screen.height * 0.78),
                 decoration: BoxDecoration(
                   color: const Color(0xE0131620),
                   border: Border.all(color: McTokens.lineStrong, width: 1),
@@ -408,6 +409,7 @@ class _PlayerEpisodePickerState extends State<PlayerEpisodePicker> {
                                   icon: McIcons.close,
                                   size: 32,
                                   iconSize: 16,
+                                  tooltip: '关闭选集',
                                   onTap: widget.onDismiss,
                                 ),
                               ],

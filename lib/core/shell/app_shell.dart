@@ -33,6 +33,7 @@ import '../designsystem/mc_glass.dart';
 import '../designsystem/mc_icons.dart';
 import '../designsystem/theme.dart';
 import '../image/image_urls.dart';
+import '../l10n/mc_l10n.dart';
 import '../player/player_page_args.dart';
 import '../session/permissions.dart';
 import '../session/session_store.dart';
@@ -87,7 +88,26 @@ class _MainShellState extends ConsumerState<MainShell> {
   }
 
   @override
+  void didUpdateWidget(covariant MainShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialTab != widget.initialTab) {
+      final perms = ref.read(mcPermissionsProvider);
+      final visible = _visibleTabs(perms);
+      final requested = MainTab.values[widget.initialTab.clamp(0, 4)];
+      final target = visible.contains(requested) ? requested : MainTab.library;
+      if (_activeTab != target) {
+        TabCollapseBus.instance.reset();
+        _activeTab = target;
+        if (target == MainTab.activity) {
+          ref.read(shellBadgesProvider.notifier).refresh();
+        }
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    McToast.setBottomAccessoryOffset(0);
     MainTabBus.instance.removeListener(_consumeBus);
     _tipTimer?.cancel();
     _tipHideTimer?.cancel();
@@ -373,7 +393,8 @@ class _MainShellState extends ConsumerState<MainShell> {
           if (_showAccountTip) setState(() => _showAccountTip = false);
           showAccountSwitcherSheet(context);
         },
-        onAvatarDoubleTap: _switchToPreviousAccount,
+        onAvatarDoubleTap:
+            appSession.previousAccount != null ? _switchToPreviousAccount : null,
         sidebarExtra: const _SidebarLibrarySections(),
         accountGestureTip: _showAccountTip
             ? _AccountGestureTipBubble(
@@ -492,6 +513,8 @@ class _SidebarLibrarySections extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(mcLanguageProvider);
+    final l10n = McL10n.of(context);
     final form = McFormWatch.of(context);
     final collapsed = ref.watch(mcSidebarCollapsedProvider);
     final extended =
@@ -525,11 +548,11 @@ class _SidebarLibrarySections extends ConsumerWidget {
               children: [
                 _SidebarNavTile(
                   icon: McIcons.heart2,
-                  label: '我的收藏',
+                  label: l10n.libraryFavorites,
                   onTap: () => context.push('/library/favorites'),
                 ),
                 if (libraries.isNotEmpty) ...[
-                  const _SidebarSectionTitle('媒体库'),
+                  _SidebarSectionTitle(l10n.tabLibrary),
                   for (final lib in libraries)
                     _SidebarNavTile(
                       icon: _iconForLibraryKind(lib.kind),
@@ -539,7 +562,7 @@ class _SidebarLibrarySections extends ConsumerWidget {
                     ),
                 ],
                 if (pinnedCollections.isNotEmpty) ...[
-                  const _SidebarSectionTitle('合集'),
+                  _SidebarSectionTitle(l10n.libraryCollections),
                   for (final col in pinnedCollections)
                     _SidebarNavTile(
                       icon: McIcons.stack,
@@ -662,10 +685,11 @@ class _ResumeAccessoryBar extends StatelessWidget {
       item.episodeStillUrl ?? item.backdropUrl ?? item.posterUrl,
       widthPx: 200,
     );
+    final l10n = McL10n.of(context);
     return McLiquidGlass(
       radius: McTokens.pillRadius,
       blurSigma: 22,
-      padding: const EdgeInsets.fromLTRB(10, 7, 6, 7),
+      padding: const EdgeInsets.fromLTRB(10, 4, 2, 4),
       child: Row(
         children: [
           Expanded(
@@ -738,16 +762,25 @@ class _ResumeAccessoryBar extends StatelessWidget {
               ),
             ),
           ),
-          McPressable(
-            onTap: onDismiss,
-            haptic: true,
-            child: const SizedBox(
-              width: 32,
-              height: 30,
-              child: Icon(
-                McIcons.close,
-                size: 14,
-                color: McTokens.textMuted,
+          Semantics(
+            button: true,
+            label: l10n.close,
+            child: Tooltip(
+              message: l10n.close,
+              child: McPressable(
+                onTap: onDismiss,
+                haptic: true,
+                child: const SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Center(
+                    child: Icon(
+                      McIcons.close,
+                      size: 14,
+                      color: McTokens.textMuted,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),

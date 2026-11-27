@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' show DisplayFeatureState, DisplayFeatureType;
 
 import 'package:flutter/foundation.dart';
@@ -63,6 +64,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   bool _lockHint = false;
   bool _holdSpeed = false;
   bool _scrubbing = false;
+  bool _barScrubbing = false;
   bool _adjusting = false;
   bool _settingsOpen = false;
   bool _episodePickerOpen = false;
@@ -94,8 +96,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   DateTime _lastStateReport = DateTime.fromMillisecondsSinceEpoch(0);
   AppLifecycleListener? _lifecycle;
   bool? _lastReportedPlaying;
+  Duration? _scrubStartPos;
   Duration? _scrubPreview;
   ({bool brightness, double level})? _levelHud;
+  double _adjustStartLevel = 1.0;
   double _brightnessLevel = 1.0;
   double _volumeLevel = 1.0;
   double _volumeBeforeMute = 1.0;
@@ -111,7 +115,11 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       !kIsWeb && (Platform.isIOS || Platform.isAndroid);
 
   bool get _mustStayVisible =>
-      _scrubbing || _adjusting || _settingsOpen || _episodePickerOpen;
+      _scrubbing ||
+      _barScrubbing ||
+      _adjusting ||
+      _settingsOpen ||
+      _episodePickerOpen;
 
   @override
   void initState() {
@@ -444,12 +452,12 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     }
     if (key == LogicalKeyboardKey.arrowUp) {
       _muted = false;
-      _adjust(false, 0.1);
+      _adjustFromKeyboard(false, 0.1);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowDown) {
       _muted = false;
-      _adjust(false, -0.1);
+      _adjustFromKeyboard(false, -0.1);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.keyM) {
@@ -506,7 +514,9 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       builder: (ctx) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 420),
+          constraints: BoxConstraints(
+            maxHeight: math.min(420.0, MediaQuery.sizeOf(ctx).height * 0.78),
+          ),
           child: ListView(
             shrinkWrap: true,
             children: [
@@ -565,17 +575,39 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     }
   }
 
-  void _adjust(bool brightness, double delta) {
+  void _adjust(bool brightness, double totalDelta) {
+    final nextLevel = (_adjustStartLevel + totalDelta).clamp(0.0, 1.0);
+    _applyLevel(brightness: brightness, level: nextLevel, fromDrag: true);
+  }
+
+  void _adjustFromKeyboard(bool brightness, double step) {
+    final current = brightness ? _brightnessLevel : _volumeLevel;
+    _applyLevel(
+      brightness: brightness,
+      level: (current + step).clamp(0.0, 1.0),
+      fromDrag: false,
+    );
+  }
+
+  void _applyLevel({
+    required bool brightness,
+    required double level,
+    required bool fromDrag,
+  }) {
+    final clamped = level.clamp(0.0, 1.0);
     setState(() {
       if (brightness) {
-        _brightnessLevel = (_brightnessLevel + delta).clamp(0.0, 1.0);
+        _brightnessLevel = clamped;
         _levelHud = (brightness: true, level: _brightnessLevel);
       } else {
-        _volumeLevel = (_volumeLevel + delta).clamp(0.0, 1.0);
+        _volumeLevel = clamped;
         _levelHud = (brightness: false, level: _volumeLevel);
       }
-      _adjusting = true;
+      if (fromDrag) {
+        _adjusting = true;
+      }
     });
+    _noteActivity();
     if (brightness) {
       unawaited(
         PlayerSystemBridge.instance.setBrightness(_brightnessLevel).then((ok) {
@@ -731,271 +763,317 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
           episodeLabel: _args.displaySubtitle,
         ),
 
-      // 缓冲转圈 + 实时下载速率
-      if (playback.status == PlayerStatus.ready &&
-          playback.buffering &&
-          !playback.clipEnded)
-        Center(
-          child: IgnorePointer(
-            child: McLiquidGlass(
-              radius: 18,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                    width: 26,
-                    height: 26,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: Colors.white,
-                    ),
-                  ),
-                  if (playback.speedLabel != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      '↓ ${playback.speedLabel}',
-                      style: McText.micro
-                          .copyWith(color: const Color(0xCCFFFFFF))
-                          .tabular,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-
-      // 双击左/右 ±10s 玻璃涟漪指示
-      if (_seekRippleDir != null)
-        Align(
-          alignment: _seekRippleDir! < 0
-              ? const Alignment(-0.62, 0)
-              : const Alignment(0.62, 0),
-          child: IgnorePointer(
-            child: McLiquidGlass(
-              radius: 28,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    _seekRippleDir! < 0 ? McIcons.replay10 : McIcons.forward10,
-                    color: Colors.white,
-                    size: 22,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    _seekRippleDir! < 0 ? '-10 秒' : '+10 秒',
-                    style: McText.sub.copyWith(color: Colors.white),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-
-      // 实时流媒体技术诊断 HUD（每 2 秒自动轮询 + 复制 Session ID）
-      if (_diagnosticsHudOpen)
-        Positioned(
-          top: 66,
-          right: 20,
-          child: PlayerDiagnosticsHud(
-            sessionId: _controller.serverSessionId,
-            onFetch: _controller.fetchDiagnostics,
-            onClose: () => setState(() => _diagnosticsHudOpen = false),
-          ),
-        ),
-
-      // 手势横滑定位中央预览卡
-      if (_scrubPreview != null && _scrubbing)
-        Center(
-          child: McLiquidGlass(
-            radius: 20,
-            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  mcFormatClock(scrubTarget.inSeconds),
-                  style: McText.titleLg.tabular,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${mcFormatClock(scrubTarget.inSeconds)} / ${mcFormatClock(timelineDur.inSeconds)}',
-                  style: McText.caption.muted.tabular,
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: 160,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: LinearProgressIndicator(
-                      value: timelineDur.inMilliseconds <= 0
-                          ? 0
-                          : (scrubTarget.inMilliseconds /
-                                  timelineDur.inMilliseconds)
-                              .clamp(0.0, 1.0),
-                      minHeight: 3,
-                      color: Colors.white,
-                      backgroundColor: const Color(0x3DFFFFFF),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-
-      // 亮度 / 音量调节胶囊 HUD
-      if (_levelHud != null)
-        Align(
-          alignment: Alignment.topCenter,
-          child: Padding(
-            padding: const EdgeInsets.only(top: 44),
-            child: McLiquidGlass(
-              radius: McTokens.pillRadius,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    _levelHud!.brightness ? McIcons.sun : McIcons.volumeUp,
-                    color: Colors.white,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 10),
-                  SizedBox(
-                    width: 96,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(2),
-                      child: LinearProgressIndicator(
-                        value: _levelHud!.level.clamp(0.0, 1.0),
-                        minHeight: 4,
-                        backgroundColor: const Color(0x3DFFFFFF),
-                        color: Colors.white,
+      // 缓冲转圈、快进退涟漪、技术诊断 HUD、横滑预览、亮度/音量 HUD、倍速角标、提示胶囊、跳过/下一集卡片均置入 SafeArea 避免被刘海/灵动岛遮挡
+      Positioned.fill(
+        child: SafeArea(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // 缓冲转圈 + 实时下载速率
+              if (playback.status == PlayerStatus.ready &&
+                  playback.buffering &&
+                  !playback.clipEnded)
+                Center(
+                  child: IgnorePointer(
+                    child: McLiquidGlass(
+                      radius: 18,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 14,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(
+                            width: 26,
+                            height: 26,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: Colors.white,
+                            ),
+                          ),
+                          if (playback.speedLabel != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              '↓ ${playback.speedLabel}',
+                              style: McText.micro
+                                  .copyWith(color: const Color(0xCCFFFFFF))
+                                  .tabular,
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Text(
-                    '${(_levelHud!.level * 100).round()}%',
-                    style: McText.caption.copyWith(color: Colors.white).tabular,
+                ),
+
+              // 双击左/右 ±10s 玻璃涟漪指示
+              if (_seekRippleDir != null)
+                Align(
+                  alignment: _seekRippleDir! < 0
+                      ? const Alignment(-0.62, 0)
+                      : const Alignment(0.62, 0),
+                  child: IgnorePointer(
+                    child: McLiquidGlass(
+                      radius: 28,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _seekRippleDir! < 0
+                                ? McIcons.replay10
+                                : McIcons.forward10,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _seekRippleDir! < 0 ? '-10 秒' : '+10 秒',
+                            style: McText.sub.copyWith(color: Colors.white),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ],
-              ),
-            ),
-          ),
-        ),
+                ),
 
-      // 倍速角标
-      if ((playback.speed != 1.0 || _holdSpeed) && !_locked)
-        Align(
-          alignment: Alignment.topLeft,
-          child: Padding(
-            padding: const EdgeInsets.only(left: 20, top: 64),
-            child: McLiquidGlass(
-              radius: McTokens.pillRadius,
-              withShadow: false,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-              child: Text(
-                playback.speed == 2.0 && _holdSpeed
-                    ? '▶▶ 2.0x 倍速中'
-                    : '${playback.speed}x',
-                style: McText.micro.copyWith(color: Colors.white).tabular,
-              ),
-            ),
-          ),
-        ),
+              // 实时流媒体技术诊断 HUD（每 2 秒自动轮询 + 复制 Session ID）
+              if (_diagnosticsHudOpen)
+                Positioned(
+                  top: 56,
+                  right: 16,
+                  child: PlayerDiagnosticsHud(
+                    sessionId: _controller.serverSessionId,
+                    onFetch: _controller.fetchDiagnostics,
+                    onClose: () => setState(() => _diagnosticsHudOpen = false),
+                  ),
+                ),
 
-      // 顶部状态提示胶囊
-      if (mergedNotice != null)
-        Align(
-          alignment: Alignment.topCenter,
-          child: Padding(
-            padding: const EdgeInsets.only(top: 16),
-            child: McLiquidGlass(
-              radius: McTokens.pillRadius,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text(
-                mergedNotice,
-                style: McText.caption.copyWith(color: Colors.white),
-              ),
-            ),
-          ),
-        ),
+              // 手势横滑定位中央预览卡
+              if (_scrubPreview != null && _scrubbing)
+                Center(
+                  child: IgnorePointer(
+                    child: McLiquidGlass(
+                      radius: 20,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 14,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            mcFormatClock(scrubTarget.inSeconds),
+                            style: McText.titleLg.tabular,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${mcFormatClock(scrubTarget.inSeconds)} / ${mcFormatClock(timelineDur.inSeconds)}',
+                            style: McText.caption.muted.tabular,
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: 160,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(2),
+                              child: LinearProgressIndicator(
+                                value: timelineDur.inMilliseconds <= 0
+                                    ? 0
+                                    : (scrubTarget.inMilliseconds /
+                                            timelineDur.inMilliseconds)
+                                        .clamp(0.0, 1.0),
+                                minHeight: 3,
+                                color: Colors.white,
+                                backgroundColor: const Color(0x3DFFFFFF),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
 
-      // 弱网降档建议卡
-      if (playback.qualityOffer != null && !_locked && !_settingsOpen)
-        Positioned(
-          left: 20,
-          bottom: 112,
-          child: QualityOfferCard(
-            offer: playback.qualityOffer!,
-            onAccept: _controller.acceptQualityOffer,
-            onDismiss: _controller.dismissQualityOffer,
-          ),
-        ),
+              // 亮度 / 音量调节胶囊 HUD
+              if (_levelHud != null)
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: IgnorePointer(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: McLiquidGlass(
+                        radius: McTokens.pillRadius,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _levelHud!.brightness
+                                  ? McIcons.sun
+                                  : McIcons.volumeUp,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 10),
+                            SizedBox(
+                              width: 96,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(2),
+                                child: LinearProgressIndicator(
+                                  value: _levelHud!.level.clamp(0.0, 1.0),
+                                  minHeight: 4,
+                                  backgroundColor: const Color(0x3DFFFFFF),
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              '${(_levelHud!.level * 100).round()}%',
+                              style: McText.caption
+                                  .copyWith(color: Colors.white)
+                                  .tabular,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
 
-      // 跳过片头 / 广告 / 预告 / 撤回与学习提示胶囊
-      if (playback.skipNotice != null && !_locked && !_settingsOpen)
-        Positioned(
-          right: 24,
-          bottom: 112,
-          child: SkipNoticePill(
-            notice: playback.skipNotice!,
-            onUndo: _controller.undoAutoSkip,
-            onDecline: _controller.declineIntroAutoSkip,
-          ),
-        )
-      else if (activeSkip != null &&
-          !showUpNext &&
-          !_locked &&
-          !_settingsOpen &&
-          !_episodePickerOpen)
-        Positioned(
-          right: 24,
-          bottom: 112,
-          child: SkipSegmentPill(
-            segment: activeSkip,
-            onSkip: () {
-              _controller.skipCurrentSegment();
-              _noteActivity();
-            },
-          ),
-        ),
+              // 倍速角标
+              if ((playback.speed != 1.0 || _holdSpeed) && !_locked)
+                Align(
+                  alignment: Alignment.topLeft,
+                  child: IgnorePointer(
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 16, top: 56),
+                      child: McLiquidGlass(
+                        radius: McTokens.pillRadius,
+                        withShadow: false,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 5,
+                        ),
+                        child: Text(
+                          playback.speed == 2.0 && _holdSpeed
+                              ? '▶▶ 2.0x 倍速中'
+                              : '${playback.speed}x',
+                          style:
+                              McText.micro.copyWith(color: Colors.white).tabular,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
 
-      // 片段模式结束卡片（重播片段 / 看全片）
-      if (playback.isClip && playback.clipEnded && !_locked)
-        Positioned(
-          right: 24,
-          bottom: 112,
-          child: ClipEndCard(
-            onReplay: _controller.replayClip,
-            onWatchFull: () {
-              _controller.leaveClip();
-              _showNotice('已切换为完整正片播放');
-            },
-          ),
-        ),
+              // 顶部状态提示胶囊
+              if (mergedNotice != null)
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: IgnorePointer(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: McLiquidGlass(
+                        radius: McTokens.pillRadius,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        child: Text(
+                          mergedNotice,
+                          style: McText.caption.copyWith(color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
 
-      // 剧集片尾 / 完播「即将播放下一集」卡片
-      if (showUpNext && !_locked && !_settingsOpen && !_episodePickerOpen)
-        Positioned(
-          right: 24,
-          bottom: 112,
-          child: UpNextCard(
-            nextEpisode: nextEp,
-            countdownProgress: upNextArmed
-                ? (_autoNextElapsedMs / SkipSegmentsHelper.autoNextMs)
-                    .clamp(0.0, 1.0)
-                : null,
-            stillWatchingPrompt:
-                !upNextArmed && _autoNextStreak >= SkipSegmentsHelper.autoNextMaxStreak,
-            onPlayNow: () => _switchEpisode(nextEp.season, nextEp),
-            onDismiss: () => setState(() => _autoNextCancelled = true),
+              // 弱网降档建议卡
+              if (playback.qualityOffer != null && !_locked && !_settingsOpen)
+                Positioned(
+                  left: 16,
+                  bottom: 112,
+                  child: QualityOfferCard(
+                    offer: playback.qualityOffer!,
+                    onAccept: _controller.acceptQualityOffer,
+                    onDismiss: _controller.dismissQualityOffer,
+                  ),
+                ),
+
+              // 跳过片头 / 广告 / 预告 / 撤回与学习提示胶囊
+              if (playback.skipNotice != null && !_locked && !_settingsOpen)
+                Positioned(
+                  right: 16,
+                  bottom: 112,
+                  child: SkipNoticePill(
+                    notice: playback.skipNotice!,
+                    onUndo: _controller.undoAutoSkip,
+                    onDecline: _controller.declineIntroAutoSkip,
+                  ),
+                )
+              else if (activeSkip != null &&
+                  !showUpNext &&
+                  !_locked &&
+                  !_settingsOpen &&
+                  !_episodePickerOpen)
+                Positioned(
+                  right: 16,
+                  bottom: 112,
+                  child: SkipSegmentPill(
+                    segment: activeSkip,
+                    onSkip: () {
+                      _controller.skipCurrentSegment();
+                      _noteActivity();
+                    },
+                  ),
+                ),
+
+              // 片段模式结束卡片（重播片段 / 看全片）
+              if (playback.isClip && playback.clipEnded && !_locked)
+                Positioned(
+                  right: 16,
+                  bottom: 112,
+                  child: ClipEndCard(
+                    onReplay: _controller.replayClip,
+                    onWatchFull: () {
+                      _controller.leaveClip();
+                      _showNotice('已切换为完整正片播放');
+                    },
+                  ),
+                ),
+
+              // 剧集片尾 / 完播「即将播放下一集」卡片
+              if (showUpNext &&
+                  !_locked &&
+                  !_settingsOpen &&
+                  !_episodePickerOpen)
+                Positioned(
+                  right: 16,
+                  bottom: 112,
+                  child: UpNextCard(
+                    nextEpisode: nextEp,
+                    countdownProgress: upNextArmed
+                        ? (_autoNextElapsedMs / SkipSegmentsHelper.autoNextMs)
+                            .clamp(0.0, 1.0)
+                        : null,
+                    stillWatchingPrompt: !upNextArmed &&
+                        _autoNextStreak >= SkipSegmentsHelper.autoNextMaxStreak,
+                    onPlayNow: () => _switchEpisode(nextEp.season, nextEp),
+                    onDismiss: () => setState(() => _autoNextCancelled = true),
+                  ),
+                ),
+            ],
           ),
         ),
+      ),
     ];
   }
 
@@ -1012,7 +1090,14 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
         _controller.seekToTimeline(t);
         _noteActivity();
       },
-      onScrubPreview: (t) => setState(() => _scrubPreview = t),
+      onScrubPreview: (t) {
+        final active = t != null;
+        if (active) _noteActivity();
+        setState(() {
+          _scrubPreview = t;
+          _barScrubbing = active;
+        });
+      },
     );
   }
 
@@ -1528,32 +1613,56 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                 _showNotice(mode == 'fill' ? '画面：铺满屏幕' : '画面：原始比例');
               }
             },
-            onScrubStart: () => setState(() {
-              _scrubbing = true;
-              _scrubPreview = playback.timelinePosition;
-              _chromeVisible = true;
-            }),
-            onScrubTo: (ratio) => setState(() {
-              final totalMs = playback.timelineDuration.inMilliseconds;
-              final base = playback.timelinePosition.inMilliseconds;
+            onScrubStart: () {
+              final startPos =
+                  ref.read(playerControllerProvider).timelinePosition;
+              setState(() {
+                _scrubbing = true;
+                _scrubStartPos = startPos;
+                _scrubPreview = startPos;
+                _chromeVisible = true;
+              });
+              _noteActivity();
+            },
+            onScrubTo: (ratio) {
+              final curPlayback = ref.read(playerControllerProvider);
+              final totalMs = curPlayback.timelineDuration.inMilliseconds;
+              final base =
+                  (_scrubStartPos ?? curPlayback.timelinePosition).inMilliseconds;
               final target = (base + (ratio * kPlayerFullSweepSeekMs).round())
                   .clamp(0, totalMs <= 0 ? base : totalMs);
-              _scrubPreview = Duration(milliseconds: target);
-            }),
+              setState(() {
+                _scrubPreview = Duration(milliseconds: target);
+              });
+              _noteActivity();
+            },
             onScrubEnd: () {
               final t = _scrubPreview;
               setState(() {
                 _scrubbing = false;
+                _scrubStartPos = null;
                 _scrubPreview = null;
               });
+              _noteActivity();
               if (t != null) _controller.seekToTimeline(t);
             },
-            onAdjustStart: (_) {},
+            onAdjustStart: (brightness) {
+              _adjustStartLevel =
+                  brightness ? _brightnessLevel : _volumeLevel;
+              setState(() {
+                _adjusting = true;
+                _levelHud = (brightness: brightness, level: _adjustStartLevel);
+              });
+              _noteActivity();
+            },
             onAdjust: _adjust,
-            onAdjustEnd: () => setState(() {
-              _adjusting = false;
-              _levelHud = null;
-            }),
+            onAdjustEnd: () {
+              _noteActivity();
+              setState(() {
+                _adjusting = false;
+                _levelHud = null;
+              });
+            },
             onHoldStart: () {
               setState(() => _holdSpeed = true);
               _controller.setHoldSpeed(true);
@@ -1577,39 +1686,41 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
             _chrome(playback),
           if (!_episodePickerOpen) ..._overlays(playback),
           if (_locked)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 24),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    McGlassIconButton(
-                      icon: McIcons.lockOpen,
-                      size: 46,
-                      iconSize: 22,
-                      tooltip: '点击解锁屏幕',
-                      onTap: () => setState(() {
-                        _locked = false;
-                        _chromeVisible = true;
-                      }),
-                    ),
-                    if (_lockHint) ...[
-                      const SizedBox(width: 10),
-                      McLiquidGlass(
-                        radius: McTokens.pillRadius,
-                        withShadow: false,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        child: Text(
-                          '屏幕已锁定，点左侧解锁',
-                          style: McText.caption.copyWith(color: Colors.white),
-                        ),
+            SafeArea(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      McGlassIconButton(
+                        icon: McIcons.lockOpen,
+                        size: 46,
+                        iconSize: 22,
+                        tooltip: '点击解锁屏幕',
+                        onTap: () => setState(() {
+                          _locked = false;
+                          _chromeVisible = true;
+                        }),
                       ),
+                      if (_lockHint) ...[
+                        const SizedBox(width: 10),
+                        McLiquidGlass(
+                          radius: McTokens.pillRadius,
+                          withShadow: false,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          child: Text(
+                            '屏幕已锁定，点左侧解锁',
+                            style: McText.caption.copyWith(color: Colors.white),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -1617,14 +1728,18 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       );
     }
 
+    final hideCursor = !_chromeVisible &&
+        !_settingsOpen &&
+        !_episodePickerOpen &&
+        playback.playing;
     final body = Focus(
       focusNode: _keyFocus,
       autofocus: true,
       onKeyEvent: _handleKeyEvent,
       child: MouseRegion(
-        cursor: _chromeVisible || !_locked
-            ? SystemMouseCursors.basic
-            : SystemMouseCursors.none,
+        cursor: hideCursor
+            ? SystemMouseCursors.none
+            : SystemMouseCursors.basic,
         onHover: (_) {
           if (!_locked && !_chromeVisible) {
             setState(() => _chromeVisible = true);
@@ -1779,22 +1894,30 @@ class CenterGlassButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return McPressable(
-      onTap: onTap,
-      haptic: true,
-      child: SizedBox(
-        width: 72,
-        height: 72,
-        child: McLiquidGlass(
-          radius: 36,
-          blurSigma: 24,
-          child: Center(
-            child: Icon(
-              replay
-                  ? McIcons.refreshS
-                  : (playing ? McIcons.pauseS : McIcons.play2Fill),
-              color: accent,
-              size: 34,
+    final label = replay ? '重播片段' : (playing ? '暂停 (Space)' : '播放 (Space)');
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        label: label,
+        child: McPressable(
+          onTap: onTap,
+          haptic: true,
+          child: SizedBox(
+            width: 72,
+            height: 72,
+            child: McLiquidGlass(
+              radius: 36,
+              blurSigma: 24,
+              child: Center(
+                child: Icon(
+                  replay
+                      ? McIcons.refreshS
+                      : (playing ? McIcons.pauseS : McIcons.play2Fill),
+                  color: accent,
+                  size: 34,
+                ),
+              ),
             ),
           ),
         ),

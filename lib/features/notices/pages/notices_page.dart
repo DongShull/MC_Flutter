@@ -18,8 +18,15 @@ import '../state/notices_controller.dart';
 /// - 顶栏显示可见待处理数量胶囊 + 「全部忽略」；
 /// - 每条事项三段动作主次分明：忽略（退路）+ 「交给 AI 分析」（`McAgentHandoffButton`）+ 主玻璃按钮「去处理 ›」；
 /// - 相对时间（`McFormatting.relative`）+ 正文支持长按选择/复制（`SelectableText`）。
-class NoticesPage extends ConsumerWidget {
+class NoticesPage extends ConsumerStatefulWidget {
   const NoticesPage({super.key});
+
+  @override
+  ConsumerState<NoticesPage> createState() => _NoticesPageState();
+}
+
+class _NoticesPageState extends ConsumerState<NoticesPage> {
+  bool _dismissingAll = false;
 
   void _gotoNotice(BuildContext context, Notice notice) {
     final webHref = notice.resolveWebHref();
@@ -32,8 +39,64 @@ class NoticesPage extends ConsumerWidget {
     context.push(location);
   }
 
+  Future<void> _confirmDismissAll(int count) async {
+    if (_dismissingAll || count <= 0) return;
+    final l10n = McL10n.of(context);
+    final confirmed = await showMcSheet<bool>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('忽略全部 $count 条待处理事项？', style: McText.titleSm),
+            const SizedBox(height: 8),
+            Text(
+              '忽略后这些提醒会从列表隐藏；若对应服务端异常尚未修复，后续仍可能再次出现。',
+              style: McText.sub.muted,
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: l10n.cancel,
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: '全部忽略',
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _dismissingAll = true);
+    try {
+      await ref.read(noticesControllerProvider.notifier).dismissAll();
+      if (mounted) McToast.success('已忽略全部事项');
+    } catch (e) {
+      if (mounted) McToast.error('操作失败：$e');
+    } finally {
+      if (mounted) setState(() => _dismissingAll = false);
+    }
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final state = ref.watch(noticesControllerProvider);
     final controller = ref.read(noticesControllerProvider.notifier);
     final form = McFormWatch.of(context);
@@ -74,9 +137,11 @@ class NoticesPage extends ConsumerWidget {
                   borderRadius: McTokens.pillRadius,
                   child: McChip(
                     icon: McIcons.checkDouble,
-                    label: '全部忽略',
+                    label: _dismissingAll ? '处理中…' : '全部忽略',
                     compact: true,
-                    onTap: controller.dismissAll,
+                    onTap: _dismissingAll
+                        ? null
+                        : () => _confirmDismissAll(visibleCount),
                   ),
                 ),
               ],

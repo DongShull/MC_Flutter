@@ -38,21 +38,24 @@ class _DeviceCategory {
 /// - 批准配对码先 GET 核验终端身份再二次确认批准/拒绝；
 /// - 4 分类（浏览器 / App / 配对设备与令牌 / 播放器）+ 搜索 + 15 秒轮询 + 设备详情（IP/首次登录/推送/90天休眠）+ 作用域清理。
 class DevicesPage extends ConsumerStatefulWidget {
-  const DevicesPage({super.key});
+  const DevicesPage({super.key, this.initialCode});
+
+  /// 通过 `/activate?code=…` 或 `/settings/devices?code=…` 深度链接传入的配对码。
+  final String? initialCode;
 
   @override
   ConsumerState<DevicesPage> createState() => _DevicesPageState();
 }
 
-class _DevicesPageState extends ConsumerState<DevicesPage> {
+class _DevicesPageState extends ConsumerState<DevicesPage>
+    with WidgetsBindingObserver {
   Timer? _pollTimer;
   String _search = '';
   String? _selectedGroupId;
+  bool _initialCodeHandled = false;
 
-  @override
-  void initState() {
-    super.initState();
-    Future.microtask(() => ref.read(devicesProvider.notifier).load());
+  void _startPollTimer() {
+    _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted) {
         ref.read(devicesProvider.notifier).load(silent: true);
@@ -60,9 +63,51 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
     });
   }
 
+  void _stopPollTimer() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _stopPollTimer();
+      case AppLifecycleState.resumed:
+        _startPollTimer();
+        if (mounted) {
+          ref.read(devicesProvider.notifier).load(silent: true);
+        }
+      case AppLifecycleState.inactive:
+        break;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    Future.microtask(() async {
+      await ref.read(devicesProvider.notifier).load();
+      if (!mounted || _initialCodeHandled) return;
+      final code = widget.initialCode?.trim();
+      if (code != null && code.isNotEmpty) {
+        _initialCodeHandled = true;
+        final perms = ref.read(permissionsProvider);
+        final profile = ref.read(profileProvider).valueOrNull;
+        final isAdmin = perms.isAdmin || (profile?.isAdmin ?? false);
+        await _approveDevicePairing(isAdmin, prefilledCode: code);
+      }
+    });
+    _startPollTimer();
+  }
+
   @override
   void dispose() {
-    _pollTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _stopPollTimer();
     super.dispose();
   }
 
@@ -278,12 +323,17 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
   }
 
   /// P0 修复：批准配对码前必须先 GET /api/v1/auth/devices/requests/{code} 核验设备身份，禁止盲批！
-  Future<void> _approveDevicePairing(bool isAdmin) async {
-    final rawCode = await textInputDialog(
-      context,
-      title: '输入设备配对码',
-      hint: '输入电视 / 桌面端 / 转码器屏幕显示的配对码',
-    );
+  Future<void> _approveDevicePairing(
+    bool isAdmin, {
+    String? prefilledCode,
+  }) async {
+    final rawCode = (prefilledCode != null && prefilledCode.trim().isNotEmpty)
+        ? prefilledCode
+        : await textInputDialog(
+            context,
+            title: '输入设备配对码',
+            hint: '输入电视 / 桌面端 / 转码器屏幕显示的配对码',
+          );
     if (rawCode == null || rawCode.trim().isEmpty || !mounted) return;
     final code = rawCode.trim().toUpperCase();
     final api = ref.read(deviceRequestsApiProvider);
@@ -520,7 +570,9 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
                   const SizedBox(height: 10),
                   Text('令牌权限范围 (scope)', style: McText.caption.muted),
                   const SizedBox(height: 8),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
                       McChip(
                         label: '完全权限 (full)',
@@ -528,7 +580,6 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
                         selected: scope == 'full',
                         onTap: () => setSheet(() => scope = 'full'),
                       ),
-                      const SizedBox(width: 8),
                       McChip(
                         label: '仅限远程转码 (transcode)',
                         compact: true,
@@ -607,10 +658,15 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
     var days = 30;
     var loading = true;
     var busy = false;
+    var fetched = false;
+    var sheetClosed = false;
+    var previewSeq = 0;
     String? err;
     List<DeviceCleanupItem> candidates = const [];
 
     Future<void> fetchPreview(StateSetter setSheet) async {
+      final seq = ++previewSeq;
+      if (sheetClosed || !mounted) return;
       setSheet(() {
         loading = true;
         err = null;
@@ -620,6 +676,7 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
             all: showAll,
             dryRun: true,
           );
+      if (sheetClosed || !mounted || seq != previewSeq) return;
       if (res is DeviceCleanupView) {
         final allowedIds = scopedGroup?.items.map((e) => e.id).toSet();
         setSheet(() {
@@ -641,7 +698,8 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
       maxWidth: 540,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheet) {
-          if (loading && err == null && candidates.isEmpty) {
+          if (!fetched) {
+            fetched = true;
             Future.microtask(() => fetchPreview(setSheet));
           }
           return SingleChildScrollView(
@@ -662,9 +720,11 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
                   style: McText.caption.muted,
                 ),
                 const SizedBox(height: 12),
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    for (final d in const [7, 30, 90]) ...[
+                    for (final d in const [7, 30, 90])
                       McChip(
                         label: '$d 天未活动',
                         compact: true,
@@ -676,8 +736,6 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
                                 fetchPreview(setSheet);
                               },
                       ),
-                      const SizedBox(width: 8),
-                    ],
                   ],
                 ),
                 const SizedBox(height: 14),
@@ -767,6 +825,7 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
         },
       ),
     );
+    sheetClosed = true;
   }
 
   @override
@@ -793,49 +852,66 @@ class _DevicesPageState extends ConsumerState<DevicesPage> {
             orElse: () => cats.first,
           );
 
-    return SettingsScaffold(
-      title: activeGroup != null ? activeGroup.title : '我的设备',
-      actions: [
-        if (activeGroup != null) ...[
-          McChip(
-            label: '返回分类',
-            compact: true,
-            onTap: () => setState(() {
-              _selectedGroupId = null;
-              _search = '';
-            }),
-          ),
-          const SizedBox(width: 6),
-          McChip(
-            icon: McIcons.eraser,
-            label: '清理',
-            compact: true,
-            onTap: () => _openCleanupSheet(activeGroup, showAll),
-          ),
-        ] else
-          McChip(
-            icon: McIcons.qrCodeFill,
-            label: '批准配对码',
-            selected: true,
-            compact: true,
-            onTap: () => _approveDevicePairing(isAdmin),
-          ),
-      ],
-      body: state.isLoading && items.isEmpty
-          ? const McLoadingView()
-          : state.hasError && items.isEmpty
-              ? McErrorView(
-                  text: '加载设备列表失败',
-                  onRetry: () => ref.read(devicesProvider.notifier).load(),
-                )
-              : activeGroup != null
-                  ? _buildGroupDetailList(activeGroup, showAll)
-                  : _buildOverviewList(
-                      isAdmin: isAdmin,
-                      showAll: showAll,
-                      currentDevice: currentDevice,
-                      categories: cats,
-                    ),
+    return PopScope(
+      canPop: activeGroup == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && activeGroup != null) {
+          setState(() {
+            _selectedGroupId = null;
+            _search = '';
+          });
+        }
+      },
+      child: SettingsScaffold(
+        title: activeGroup != null ? activeGroup.title : '我的设备',
+        onBack: activeGroup != null
+            ? () => setState(() {
+                  _selectedGroupId = null;
+                  _search = '';
+                })
+            : null,
+        actions: [
+          if (activeGroup != null) ...[
+            McChip(
+              label: '返回分类',
+              compact: true,
+              onTap: () => setState(() {
+                _selectedGroupId = null;
+                _search = '';
+              }),
+            ),
+            const SizedBox(width: 6),
+            McChip(
+              icon: McIcons.eraser,
+              label: '清理',
+              compact: true,
+              onTap: () => _openCleanupSheet(activeGroup, showAll),
+            ),
+          ] else
+            McChip(
+              icon: McIcons.qrCodeFill,
+              label: '批准配对码',
+              selected: true,
+              compact: true,
+              onTap: () => _approveDevicePairing(isAdmin),
+            ),
+        ],
+        body: state.isLoading && items.isEmpty
+            ? const McLoadingView()
+            : state.hasError && items.isEmpty
+                ? McErrorView(
+                    text: '加载设备列表失败',
+                    onRetry: () => ref.read(devicesProvider.notifier).load(),
+                  )
+                : activeGroup != null
+                    ? _buildGroupDetailList(activeGroup, showAll)
+                    : _buildOverviewList(
+                        isAdmin: isAdmin,
+                        showAll: showAll,
+                        currentDevice: currentDevice,
+                        categories: cats,
+                      ),
+      ),
     );
   }
 

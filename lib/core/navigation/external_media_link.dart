@@ -447,7 +447,7 @@ abstract final class AppWebPathResolver {
       case 'account':
         if (parts.length >= 2 && parts[1] == 'devices') {
           return ResolvedWebPath(
-            location: _withQuery('/account/devices', query),
+            location: _withQuery('/settings/devices', query),
             query: query,
           );
         }
@@ -520,6 +520,12 @@ abstract final class AppWebPathResolver {
               query: query,
             );
           case 'import-watch':
+            final q = {'section': 'import-watch', ...query};
+            return ResolvedWebPath(
+              location: _withQuery('/settings/downloaders', q),
+              query: q,
+            );
+          case 'drives':
           case 'scrape':
             final q = {'section': section, ...query};
             return ResolvedWebPath(
@@ -538,15 +544,26 @@ abstract final class AppWebPathResolver {
                 query: query,
               );
             }
+            if (query['tab'] == 'storage') {
+              final q = {'section': 'storage', ...query};
+              return ResolvedWebPath(
+                location: _withQuery('/settings/maintenance', q),
+                query: q,
+              );
+            }
             final q = {'section': 'app', ...query};
             return ResolvedWebPath(
               location: _withQuery('/settings/maintenance', q),
               query: q,
             );
+          case 'storage':
           case 'maintenance':
+            final q = section == 'storage'
+                ? {'section': 'storage', ...query}
+                : query;
             return ResolvedWebPath(
-              location: _withQuery('/settings/maintenance', query),
-              query: query,
+              location: _withQuery('/settings/maintenance', q),
+              query: q,
             );
           case 'app-push':
           case 'im-push':
@@ -572,6 +589,8 @@ abstract final class AppWebPathResolver {
               location: _withQuery('/settings/ai', q),
               query: q,
             );
+          case 'plugins':
+          case 'tasks':
           case 'network':
           case 'logs':
           case 'system':

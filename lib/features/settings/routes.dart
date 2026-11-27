@@ -27,7 +27,9 @@ final List<GoRoute> routes = [
   ),
   GoRoute(
     path: '$routeSettings/devices',
-    builder: (context, state) => const DevicesPage(),
+    builder: (context, state) => DevicesPage(
+      initialCode: state.uri.queryParameters['code'],
+    ),
   ),
   GoRoute(
     path: '$routeSettings/notifications',
@@ -63,11 +65,16 @@ final List<GoRoute> routes = [
   ),
   GoRoute(
     path: '$routeSettings/downloaders',
-    builder: (context, state) => const DownloadersAdminPage(),
+    builder: (context, state) => DownloadersAdminPage(
+      initialSection: state.uri.queryParameters['section'],
+    ),
   ),
   GoRoute(
     path: '$routeSettings/scrape',
-    builder: (context, state) => const ScrapeDrivesAdminPage(),
+    builder: (context, state) {
+      final section = state.uri.queryParameters['section'];
+      return ScrapeDrivesAdminPage(initialTab: section == 'drives' ? 1 : 0);
+    },
   ),
   GoRoute(
     path: '$routeSettings/push',
@@ -79,7 +86,15 @@ final List<GoRoute> routes = [
   ),
   GoRoute(
     path: '$routeSettings/ai',
-    builder: (context, state) => const AiIntegrationsAdminPage(),
+    builder: (context, state) {
+      final section = state.uri.queryParameters['section'];
+      final tab = switch (section) {
+        'llm' => 1,
+        'webhook' => 2,
+        _ => 0,
+      };
+      return AiIntegrationsAdminPage(initialTab: tab);
+    },
   ),
   GoRoute(
     path: '$routeSettings/mcp',
@@ -90,11 +105,30 @@ final List<GoRoute> routes = [
     builder: (context, state) => const CloudSettingsPage(),
   ),
   GoRoute(
+    path: '$routeSettings/plugins',
+    builder: (context, state) => const NetworkTasksLogsAdminPage(initialTab: 2),
+  ),
+  GoRoute(
     path: '$routeSettings/system',
-    builder: (context, state) => const NetworkTasksLogsAdminPage(),
+    builder: (context, state) {
+      final section = state.uri.queryParameters['section'];
+      final tab = switch (section) {
+        'tasks' => 1,
+        'plugins' => 2,
+        'logs' => 3,
+        _ => 0,
+      };
+      return NetworkTasksLogsAdminPage(initialTab: tab);
+    },
   ),
   GoRoute(
     path: '$routeSettings/maintenance',
-    builder: (context, state) => const MaintenancePage(),
+    builder: (context, state) {
+      final section = state.uri.queryParameters['section'];
+      final tab = state.uri.queryParameters['tab'];
+      return MaintenancePage(
+        initialTab: (section == 'storage' || tab == 'storage') ? 1 : 0,
+      );
+    },
   ),
 ];

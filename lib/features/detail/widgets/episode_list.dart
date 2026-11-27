@@ -186,6 +186,178 @@ class _EpisodeListState extends ConsumerState<EpisodeList> {
   }
 }
 
+/// Sliver 化分集列表（用于 `CustomScrollView`，通过 `SliverList.separated` 真正按视口懒加载，避免 `shrinkWrap: true` 破坏虚拟化）。
+class SliverEpisodeList extends ConsumerStatefulWidget {
+  const SliverEpisodeList({
+    super.key,
+    required this.mediaItemId,
+    required this.episodes,
+    required this.onEpisodeTap,
+    this.onEpisodeSelect,
+    this.selectedEpisodeNumber,
+    this.anchorEpisode,
+    this.airSchedule,
+    this.activeRangeIndex,
+    this.onRangeChanged,
+    this.onTogglePlayed,
+    this.onDownloadEpisode,
+    this.onSubtitleEpisode,
+  });
+
+  final int mediaItemId;
+  final List<EpisodeEntry> episodes;
+  final void Function(EpisodeEntry episode) onEpisodeTap;
+  final void Function(EpisodeEntry episode)? onEpisodeSelect;
+  final int? selectedEpisodeNumber;
+  final int? anchorEpisode;
+  final SeasonAirSchedule? airSchedule;
+  final int? activeRangeIndex;
+  final ValueChanged<EpisodeRange>? onRangeChanged;
+  final void Function(EpisodeEntry episode)? onTogglePlayed;
+  final void Function(EpisodeEntry episode)? onDownloadEpisode;
+  final void Function(EpisodeEntry episode)? onSubtitleEpisode;
+
+  @override
+  ConsumerState<SliverEpisodeList> createState() => _SliverEpisodeListState();
+}
+
+class _SliverEpisodeListState extends ConsumerState<SliverEpisodeList> {
+  int _localRangeIndex = 0;
+
+  @override
+  void didUpdateWidget(covariant SliverEpisodeList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.activeRangeIndex != null) {
+      _localRangeIndex = widget.activeRangeIndex!;
+    } else if (oldWidget.episodes != widget.episodes) {
+      final ranges = EpisodeRangesHelper.buildRanges(widget.episodes);
+      final seed = widget.selectedEpisodeNumber ?? widget.anchorEpisode;
+      if (seed != null && ranges.isNotEmpty) {
+        final matched = EpisodeRangesHelper.rangeContaining(seed, ranges);
+        if (matched != null) _localRangeIndex = matched.index;
+      } else {
+        _localRangeIndex = ranges.isEmpty ? 0 : ranges.first.index;
+      }
+    }
+  }
+
+  void _switchRange(EpisodeRange target) {
+    setState(() => _localRangeIndex = target.index);
+    widget.onRangeChanged?.call(target);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.episodes.isEmpty) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
+
+    final offline = ref.watch(offlineProvider);
+    final ranges = EpisodeRangesHelper.buildRanges(widget.episodes);
+    final effectiveRangeIdx = widget.activeRangeIndex ?? _localRangeIndex;
+    EpisodeRange? currentRange;
+    int? rangePos;
+    for (var i = 0; i < ranges.length; i++) {
+      if (ranges[i].index == effectiveRangeIdx) {
+        currentRange = ranges[i];
+        rangePos = i;
+        break;
+      }
+    }
+    if (currentRange == null && ranges.isNotEmpty) {
+      currentRange = ranges.first;
+      rangePos = 0;
+    }
+
+    final shown = currentRange == null
+        ? widget.episodes
+        : widget.episodes
+            .where((e) => currentRange!.contains(e.episodeNumber))
+            .toList();
+    final prevRange =
+        (rangePos != null && rangePos > 0) ? ranges[rangePos - 1] : null;
+    final nextRange = (rangePos != null && rangePos + 1 < ranges.length)
+        ? ranges[rangePos + 1]
+        : null;
+
+    final watchedAny = widget.episodes.any((e) => e.played || e.resumeMs > 0);
+
+    return SliverMainAxisGroup(
+      slivers: [
+        if (prevRange != null)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                McTokens.pagePadding,
+                4,
+                McTokens.pagePadding,
+                6,
+              ),
+              child: _RangeNavButton(
+                label: '← 上一段 (${prevRange.label})',
+                onTap: () => _switchRange(prevRange),
+              ),
+            ),
+          ),
+        SliverList.separated(
+          itemCount: shown.length,
+          separatorBuilder: (_, __) => const Padding(
+            padding: EdgeInsets.only(
+              left: McTokens.pagePadding + 144,
+              right: McTokens.pagePadding,
+            ),
+            child: Divider(height: 1, color: McTokens.line),
+          ),
+          itemBuilder: (context, i) {
+            final ep = shown[i];
+            final unit = offline.unitForEpisode(
+              mediaItemId: widget.mediaItemId,
+              season: ep.seasonNumber,
+              episode: ep.episodeNumber,
+            );
+            return _EpisodeCard(
+              episode: ep,
+              selected: widget.selectedEpisodeNumber == ep.episodeNumber,
+              isResumeAnchor:
+                  watchedAny && widget.anchorEpisode == ep.episodeNumber,
+              schedule: widget.airSchedule,
+              downloadUnit: unit,
+              onTap: () => widget.onEpisodeTap(ep),
+              onSelect: widget.onEpisodeSelect == null
+                  ? null
+                  : () => widget.onEpisodeSelect!(ep),
+              onTogglePlayed: widget.onTogglePlayed == null
+                  ? null
+                  : () => widget.onTogglePlayed!(ep),
+              onDownload: widget.onDownloadEpisode == null
+                  ? null
+                  : () => widget.onDownloadEpisode!(ep),
+              onSubtitle: widget.onSubtitleEpisode == null
+                  ? null
+                  : () => widget.onSubtitleEpisode!(ep),
+            );
+          },
+        ),
+        if (nextRange != null)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                McTokens.pagePadding,
+                6,
+                McTokens.pagePadding,
+                4,
+              ),
+              child: _RangeNavButton(
+                label: '下一段 (${nextRange.label}) →',
+                onTap: () => _switchRange(nextRange),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _RangeNavButton extends StatelessWidget {
   const _RangeNavButton({required this.label, required this.onTap});
 

@@ -24,6 +24,9 @@ class OfflineBanner extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final reach = ref.watch(serverReachabilityProvider);
+    if (!reach.isOffline && reach.isReachable) {
+      return const SizedBox.shrink();
+    }
     final itemsCount = ref.watch(offlineProvider).downloadedItems.length;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -164,7 +167,7 @@ class _OfflineLibraryPageState extends ConsumerState<OfflineLibraryPage> {
               McGlassIconButton(
                 icon: McIcons.fileDownload,
                 tooltip: '下载管理',
-                onTap: () => context.push('/offline'),
+                onTap: () => context.go('/offline'),
               ),
             ],
           ),
@@ -536,6 +539,61 @@ class _OfflineMinimalDetailPageState
     });
   }
 
+  void _confirmDelete(DownloadUnit unit, int totalUnitsCount) {
+    final label = unit.displaySeasonEpisode != null
+        ? '${unit.title} · ${unit.displaySeasonEpisode}'
+        : unit.title;
+    final sizeHint = unit.receivedBytes > 0
+        ? '立即释放 ${mcFormatBytes(unit.receivedBytes)}，只删本机视频文件，观看进度会保留。'
+        : '只删本机视频文件，观看进度会保留。';
+    showMcSheet<void>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('删除「$label」的离线副本？', style: McText.titleSm),
+            const SizedBox(height: 8),
+            Text(sizeHint, style: McText.sub.muted),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: '取消',
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: '删除副本',
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    onTap: () async {
+                      Navigator.of(ctx).pop();
+                      await ref
+                          .read(offlineProvider.notifier)
+                          .deleteDownloaded(unit);
+                      if (mounted && totalUnitsCount <= 1) {
+                        Navigator.of(context).pop();
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _playUnit(DownloadUnit unit) {
     final ctrl = ref.read(offlineProvider.notifier);
     final uri = ctrl.localPlayUri(unit);
@@ -724,14 +782,8 @@ class _OfflineMinimalDetailPageState
                               size: 17,
                               color: McTokens.danger,
                             ),
-                            onPressed: () async {
-                              await ref
-                                  .read(offlineProvider.notifier)
-                                  .deleteDownloaded(unit);
-                              if (context.mounted && units.length <= 1) {
-                                Navigator.of(context).pop();
-                              }
-                            },
+                            onPressed: () =>
+                                _confirmDelete(unit, units.length),
                           ),
                           onTap: () => _playUnit(unit),
                         ),

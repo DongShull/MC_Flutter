@@ -571,13 +571,15 @@ class _ManageDuplicateFilesTabState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(
                   tier.label,
                   style: McText.body.copyWith(fontWeight: FontWeight.w700),
                 ),
-                const SizedBox(width: 8),
                 Text(
                   empty
                       ? '无'

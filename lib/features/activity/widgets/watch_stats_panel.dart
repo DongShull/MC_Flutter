@@ -120,6 +120,10 @@ class _WatchStatsPanelState extends State<WatchStatsPanel> {
   @override
   Widget build(BuildContext context) {
     final stats = widget.stats;
+    final textScale =
+        MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 2.0);
+    final kpiMainAxisExtent = (98.0 + (textScale - 1.0) * 56.0).ceilToDouble();
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 14),
       child: Column(
@@ -128,11 +132,13 @@ class _WatchStatsPanelState extends State<WatchStatsPanel> {
           if (widget.showHeaderFilters) _buildFilterBar(context),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-            child: GridView.count(
-              crossAxisCount: 2,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: 1.72,
+            child: GridView(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                mainAxisExtent: kpiMainAxisExtent,
+              ),
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               children: [
@@ -552,7 +558,12 @@ class _MetricCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(metric.label, style: McText.micro.muted),
+            Text(
+              metric.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: McText.micro.muted,
+            ),
             Row(
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
@@ -561,34 +572,45 @@ class _MetricCard extends StatelessWidget {
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerLeft,
-                    child: Text(value, style: McText.titleLg.tabular),
+                    child: Text(
+                      value,
+                      maxLines: 1,
+                      style: McText.titleLg.tabular,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 3),
-                Text(unit, style: McText.caption.faint),
+                Text(unit, maxLines: 1, style: McText.caption.faint),
               ],
             ),
             Row(
               children: [
                 if (deltaText != null) ...[
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                    decoration: BoxDecoration(
-                      color: direction == 0
-                          ? const Color(0x14FFFFFF)
-                          : deltaColor.withValues(alpha: 0.16),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: Text(
-                      direction > 0
-                          ? '▲ $deltaText'
-                          : direction < 0
-                              ? '▼ $deltaText'
-                              : deltaText,
-                      style: McText.micro
-                          .copyWith(color: deltaColor, fontSize: 10)
-                          .tabular,
+                  Flexible(
+                    flex: 0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: direction == 0
+                            ? const Color(0x14FFFFFF)
+                            : deltaColor.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: Text(
+                        direction > 0
+                            ? '▲ $deltaText'
+                            : direction < 0
+                                ? '▼ $deltaText'
+                                : deltaText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: McText.micro
+                            .copyWith(color: deltaColor, fontSize: 10)
+                            .tabular,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 5),
@@ -722,6 +744,9 @@ class _TrendCard extends StatelessWidget {
             selectedIndex! < points.length)
         ? points[selectedIndex!]
         : null;
+    final textScale =
+        MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 1.8);
+    final bottomAxisHeight = (22.0 * textScale).ceilToDouble();
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -747,119 +772,135 @@ class _TrendCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            height: 180,
-            child: Stack(
-              children: [
-                BarChart(
-                  BarChartData(
-                    alignment: BarChartAlignment.spaceAround,
-                    minY: 0,
-                    maxY: yMax,
-                    barTouchData: BarTouchData(
-                      touchCallback: (event, response) {
-                        if (!event.isInterestedForInteractions) return;
-                        final idx = response?.spot?.touchedBarGroupIndex;
-                        if (idx != null && idx != selectedIndex) {
-                          onSelectIndex(idx);
-                        }
-                      },
-                      touchTooltipData: BarTouchTooltipData(
-                        getTooltipColor: (_) => Colors.transparent,
-                        tooltipPadding: EdgeInsets.zero,
-                        getTooltipItem: (_, __, ___, ____) => null,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: SizedBox(
+              height: 180 + (bottomAxisHeight - 22.0),
+              child: Stack(
+                children: [
+                  BarChart(
+                    BarChartData(
+                      alignment: BarChartAlignment.spaceAround,
+                      minY: 0,
+                      maxY: yMax,
+                      barTouchData: BarTouchData(
+                        touchCallback: (event, response) {
+                          if (!event.isInterestedForInteractions) return;
+                          final idx = response?.spot?.touchedBarGroupIndex;
+                          if (idx != null && idx != selectedIndex) {
+                            onSelectIndex(idx);
+                          }
+                        },
+                        touchTooltipData: BarTouchTooltipData(
+                          getTooltipColor: (_) => Colors.transparent,
+                          tooltipPadding: EdgeInsets.zero,
+                          getTooltipItem: (_, __, ___, ____) => null,
+                        ),
                       ),
-                    ),
-                    gridData: FlGridData(
-                      show: true,
-                      drawVerticalLine: false,
-                      horizontalInterval: yMax / 4,
-                      getDrawingHorizontalLine: (_) => const FlLine(
-                        color: McTokens.line,
-                        strokeWidth: 1,
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: false,
+                        horizontalInterval: yMax / 4,
+                        getDrawingHorizontalLine: (_) => const FlLine(
+                          color: McTokens.line,
+                          strokeWidth: 1,
+                        ),
                       ),
-                    ),
-                    borderData: FlBorderData(show: false),
-                    titlesData: FlTitlesData(
-                      leftTitles: const AxisTitles(),
-                      topTitles: const AxisTitles(),
-                      rightTitles: const AxisTitles(),
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 22,
-                          getTitlesWidget: (v, _) {
-                            final i = v.toInt();
-                            if (i < 0 || i >= points.length) {
-                              return const SizedBox.shrink();
-                            }
-                            final step =
-                                (points.length / 5).ceil().clamp(1, 30);
-                            if (i % step != 0 && i != points.length - 1) {
-                              return const SizedBox.shrink();
-                            }
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 5),
-                              child: Text(
-                                points[i].shortDate,
-                                style: McText.micro.faint.tabular,
+                      borderData: FlBorderData(show: false),
+                      titlesData: FlTitlesData(
+                        leftTitles: const AxisTitles(),
+                        topTitles: const AxisTitles(),
+                        rightTitles: const AxisTitles(),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: bottomAxisHeight,
+                            getTitlesWidget: (v, meta) {
+                              final i = v.toInt();
+                              if (i < 0 || i >= points.length) {
+                                return const SizedBox.shrink();
+                              }
+                              final lastIdx = points.length - 1;
+                              final step =
+                                  (points.length / 5).ceil().clamp(1, 30);
+                              final minGap = math.max(1, (step * 0.65).ceil());
+                              if (i != lastIdx &&
+                                  (i % step != 0 || (lastIdx - i) < minGap)) {
+                                return const SizedBox.shrink();
+                              }
+                              return SideTitleWidget(
+                                meta: meta,
+                                space: 5,
+                                fitInside: SideTitleFitInsideData.fromTitleMeta(
+                                  meta,
+                                  distanceFromEdge: 0,
+                                ),
+                                child: Text(
+                                  points[i].shortDate,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  style: McText.micro.faint.tabular,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      barGroups: [
+                        for (final p in points)
+                          BarChartGroupData(
+                            x: p.index,
+                            barRods: [
+                              BarChartRodData(
+                                toY: p.current,
+                                width: points.length > 20 ? 5 : 10,
+                                borderRadius: BorderRadius.circular(3),
+                                color: (selectedIndex == null ||
+                                        selectedIndex == p.index)
+                                    ? McTokens.info
+                                    : McTokens.info.withValues(alpha: 0.45),
                               ),
-                            );
-                          },
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (showPrevious && points.length > 1)
+                    IgnorePointer(
+                      child: Padding(
+                        padding: EdgeInsets.only(bottom: bottomAxisHeight),
+                        child: LineChart(
+                          LineChartData(
+                            minX: -0.5,
+                            maxX: points.length - 0.5,
+                            minY: 0,
+                            maxY: yMax,
+                            gridData: const FlGridData(show: false),
+                            borderData: FlBorderData(show: false),
+                            titlesData: const FlTitlesData(show: false),
+                            lineTouchData: const LineTouchData(enabled: false),
+                            lineBarsData: [
+                              LineChartBarData(
+                                spots: [
+                                  for (final p in points)
+                                    FlSpot(
+                                      p.index.toDouble(),
+                                      p.previous ?? 0,
+                                    ),
+                                ],
+                                isCurved: false,
+                                color: Colors.white.withValues(alpha: 0.4),
+                                barWidth: 1.5,
+                                dashArray: [4, 4],
+                                dotData: const FlDotData(show: false),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                    barGroups: [
-                      for (final p in points)
-                        BarChartGroupData(
-                          x: p.index,
-                          barRods: [
-                            BarChartRodData(
-                              toY: p.current,
-                              width: points.length > 20 ? 5 : 10,
-                              borderRadius: BorderRadius.circular(3),
-                              color: (selectedIndex == null ||
-                                      selectedIndex == p.index)
-                                  ? McTokens.info
-                                  : McTokens.info.withValues(alpha: 0.45),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                ),
-                if (showPrevious && points.length > 1)
-                  IgnorePointer(
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 22),
-                      child: LineChart(
-                        LineChartData(
-                          minX: -0.5,
-                          maxX: points.length - 0.5,
-                          minY: 0,
-                          maxY: yMax,
-                          gridData: const FlGridData(show: false),
-                          borderData: FlBorderData(show: false),
-                          titlesData: const FlTitlesData(show: false),
-                          lineTouchData: const LineTouchData(enabled: false),
-                          lineBarsData: [
-                            LineChartBarData(
-                              spots: [
-                                for (final p in points)
-                                  FlSpot(p.index.toDouble(), p.previous ?? 0),
-                              ],
-                              isCurved: false,
-                              color: Colors.white.withValues(alpha: 0.4),
-                              barWidth: 1.5,
-                              dashArray: [4, 4],
-                              dotData: const FlDotData(show: false),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
           if (selected != null) ...[
@@ -1509,71 +1550,111 @@ class _WeekHeatmap extends StatelessWidget {
         if (v > max) max = v;
       }
     }
-    return SizedBox(
-      height: 122,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (var d = 0; d < 7; d++)
-            Expanded(
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 18,
-                    child: Text(
-                      _dayLabels[d],
-                      style: McText.micro.copyWith(
-                        fontWeight: FontWeight.w400,
-                        color: McTokens.textFaint,
-                      ),
-                    ),
-                  ),
-                  for (var h = 0; h < 24; h++)
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(1),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: _cell(
-                              d < matrix.length && h < matrix[d].length
-                                  ? matrix[d][h]
-                                  : 0,
-                              max,
-                            ),
-                            borderRadius: BorderRadius.circular(2),
+    final axisLabelStyle = McText.micro
+        .copyWith(
+          fontWeight: FontWeight.w400,
+          color: McTokens.textFaint,
+        )
+        .tabular;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 108,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var d = 0; d < 7; d++)
+                Expanded(
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 22,
+                        child: Text(
+                          _dayLabels[d],
+                          maxLines: 1,
+                          softWrap: false,
+                          style: McText.micro.copyWith(
+                            fontWeight: FontWeight.w400,
+                            color: McTokens.textFaint,
                           ),
-                          child: const SizedBox.expand(),
                         ),
                       ),
-                    ),
+                      for (var h = 0; h < 24; h++)
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.all(1),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: _cell(
+                                  d < matrix.length && h < matrix[d].length
+                                      ? matrix[d][h]
+                                      : 0,
+                                  max,
+                                ),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                              child: const SizedBox.expand(),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            const SizedBox(width: 22),
+            Expanded(
+              child: Text(
+                '0',
+                maxLines: 1,
+                softWrap: false,
+                style: axisLabelStyle,
+              ),
+            ),
+            Expanded(
+              child: Text(
+                '6',
+                maxLines: 1,
+                softWrap: false,
+                style: axisLabelStyle,
+              ),
+            ),
+            Expanded(
+              child: Text(
+                '12',
+                maxLines: 1,
+                softWrap: false,
+                style: axisLabelStyle,
+              ),
+            ),
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '18',
+                    maxLines: 1,
+                    softWrap: false,
+                    style: axisLabelStyle,
+                  ),
+                  Text(
+                    '24',
+                    maxLines: 1,
+                    softWrap: false,
+                    style: axisLabelStyle,
+                  ),
                 ],
               ),
             ),
-          const SizedBox(height: 3),
-          SizedBox(
-            height: 14,
-            child: Row(
-              children: [
-                const SizedBox(width: 18),
-                for (var h = 0; h < 24; h++)
-                  Expanded(
-                    child: h % 6 == 0
-                        ? Text(
-                            '$h',
-                            style: McText.micro
-                                .copyWith(
-                                  fontWeight: FontWeight.w400,
-                                  color: McTokens.textFaint,
-                                )
-                                .tabular,
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
+          ],
+        ),
+      ],
     );
   }
 }

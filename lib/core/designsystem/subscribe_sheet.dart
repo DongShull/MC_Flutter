@@ -762,156 +762,167 @@ class _SubscribeSheetState extends ConsumerState<_SubscribeSheet> {
   Widget _buildReadyForm(SubscribePreview p) {
     final isMovie = _kind == 'movie';
     final plan = p.smart;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 6, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _headerCard(),
-          if (widget.upgrade) ...[
-            const SizedBox(height: 8),
-            Text(
-              '创建订阅后立即体检现有库存并触发一轮洗版。',
-              style: McText.caption.muted,
-            ),
-          ],
-          if (_error != null) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              decoration: BoxDecoration(
-                color: McTokens.danger.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: McTokens.danger.withValues(alpha: 0.35),
-                ),
-              ),
-              child: Text(
-                _error!,
-                style: McText.caption.copyWith(color: McTokens.danger),
-              ),
-            ),
-          ],
-
-          // 选择模式切换（非洗版模式且服务端支持智能订阅时）
-          if (!widget.upgrade && (plan != null || _canManage)) ...[
-            const SizedBox(height: 14),
-            Row(
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 6, 20, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (plan != null) ...[
-                  McChip(
-                    label: '智能选择',
-                    icon: McIcons.aiStarFill,
-                    selected: _selectionMode == 'smart',
-                    compact: true,
-                    onTap: () => setState(() => _selectionMode = 'smart'),
+                _headerCard(),
+                if (widget.upgrade) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '创建订阅后立即体检现有库存并触发一轮洗版。',
+                    style: McText.caption.muted,
                   ),
-                  const SizedBox(width: 8),
                 ],
-                McChip(
-                  label: '指定规则组',
-                  icon: McIcons.listSettings2,
-                  selected: _selectionMode == 'rules',
-                  compact: true,
-                  onTap: () => setState(() => _selectionMode = 'rules'),
-                ),
-              ],
-            ),
-          ],
-
-          // 智能选择方案卡片
-          if (_selectionMode == 'smart') ...[
-            const SizedBox(height: 12),
-            SmartPlanSection(
-              plan: plan,
-              choice: _smartChoice,
-              onChoiceChanged: (next) => setState(() => _smartChoice = next),
-              onOpenSettings: _openSmartDefaults,
-              onOpenQuality: plan != null ? () => _openSmartQuality(plan) : null,
-            ),
-          ] else if (_canManage) ...[
-            // 规则组选择区
-            const SizedBox(height: 12),
-            _buildRuleSetPicker(),
-          ],
-
-          // 目标媒体库（管理员可见）
-          if (_canManage && _libraries.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _buildLibraryPicker(),
-          ],
-
-          // 投递路由预检提示
-          if (_dispatchPreview != null) ...[
-            const SizedBox(height: 10),
-            _DispatchPreviewBanner(preview: _dispatchPreview!),
-          ],
-
-          // 剧集选季与自动追更
-          if (!isMovie) ...[
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Text('追踪范围', style: McText.caption.semibold.muted),
-                const Spacer(),
-                Text(
-                  _selectedSeasons.isEmpty
-                      ? (_followFuture ? '仅追后续新集' : '请至少选一季')
-                      : '已选 ${_selectedSeasons.length} 季',
-                  style: McText.micro.copyWith(
-                    color: (_selectedSeasons.isEmpty && !_followFuture)
-                        ? McTokens.warn
-                        : McTokens.textMuted,
+                if (_error != null) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                    decoration: BoxDecoration(
+                      color: McTokens.danger.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: McTokens.danger.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: Text(
+                      _error!,
+                      style: McText.caption.copyWith(color: McTokens.danger),
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 220),
-              child: SingleChildScrollView(
-                child: McInsetGroup(
-                  margin: EdgeInsets.zero,
-                  dividerIndent: 44,
-                  children: [
-                    for (final s in p.seasons)
-                      _seasonRow(s),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            McInsetGroup(
-              margin: EdgeInsets.zero,
-              children: [
-                McInsetRow(
-                  title: '自动续订后续新季',
-                  subtitle: '未来播出的新集与新季自动纳入追踪',
-                  trailing: Switch(
-                    value: _followFuture,
-                    onChanged: (v) => setState(() => _followFuture = v),
-                  ),
-                  onTap: () => setState(() => _followFuture = !_followFuture),
-                ),
-              ],
-            ),
-          ],
+                ],
 
-          const SizedBox(height: 18),
-          McActionPill(
-            label: _submitting
-                ? (widget.upgrade ? '正在创建并洗版…' : '正在创建订阅…')
-                : (widget.upgrade ? '订阅并洗一轮版' : '确认订阅'),
-            icon: widget.upgrade ? McIcons.aiStarFill : McIcons.bookmarkFill,
-            primary: true,
-            expanded: true,
-            height: 44,
-            busy: _submitting,
-            onTap: _canSubmit ? _submit : null,
+                // 选择模式切换（非洗版模式且服务端支持智能订阅时）
+                if (!widget.upgrade && (plan != null || _canManage)) ...[
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      if (plan != null) ...[
+                        McChip(
+                          label: '智能选择',
+                          icon: McIcons.aiStarFill,
+                          selected: _selectionMode == 'smart',
+                          compact: true,
+                          onTap: () => setState(() => _selectionMode = 'smart'),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      McChip(
+                        label: '指定规则组',
+                        icon: McIcons.listSettings2,
+                        selected: _selectionMode == 'rules',
+                        compact: true,
+                        onTap: () => setState(() => _selectionMode = 'rules'),
+                      ),
+                    ],
+                  ),
+                ],
+
+                // 智能选择方案卡片
+                if (_selectionMode == 'smart') ...[
+                  const SizedBox(height: 12),
+                  SmartPlanSection(
+                    plan: plan,
+                    choice: _smartChoice,
+                    onChoiceChanged: (next) =>
+                        setState(() => _smartChoice = next),
+                    onOpenSettings: _openSmartDefaults,
+                    onOpenQuality:
+                        plan != null ? () => _openSmartQuality(plan) : null,
+                  ),
+                ] else if (_canManage) ...[
+                  // 规则组选择区
+                  const SizedBox(height: 12),
+                  _buildRuleSetPicker(),
+                ],
+
+                // 目标媒体库（管理员可见）
+                if (_canManage && _libraries.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  _buildLibraryPicker(),
+                ],
+
+                // 投递路由预检提示
+                if (_dispatchPreview != null) ...[
+                  const SizedBox(height: 10),
+                  _DispatchPreviewBanner(preview: _dispatchPreview!),
+                ],
+
+                // 剧集选季与自动追更（直接置于外层单一滚动容器，消除嵌套滚动冲突）
+                if (!isMovie) ...[
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Text('追踪范围', style: McText.caption.semibold.muted),
+                      const Spacer(),
+                      Text(
+                        _selectedSeasons.isEmpty
+                            ? (_followFuture ? '仅追后续新集' : '请至少选一季')
+                            : '已选 ${_selectedSeasons.length} 季',
+                        style: McText.micro.copyWith(
+                          color: (_selectedSeasons.isEmpty && !_followFuture)
+                              ? McTokens.warn
+                              : McTokens.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  McInsetGroup(
+                    margin: EdgeInsets.zero,
+                    dividerIndent: 44,
+                    children: [
+                      for (final s in p.seasons) _seasonRow(s),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  McInsetGroup(
+                    margin: EdgeInsets.zero,
+                    children: [
+                      McInsetRow(
+                        title: '自动续订后续新季',
+                        subtitle: '未来播出的新集与新季自动纳入追踪',
+                        trailing: Switch(
+                          value: _followFuture,
+                          onChanged: (v) => setState(() => _followFuture = v),
+                        ),
+                        onTap: () =>
+                            setState(() => _followFuture = !_followFuture),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
           ),
-        ],
-      ),
+        ),
+        const Divider(height: 1, color: McTokens.line),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            child: McActionPill(
+              label: _submitting
+                  ? (widget.upgrade ? '正在创建并洗版…' : '正在创建订阅…')
+                  : (widget.upgrade ? '订阅并洗一轮版' : '确认订阅'),
+              icon: widget.upgrade ? McIcons.aiStarFill : McIcons.bookmarkFill,
+              primary: true,
+              expanded: true,
+              height: 44,
+              busy: _submitting,
+              onTap: _canSubmit ? _submit : null,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

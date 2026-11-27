@@ -152,7 +152,9 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
           Expanded(
             child: widget.subscriptionId != null
                 ? (_itemsLoading
-                    ? const McLoadingView()
+                    ? const SingleChildScrollView(
+                        child: McFeedSkeleton(showHero: false),
+                      )
                     : _error != null
                         ? McErrorView(text: _error!, onRetry: _refresh)
                         : RefreshIndicator(
@@ -160,7 +162,9 @@ class _SubscriptionWallPageState extends ConsumerState<SubscriptionWallPage> {
                             child: _buildSingleWallBody(),
                           ))
                 : (homeState!.isLoading && !homeState.hasValue)
-                    ? const McLoadingView()
+                    ? const SingleChildScrollView(
+                        child: McFeedSkeleton(showHero: false),
+                      )
                     : (homeState.hasError && !homeState.hasValue)
                         ? McErrorView(
                             text: '${homeState.error}',

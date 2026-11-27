@@ -69,9 +69,13 @@ class SearchRoundBar extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Text(
-                '${SubsFormat.relative(latest.createdAt)}搜了一轮',
-                style: McText.sub.semibold.copyWith(color: McTokens.text),
+              Expanded(
+                child: Text(
+                  '${SubsFormat.relative(latest.createdAt)}搜了一轮',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: McText.sub.semibold.copyWith(color: McTokens.text),
+                ),
               ),
             ],
           ),
@@ -227,30 +231,36 @@ class _TrackingListState extends State<TrackingList> {
                       ),
                       const SizedBox(width: 6),
                     ],
-                    Text(
-                      isMovie ? '正片' : SubsFormat.seasonName(season),
-                      style: McText.sub.semibold.copyWith(color: McTokens.text),
+                    Expanded(
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            isMovie ? '正片' : SubsFormat.seasonName(season),
+                            style: McText.sub.semibold
+                                .copyWith(color: McTokens.text),
+                          ),
+                          if (!isMovie)
+                            Text(
+                              '$arranged/${items.length}',
+                              style: McText.caption.faint.tabular,
+                            ),
+                          if (upgrading > 0)
+                            Text(
+                              '洗版中 $upgrading',
+                              style: McText.caption
+                                  .copyWith(color: SubsColor.upgrade)
+                                  .tabular,
+                            ),
+                        ],
+                      ),
                     ),
-                    if (!isMovie) ...[
-                      const SizedBox(width: 8),
-                      Text(
-                        '$arranged/${items.length}',
-                        style: McText.caption.faint.tabular,
-                      ),
-                    ],
-                    if (upgrading > 0) ...[
-                      const SizedBox(width: 8),
-                      Text(
-                        '洗版中 $upgrading',
-                        style: McText.caption
-                            .copyWith(color: SubsColor.upgrade)
-                            .tabular,
-                      ),
-                    ],
-                    const Spacer(),
                     if (collapsible && !open) ...[
+                      const SizedBox(width: 8),
                       SizedBox(
-                        width: 48,
+                        width: 44,
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(999),
                           child: LinearProgressIndicator(
@@ -265,9 +275,9 @@ class _TrackingListState extends State<TrackingList> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
                     ],
-                    if (annotatable && widget.onAnnotate != null)
+                    if (annotatable && widget.onAnnotate != null) ...[
+                      const SizedBox(width: 8),
                       GestureDetector(
                         onTap: () => widget.onAnnotate!(season),
                         child: Container(
@@ -282,10 +292,12 @@ class _TrackingListState extends State<TrackingList> {
                           ),
                           child: Text(
                             '标注片源',
+                            maxLines: 1,
                             style: McText.micro.copyWith(color: McTokens.text),
                           ),
                         ),
                       ),
+                    ],
                   ],
                 ),
               ),
@@ -382,16 +394,23 @@ class _WantedRow extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Text(
-                      isMovie
-                          ? '正片'
-                          : 'E${SubsFormat.pad(wanted.episodeNumber)}',
-                      style: McText.sub.semibold
-                          .copyWith(color: McTokens.text)
-                          .tabular,
+                    Expanded(
+                      child: Text(
+                        isMovie
+                            ? '正片'
+                            : 'E${SubsFormat.pad(wanted.episodeNumber)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: McText.sub.semibold
+                            .copyWith(color: McTokens.text)
+                            .tabular,
+                      ),
                     ),
-                    const Spacer(),
-                    _miniPill(pres, chain, lit),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      flex: 0,
+                      child: _miniPill(pres, chain, lit),
+                    ),
                     if (!isMovie) ...[
                       const SizedBox(width: 6),
                       Icon(
@@ -582,19 +601,30 @@ class MilestoneChainView extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Text(
-                        milestone.label,
-                        style: McText.caption.copyWith(
-                          fontWeight: isNow ? FontWeight.w600 : FontWeight.w500,
-                          color: labelColor,
+                      Expanded(
+                        child: Text(
+                          milestone.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: McText.caption.copyWith(
+                            fontWeight:
+                                isNow ? FontWeight.w600 : FontWeight.w500,
+                            color: labelColor,
+                          ),
                         ),
                       ),
-                      const Spacer(),
-                      if (milestone.time.isNotEmpty)
-                        Text(
-                          milestone.time,
-                          style: McText.micro.faint.tabular,
+                      if (milestone.time.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Flexible(
+                          flex: 0,
+                          child: Text(
+                            milestone.time,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: McText.micro.faint.tabular,
+                          ),
                         ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 3),

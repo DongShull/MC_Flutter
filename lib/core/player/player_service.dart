@@ -325,19 +325,21 @@ class MediaKitPlayerService implements PlayerService {
   }) {
     final vc = _videoController;
     if (vc == null) return const SizedBox.expand();
-    return mkv.Video(
-      key: ValueKey(vc),
-      controller: vc,
-      fit: fit,
-      aspectRatio: aspectRatioOverride,
-      fill: const Color(0xFF000000),
-      controls: (_) => const SizedBox.shrink(),
-      subtitleViewConfiguration: const mkv.SubtitleViewConfiguration(
-        visible: false,
+    return IgnorePointer(
+      child: mkv.Video(
+        key: ValueKey(vc),
+        controller: vc,
+        fit: fit,
+        aspectRatio: aspectRatioOverride,
+        fill: const Color(0xFF000000),
+        controls: (_) => const SizedBox.shrink(),
+        subtitleViewConfiguration: const mkv.SubtitleViewConfiguration(
+          visible: false,
+        ),
+        wakelock: false,
+        pauseUponEnteringBackgroundMode: false,
+        resumeUponEnteringForegroundMode: false,
       ),
-      wakelock: false,
-      pauseUponEnteringBackgroundMode: false,
-      resumeUponEnteringForegroundMode: false,
     );
   }
 
@@ -522,13 +524,15 @@ class VideoPlayerService implements PlayerService {
             ? (val.size.width / val.size.height)
             : (val.aspectRatio > 0 ? val.aspectRatio : 16.0 / 9.0);
         final ratio = aspectRatioOverride ?? naturalRatio;
-        return ClipRect(
-          child: FittedBox(
-            fit: fit,
-            child: SizedBox(
-              width: 1024,
-              height: 1024 / ratio,
-              child: VideoPlayer(controller),
+        return IgnorePointer(
+          child: ClipRect(
+            child: FittedBox(
+              fit: fit,
+              child: SizedBox(
+                width: 1024,
+                height: 1024 / ratio,
+                child: VideoPlayer(controller),
+              ),
             ),
           ),
         );

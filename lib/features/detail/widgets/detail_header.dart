@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/designsystem/adaptive.dart';
@@ -23,6 +24,7 @@ class DetailHeader extends StatelessWidget {
     this.onBack,
     this.ambientColor = McTokens.bg,
     this.scrollOffset = 0,
+    this.scrollOffsetListenable,
   });
 
   final DetailEntry entry;
@@ -31,6 +33,7 @@ class DetailHeader extends StatelessWidget {
   final VoidCallback? onBack;
   final Color ambientColor;
   final double scrollOffset;
+  final ValueListenable<double>? scrollOffsetListenable;
 
   String? get _runtimeText {
     final mins = entry.runtimeMinutes;
@@ -114,7 +117,7 @@ class DetailHeader extends StatelessWidget {
           fit: BoxFit.contain,
           alignment: wide ? Alignment.bottomLeft : Alignment.bottomCenter,
           fadeInDuration: const Duration(milliseconds: 220),
-          placeholder: (_, __) => const SizedBox(height: 68),
+          placeholder: (_, __) => fallbackText,
           errorWidget: (_, __, ___) => fallbackText,
         ),
       ),
@@ -131,10 +134,51 @@ class DetailHeader extends StatelessWidget {
 
     final rawHero = entry.backdropUrl ?? entry.posterUrl;
     final resolvedHero = McImageUrls.resolve(rawHero, widthPx: 1280);
-    final stretch = scrollOffset < 0
-        ? (1.0 + (-scrollOffset) / heroHeight).clamp(1.0, 1.35)
-        : 1.0;
-    final parallax = scrollOffset > 0 ? math.min(scrollOffset * 0.26, 72.0) : 0.0;
+    final Widget heroImage = resolvedHero.isEmpty
+        ? Container(
+            color: McTokens.posterPlaceholder,
+            alignment: Alignment.center,
+            child: const Icon(
+              McIcons.film,
+              size: 44,
+              color: McTokens.textFaint,
+            ),
+          )
+        : CachedNetworkImage(
+            imageUrl: resolvedHero,
+            httpHeaders: mcImageHeaders(),
+            fadeInDuration: const Duration(milliseconds: 220),
+            imageBuilder: (_, provider) => DecoratedBox(
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  image: provider,
+                  fit: BoxFit.cover,
+                  alignment: Alignment.topCenter,
+                ),
+              ),
+            ),
+            placeholder: (_, __) => const ColoredBox(
+              color: McTokens.posterPlaceholder,
+            ),
+            errorWidget: (_, __, ___) => const ColoredBox(
+              color: McTokens.posterPlaceholder,
+            ),
+          );
+
+    Widget buildHeroTransform(double offset, Widget? child) {
+      final stretch = offset < 0
+          ? (1.0 + (-offset) / heroHeight).clamp(1.0, 1.35)
+          : 1.0;
+      final parallax = offset > 0 ? math.min(offset * 0.26, 72.0) : 0.0;
+      return Transform.translate(
+        offset: Offset(0, parallax),
+        child: Transform.scale(
+          scale: stretch,
+          alignment: Alignment.bottomCenter,
+          child: child,
+        ),
+      );
+    }
 
     final factTokens = <String>[
       if (entry.year != null) entry.year.toString(),
@@ -254,43 +298,14 @@ class DetailHeader extends StatelessWidget {
         children: [
           Positioned.fill(
             child: ClipRect(
-              child: Transform.translate(
-                offset: Offset(0, parallax),
-                child: Transform.scale(
-                  scale: stretch,
-                  alignment: Alignment.bottomCenter,
-                  child: resolvedHero.isEmpty
-                      ? Container(
-                          color: McTokens.posterPlaceholder,
-                          alignment: Alignment.center,
-                          child: const Icon(
-                            McIcons.film,
-                            size: 44,
-                            color: McTokens.textFaint,
-                          ),
-                        )
-                      : CachedNetworkImage(
-                          imageUrl: resolvedHero,
-                          httpHeaders: mcImageHeaders(),
-                          fadeInDuration: const Duration(milliseconds: 220),
-                          imageBuilder: (_, provider) => DecoratedBox(
-                            decoration: BoxDecoration(
-                              image: DecorationImage(
-                                image: provider,
-                                fit: BoxFit.cover,
-                                alignment: Alignment.topCenter,
-                              ),
-                            ),
-                          ),
-                          placeholder: (_, __) => const ColoredBox(
-                            color: McTokens.posterPlaceholder,
-                          ),
-                          errorWidget: (_, __, ___) => const ColoredBox(
-                            color: McTokens.posterPlaceholder,
-                          ),
-                        ),
-                ),
-              ),
+              child: scrollOffsetListenable != null
+                  ? ValueListenableBuilder<double>(
+                      valueListenable: scrollOffsetListenable!,
+                      builder: (_, offset, child) =>
+                          buildHeroTransform(offset, child),
+                      child: heroImage,
+                    )
+                  : buildHeroTransform(scrollOffset, heroImage),
             ),
           ),
           const Positioned.fill(

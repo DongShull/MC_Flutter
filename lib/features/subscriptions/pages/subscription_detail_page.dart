@@ -548,7 +548,7 @@ class _SubscriptionDetailPageState
           ),
           Expanded(
             child: _loading && detail == null
-                ? const McLoadingView()
+                ? const _SubscriptionDetailSkeleton()
                 : _error != null && detail == null
                     ? McErrorView(
                         text: _error!,
@@ -998,6 +998,50 @@ class _ProgressStrip extends StatelessWidget {
         ),
         const SizedBox(width: 5),
         Text(label, style: McText.micro.faint.tabular),
+      ],
+    );
+  }
+}
+
+class _SubscriptionDetailSkeleton extends StatelessWidget {
+  const _SubscriptionDetailSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: EdgeInsets.fromLTRB(
+        McTokens.pagePadding,
+        10,
+        McTokens.pagePadding,
+        40 + MediaQuery.paddingOf(context).bottom,
+      ),
+      physics: const NeverScrollableScrollPhysics(),
+      children: const [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            McShimmerBox(width: 78, height: 114, radius: 10),
+            SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  McShimmerBox(width: 160, height: 20, radius: 6),
+                  SizedBox(height: 10),
+                  McShimmerBox(width: 120, height: 14, radius: 5),
+                  SizedBox(height: 10),
+                  McShimmerBox(height: 32, radius: 10),
+                ],
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 18),
+        McShimmerBox(height: 76, radius: McTokens.cardRadius),
+        SizedBox(height: 14),
+        McShimmerBox(height: 156, radius: McTokens.cardRadius),
+        SizedBox(height: 14),
+        McShimmerBox(height: 120, radius: McTokens.cardRadius),
       ],
     );
   }

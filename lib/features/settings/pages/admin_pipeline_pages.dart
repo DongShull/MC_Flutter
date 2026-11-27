@@ -1136,6 +1136,7 @@ class SitesAdminPage extends ConsumerStatefulWidget {
 class _SitesAdminPageState extends ConsumerState<SitesAdminPage> {
   List<Map<String, dynamic>> _sites = const [];
   List<Map<String, dynamic>> _catalog = const [];
+  final Set<String> _busySiteIds = <String>{};
   String? _extToken;
   bool _loading = true;
   String? _error;
@@ -1389,13 +1390,15 @@ class _SitesAdminPageState extends ConsumerState<SitesAdminPage> {
                               builder: (context) {
                                 final sid =
                                     (s['site_id'] ?? s['id'] ?? '').toString();
+                                final siteName = (s['name'] ?? sid).toString();
                                 final enabled = s['enabled'] != false;
+                                final isBusy = _busySiteIds.contains(sid);
                                 return McInsetRow(
                                   icon: McIcons.globe,
                                   iconColor: enabled
                                       ? McTokens.ok
                                       : McTokens.textFaint,
-                                  title: (s['name'] ?? sid).toString(),
+                                  title: siteName,
                                   subtitle: enabled ? '已启用' : '已停用',
                                   trailing: Row(
                                     mainAxisSize: MainAxisSize.min,
@@ -1403,49 +1406,108 @@ class _SitesAdminPageState extends ConsumerState<SitesAdminPage> {
                                       McChip(
                                         label: '测速验证',
                                         compact: true,
-                                        onTap: () async {
-                                          try {
-                                            await _mc.unwrap<dynamic>(
-                                              Channel.general,
-                                              'POST',
-                                              '/api/v1/sites/$sid/verify',
-                                            );
-                                            if (context.mounted) {
-                                              McToast.success('$sid 连通正常');
-                                            }
-                                          } catch (e) {
-                                            if (context.mounted) {
-                                              McToast.error('验证失败：$e');
-                                            }
-                                          }
-                                        },
+                                        onTap: isBusy
+                                            ? null
+                                            : () async {
+                                                try {
+                                                  await _mc.unwrap<dynamic>(
+                                                    Channel.general,
+                                                    'POST',
+                                                    '/api/v1/sites/$sid/verify',
+                                                  );
+                                                  if (context.mounted) {
+                                                    McToast.success(
+                                                      '$siteName 连通正常',
+                                                    );
+                                                  }
+                                                } catch (e) {
+                                                  if (context.mounted) {
+                                                    McToast.error(
+                                                      '验证失败：${settingsErrorText(e)}',
+                                                    );
+                                                  }
+                                                }
+                                              },
                                       ),
                                       Switch(
                                         value: enabled,
-                                        onChanged: (v) async {
-                                          await _mc.unwrap<dynamic>(
-                                            Channel.general,
-                                            'PATCH',
-                                            '/api/v1/sites/$sid/status',
-                                            body: {'enabled': v},
-                                          );
-                                          await _load();
-                                        },
+                                        onChanged: isBusy
+                                            ? null
+                                            : (v) async {
+                                                setState(
+                                                  () => _busySiteIds.add(sid),
+                                                );
+                                                try {
+                                                  await _mc.unwrap<dynamic>(
+                                                    Channel.general,
+                                                    'PATCH',
+                                                    '/api/v1/sites/$sid/status',
+                                                    body: {'enabled': v},
+                                                  );
+                                                  await _load();
+                                                } catch (e) {
+                                                  if (mounted) {
+                                                    McToast.error(
+                                                      '切换失败：${settingsErrorText(e)}',
+                                                    );
+                                                  }
+                                                } finally {
+                                                  if (mounted) {
+                                                    setState(
+                                                      () => _busySiteIds
+                                                          .remove(sid),
+                                                    );
+                                                  }
+                                                }
+                                              },
                                       ),
                                       IconButton(
+                                        tooltip: '删除站点',
                                         icon: const Icon(
                                           McIcons.trash2,
                                           size: 17,
                                           color: McTokens.danger,
                                         ),
-                                        onPressed: () async {
-                                          await _mc.unwrap<dynamic>(
-                                            Channel.general,
-                                            'DELETE',
-                                            '/api/v1/sites/$sid',
-                                          );
-                                          await _load();
-                                        },
+                                        onPressed: isBusy
+                                            ? null
+                                            : () async {
+                                                final ok = await confirmDialog(
+                                                  context,
+                                                  title: '删除站点「$siteName」？',
+                                                  message:
+                                                      '删除后该 PT 索引站点将不再参与搜索和自动追更。',
+                                                  confirmLabel: '删除',
+                                                  destructive: true,
+                                                );
+                                                if (!ok || !mounted) return;
+                                                setState(
+                                                  () => _busySiteIds.add(sid),
+                                                );
+                                                try {
+                                                  await _mc.unwrap<dynamic>(
+                                                    Channel.general,
+                                                    'DELETE',
+                                                    '/api/v1/sites/$sid',
+                                                  );
+                                                  if (mounted) {
+                                                    McToast.success('已删除站点');
+                                                  }
+                                                  await _load();
+                                                } catch (e) {
+                                                  if (mounted) {
+                                                    McToast.error(
+                                                      '删除失败：${settingsErrorText(e)}',
+                                                    );
+                                                  }
+                                                } finally {
+                                                  if (mounted) {
+                                                    setState(
+                                                      () => _busySiteIds
+                                                          .remove(sid),
+                                                    );
+                                                  }
+                                                }
+                                              },
                                       ),
                                     ],
                                   ),
@@ -1462,7 +1524,10 @@ class _SitesAdminPageState extends ConsumerState<SitesAdminPage> {
 
 /// 5) 下载器与监控目录入库规则页（/api/v1/downloaders + /api/v1/import-watch）。
 class DownloadersAdminPage extends ConsumerStatefulWidget {
-  const DownloadersAdminPage({super.key});
+  const DownloadersAdminPage({super.key, this.initialSection});
+
+  /// 深度链接定位分区，例如 `import-watch`。
+  final String? initialSection;
 
   @override
   ConsumerState<DownloadersAdminPage> createState() =>
@@ -1472,6 +1537,9 @@ class DownloadersAdminPage extends ConsumerStatefulWidget {
 class _DownloadersAdminPageState extends ConsumerState<DownloadersAdminPage> {
   List<Map<String, dynamic>> _downloaders = const [];
   List<Map<String, dynamic>> _watches = const [];
+  final Set<String> _busyKeys = <String>{};
+  final GlobalKey _watchSectionKey = GlobalKey();
+  bool _scrolledToInitial = false;
   bool _loading = true;
   String? _error;
 
@@ -1512,6 +1580,19 @@ class _DownloadersAdminPageState extends ConsumerState<DownloadersAdminPage> {
           _watches = asMaps(wRaw);
           _loading = false;
         });
+        if (!_scrolledToInitial && widget.initialSection == 'import-watch') {
+          _scrolledToInitial = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final ctx = _watchSectionKey.currentContext;
+            if (ctx != null && ctx.mounted) {
+              Scrollable.ensureVisible(
+                ctx,
+                duration: const Duration(milliseconds: 280),
+                curve: Curves.easeOutCubic,
+              );
+            }
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -1597,8 +1678,8 @@ class _DownloadersAdminPageState extends ConsumerState<DownloadersAdminPage> {
         ),
       ),
     );
-    if (ok != true || !mounted) return;
     try {
+      if (ok != true || !mounted) return;
       await _mc.unwrap<dynamic>(
         Channel.general,
         'POST',
@@ -1615,7 +1696,12 @@ class _DownloadersAdminPageState extends ConsumerState<DownloadersAdminPage> {
       if (mounted) McToast.success('已添加下载器');
       await _load();
     } catch (e) {
-      if (mounted) McToast.error('添加失败：$e');
+      if (mounted) McToast.error('添加失败：${settingsErrorText(e)}');
+    } finally {
+      nameCtrl.dispose();
+      urlCtrl.dispose();
+      userCtrl.dispose();
+      pwdCtrl.dispose();
     }
   }
 
@@ -1673,56 +1759,103 @@ class _DownloadersAdminPageState extends ConsumerState<DownloadersAdminPage> {
                         header: '下载客户端',
                         children: [
                           for (final d in _downloaders)
-                            McInsetRow(
-                              icon: McIcons.downloadCloudOut,
-                              title: (d['name'] ?? d['type'] ?? '').toString(),
-                              subtitle:
-                                  '${d['url'] ?? d['base_url'] ?? ''}${d['is_default'] == true ? ' · 默认' : ''}',
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  McChip(
-                                    label: '测试',
-                                    compact: true,
-                                    onTap: () async {
-                                      try {
-                                        await _mc.unwrap<dynamic>(
-                                          Channel.general,
-                                          'POST',
-                                          '/api/v1/downloaders/${d['id']}/verify',
-                                        );
-                                        if (context.mounted) {
-                                          McToast.success('下载器连接成功');
-                                        }
-                                      } catch (e) {
-                                        if (context.mounted) {
-                                          McToast.error('连接失败：$e');
-                                        }
-                                      }
-                                    },
+                            Builder(
+                              builder: (context) {
+                                final dlId = '${d['id']}';
+                                final dlKey = 'dl:$dlId';
+                                final dlName =
+                                    (d['name'] ?? d['type'] ?? '').toString();
+                                final isBusy = _busyKeys.contains(dlKey);
+                                return McInsetRow(
+                                  icon: McIcons.downloadCloudOut,
+                                  title: dlName,
+                                  subtitle:
+                                      '${d['url'] ?? d['base_url'] ?? ''}${d['is_default'] == true ? ' · 默认' : ''}',
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      McChip(
+                                        label: '测试',
+                                        compact: true,
+                                        onTap: isBusy
+                                            ? null
+                                            : () async {
+                                                try {
+                                                  await _mc.unwrap<dynamic>(
+                                                    Channel.general,
+                                                    'POST',
+                                                    '/api/v1/downloaders/$dlId/verify',
+                                                  );
+                                                  if (context.mounted) {
+                                                    McToast.success('下载器连接成功');
+                                                  }
+                                                } catch (e) {
+                                                  if (context.mounted) {
+                                                    McToast.error(
+                                                      '连接失败：${settingsErrorText(e)}',
+                                                    );
+                                                  }
+                                                }
+                                              },
+                                      ),
+                                      IconButton(
+                                        tooltip: '删除下载器',
+                                        icon: const Icon(
+                                          McIcons.trash2,
+                                          size: 17,
+                                          color: McTokens.danger,
+                                        ),
+                                        onPressed: isBusy
+                                            ? null
+                                            : () async {
+                                                final ok = await confirmDialog(
+                                                  context,
+                                                  title: '删除下载器「$dlName」？',
+                                                  message:
+                                                      '删除后将无法向该下载客户端推送新的下载任务。',
+                                                  confirmLabel: '删除',
+                                                  destructive: true,
+                                                );
+                                                if (!ok || !mounted) return;
+                                                setState(
+                                                  () => _busyKeys.add(dlKey),
+                                                );
+                                                try {
+                                                  await _mc.unwrap<dynamic>(
+                                                    Channel.general,
+                                                    'DELETE',
+                                                    '/api/v1/downloaders/$dlId',
+                                                  );
+                                                  if (mounted) {
+                                                    McToast.success('已删除下载器');
+                                                  }
+                                                  await _load();
+                                                } catch (e) {
+                                                  if (mounted) {
+                                                    McToast.error(
+                                                      '删除失败：${settingsErrorText(e)}',
+                                                    );
+                                                  }
+                                                } finally {
+                                                  if (mounted) {
+                                                    setState(
+                                                      () => _busyKeys
+                                                          .remove(dlKey),
+                                                    );
+                                                  }
+                                                }
+                                              },
+                                      ),
+                                    ],
                                   ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      McIcons.trash2,
-                                      size: 17,
-                                      color: McTokens.danger,
-                                    ),
-                                    onPressed: () async {
-                                      await _mc.unwrap<dynamic>(
-                                        Channel.general,
-                                        'DELETE',
-                                        '/api/v1/downloaders/${d['id']}',
-                                      );
-                                      await _load();
-                                    },
-                                  ),
-                                ],
-                              ),
+                                );
+                              },
                             ),
                         ],
                       ),
                     const SizedBox(height: 18),
                     Padding(
+                      key: _watchSectionKey,
                       padding: const EdgeInsets.symmetric(
                         horizontal: McTokens.pagePadding,
                       ),
@@ -1750,25 +1883,67 @@ class _DownloadersAdminPageState extends ConsumerState<DownloadersAdminPage> {
                       McInsetGroup(
                         children: [
                           for (final w in _watches)
-                            McInsetRow(
-                              icon: McIcons.folderOpen,
-                              title:
-                                  (w['path'] ?? w['source_path'] ?? '').toString(),
-                              trailing: IconButton(
-                                icon: const Icon(
-                                  McIcons.trash2,
-                                  size: 17,
-                                  color: McTokens.danger,
-                                ),
-                                onPressed: () async {
-                                  await _mc.unwrap<dynamic>(
-                                    Channel.general,
-                                    'DELETE',
-                                    '/api/v1/import-watch/${w['id']}',
-                                  );
-                                  await _load();
-                                },
-                              ),
+                            Builder(
+                              builder: (context) {
+                                final watchId = '${w['id']}';
+                                final watchKey = 'watch:$watchId';
+                                final watchPath =
+                                    (w['path'] ?? w['source_path'] ?? '')
+                                        .toString();
+                                final isBusy = _busyKeys.contains(watchKey);
+                                return McInsetRow(
+                                  icon: McIcons.folderOpen,
+                                  title: watchPath,
+                                  trailing: IconButton(
+                                    tooltip: '删除监控目录',
+                                    icon: const Icon(
+                                      McIcons.trash2,
+                                      size: 17,
+                                      color: McTokens.danger,
+                                    ),
+                                    onPressed: isBusy
+                                        ? null
+                                        : () async {
+                                            final ok = await confirmDialog(
+                                              context,
+                                              title: '删除监控目录？',
+                                              message:
+                                                  '将停止自动扫描与入库「$watchPath」，不会删除磁盘上的已有文件。',
+                                              confirmLabel: '删除',
+                                              destructive: true,
+                                            );
+                                            if (!ok || !mounted) return;
+                                            setState(
+                                              () => _busyKeys.add(watchKey),
+                                            );
+                                            try {
+                                              await _mc.unwrap<dynamic>(
+                                                Channel.general,
+                                                'DELETE',
+                                                '/api/v1/import-watch/$watchId',
+                                              );
+                                              if (mounted) {
+                                                McToast.success('已删除监控目录');
+                                              }
+                                              await _load();
+                                            } catch (e) {
+                                              if (mounted) {
+                                                McToast.error(
+                                                  '删除失败：${settingsErrorText(e)}',
+                                                );
+                                              }
+                                            } finally {
+                                              if (mounted) {
+                                                setState(
+                                                  () =>
+                                                      _busyKeys.remove(watchKey),
+                                                );
+                                              }
+                                            }
+                                          },
+                                  ),
+                                );
+                              },
                             ),
                         ],
                       ),

@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -185,9 +186,21 @@ class _SharePageState extends ConsumerState<SharePage> {
       Future.microtask(() => _maybeTriggerDeepPlay(state, controller));
     }
 
-    return Scaffold(
-      backgroundColor: McTokens.bg,
-      body: _body(context, state, controller),
+    final showingCollectionItem =
+        state.isCollection && state.activeCollectionItemId != null;
+
+    return PopScope(
+      canPop: !showingCollectionItem,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (showingCollectionItem) {
+          controller.backToCollection();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: McTokens.bg,
+        body: _body(context, state, controller),
+      ),
     );
   }
 
@@ -316,6 +329,7 @@ class _PasswordGate extends StatefulWidget {
 
 class _PasswordGateState extends State<_PasswordGate> {
   final _textController = TextEditingController();
+  bool _obscurePassword = true;
 
   @override
   void dispose() {
@@ -347,19 +361,31 @@ class _PasswordGateState extends State<_PasswordGate> {
               children: [
                 Row(
                   children: [
-                    Text(
-                      'MOVIECLAW',
-                      style: McText.caption.semibold.copyWith(
-                        letterSpacing: 3,
-                        color: Colors.white.withValues(alpha: 0.7),
+                    Flexible(
+                      child: Text(
+                        'MOVIECLAW',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: McText.caption.semibold.copyWith(
+                          letterSpacing: 3,
+                          color: Colors.white.withValues(alpha: 0.7),
+                        ),
                       ),
                     ),
-                    const Spacer(),
-                    if (state.probe?.expiresAt != null)
-                      Text(
-                        ShareLinkKit.expiryHint(state.probe!.expiresAt),
-                        style: McText.micro.faint,
+                    if (state.probe?.expiresAt != null) ...[
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            ShareLinkKit.expiryHint(state.probe!.expiresAt),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: McText.micro.faint,
+                          ),
+                        ),
                       ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 18),
@@ -367,7 +393,14 @@ class _PasswordGateState extends State<_PasswordGate> {
                   children: [
                     Icon(McIcons.lock, color: McTokens.accentStrong, size: 22),
                     SizedBox(width: 8),
-                    Text('需要访问密码', style: McText.titleLg),
+                    Expanded(
+                      child: Text(
+                        '需要访问密码',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: McText.titleLg,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 6),
@@ -375,7 +408,7 @@ class _PasswordGateState extends State<_PasswordGate> {
                 const SizedBox(height: 18),
                 TextField(
                   controller: _textController,
-                  obscureText: true,
+                  obscureText: _obscurePassword,
                   autofocus: true,
                   style: McText.body,
                   textInputAction: TextInputAction.go,
@@ -387,6 +420,20 @@ class _PasswordGateState extends State<_PasswordGate> {
                     hintText: '输入访问密码',
                     filled: true,
                     fillColor: Colors.white.withValues(alpha: 0.06),
+                    suffixIcon: IconButton(
+                      tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                        size: 20,
+                        color: McTokens.textMuted,
+                      ),
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _obscurePassword = !_obscurePassword);
+                      },
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide(
@@ -491,19 +538,31 @@ class _ShareCollectionView extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Text(
-                            'MOVIECLAW',
-                            style: McText.caption.semibold.copyWith(
-                              letterSpacing: 3,
-                              color: Colors.white.withValues(alpha: 0.7),
+                          Flexible(
+                            child: Text(
+                              'MOVIECLAW',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: McText.caption.semibold.copyWith(
+                                letterSpacing: 3,
+                                color: Colors.white.withValues(alpha: 0.7),
+                              ),
                             ),
                           ),
-                          const Spacer(),
-                          if (expiresAt != null)
-                            Text(
-                              '链接 ${ShareLinkKit.expiryHint(expiresAt)}',
-                              style: McText.caption.faint.tabular,
+                          if (expiresAt != null) ...[
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: Text(
+                                  '链接 ${ShareLinkKit.expiryHint(expiresAt)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: McText.caption.faint.tabular,
+                                ),
+                              ),
                             ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -746,19 +805,31 @@ class _ShareItemViewState extends State<_ShareItemView> {
                           ),
                           const SizedBox(width: 10),
                         ],
-                        Text(
-                          'MOVIECLAW',
-                          style: McText.caption.semibold.copyWith(
-                            letterSpacing: 3,
-                            color: Colors.white.withValues(alpha: 0.72),
+                        Flexible(
+                          child: Text(
+                            'MOVIECLAW',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: McText.caption.semibold.copyWith(
+                              letterSpacing: 3,
+                              color: Colors.white.withValues(alpha: 0.72),
+                            ),
                           ),
                         ),
-                        const Spacer(),
-                        if (expiresAt != null)
-                          Text(
-                            '链接 ${ShareLinkKit.expiryHint(expiresAt)}',
-                            style: McText.caption.faint.tabular,
+                        if (expiresAt != null) ...[
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Align(
+                              alignment: Alignment.centerRight,
+                              child: Text(
+                                '链接 ${ShareLinkKit.expiryHint(expiresAt)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: McText.caption.faint.tabular,
+                              ),
+                            ),
                           ),
+                        ],
                       ],
                     ),
                   ),
@@ -839,7 +910,7 @@ class _ShareItemViewState extends State<_ShareItemView> {
                         ],
                         const SizedBox(height: 14),
                         if (canPlay)
-                          _buildPlayButton(state)
+                          _buildPlayButton(state, item, currentFile)
                         else
                           Text(
                             item.isMovie || selectedEp != null
@@ -956,11 +1027,28 @@ class _ShareItemViewState extends State<_ShareItemView> {
     );
   }
 
-  Widget _buildPlayButton(ShareUiState state) {
+  Widget _buildPlayButton(
+    ShareUiState state,
+    SharedItem item,
+    SharedFile? currentFile,
+  ) {
     final resume = state.localResume;
     final hasResume = resume != null && resume.positionMs > 0;
     final clock = hasResume ? mcFormatClock(resume.positionMs ~/ 1000) : null;
     final label = hasResume ? '继续观看 · 看到 $clock' : '播放';
+
+    int? durationMs;
+    if (currentFile?.durationSeconds != null &&
+        currentFile!.durationSeconds! > 0) {
+      durationMs = currentFile.durationSeconds! * 1000;
+    } else if (item.isMovie &&
+        item.localMeta?.runtimeMinutes != null &&
+        item.localMeta!.runtimeMinutes! > 0) {
+      durationMs = item.localMeta!.runtimeMinutes! * 60 * 1000;
+    }
+    final progressRatio = (hasResume && durationMs != null && durationMs > 0)
+        ? (resume.positionMs / durationMs).clamp(0.02, 1.0)
+        : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -982,15 +1070,19 @@ class _ShareItemViewState extends State<_ShareItemView> {
           ),
         ),
         if (hasResume) ...[
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(99),
-            child: Container(
-              height: 4,
-              color: Colors.white.withValues(alpha: 0.16),
+          if (progressRatio != null) ...[
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(99),
+              child: LinearProgressIndicator(
+                value: progressRatio,
+                minHeight: 4,
+                color: McTokens.accentStrong,
+                backgroundColor: Colors.white.withValues(alpha: 0.16),
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
+          ],
+          const SizedBox(height: 6),
           Text(
             '上次看到 $clock（本机访客进度）',
             style: McText.caption.faint.tabular,

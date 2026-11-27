@@ -33,10 +33,12 @@ class LibraryManagePage extends ConsumerStatefulWidget {
     super.key,
     this.initialTab = 0,
     this.initialItemId,
+    this.openCreate = false,
   });
 
   final int initialTab;
   final int? initialItemId;
+  final bool openCreate;
 
   @override
   ConsumerState<LibraryManagePage> createState() => _LibraryManagePageState();
@@ -44,6 +46,8 @@ class LibraryManagePage extends ConsumerStatefulWidget {
 
 class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
   late int _tab = widget.initialTab.clamp(0, 4);
+  late int? _pendingDupItemId = widget.initialItemId;
+  bool _didAutoOpenCreate = false;
 
   bool _loadingLibs = true;
   String? _libsError;
@@ -58,7 +62,25 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(_loadLibraries);
+    Future.microtask(() async {
+      await _loadLibraries();
+      if (mounted && widget.openCreate && !_didAutoOpenCreate) {
+        _didAutoOpenCreate = true;
+        if (_tab != 0) setState(() => _tab = 0);
+        await _openEditor();
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant LibraryManagePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialItemId != widget.initialItemId) {
+      _pendingDupItemId = widget.initialItemId;
+    }
+    if (oldWidget.initialTab != widget.initialTab) {
+      _tab = widget.initialTab.clamp(0, 4);
+    }
   }
 
   Future<void> _loadLibraries() async {
@@ -223,7 +245,12 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
                       label: count > 0 ? '$label $count' : label,
                       compact: true,
                       selected: _tab == idx,
-                      onTap: () => setState(() => _tab = idx),
+                      onTap: () => setState(() {
+                        if (_tab == 2 && idx != 2) {
+                          _pendingDupItemId = null;
+                        }
+                        _tab = idx;
+                      }),
                     ),
                   ),
               ],
@@ -236,7 +263,7 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
               1 => IssueDrawerView(onChanged: _loadLibraries),
               2 => ManageDuplicateFilesTab(
                   libraries: _libraries,
-                  initialItemId: widget.initialItemId,
+                  initialItemId: _pendingDupItemId,
                   onCountChange: (c) {
                     if (_dupCount != c && mounted) {
                       setState(() => _dupCount = c);

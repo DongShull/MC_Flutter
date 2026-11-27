@@ -607,11 +607,38 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
                                   .read(collectionDetailProvider(_arg).notifier)
                                   .load(),
                             )
+                          : galleryOn
+                              ? LibraryGalleryWall(
+                              reloadKey:
+                                  '${c.id}|${state.sortKey}|${state.membersEpoch}',
+                              headerSlivers: [
+                                SliverToBoxAdapter(
+                                  child: _buildHeader(context, c, state),
+                                ),
+                              ],
+                              padding: EdgeInsets.fromLTRB(
+                                McTokens.pagePadding,
+                                14,
+                                McTokens.pagePadding,
+                                32 + MediaQuery.paddingOf(context).bottom,
+                              ),
+                              fetch: (offset, limit) {
+                                final p = state.sortParams;
+                                return ref
+                                    .read(libraryApiProvider)
+                                    .collectionGallery(
+                                      c.id,
+                                      limit: limit,
+                                      offset: offset,
+                                      sort: p.sort,
+                                      order: p.order,
+                                    );
+                              },
+                            )
                           : NotificationListener<ScrollNotification>(
                               onNotification: (n) {
-                                if (!galleryOn &&
-                                    n.metrics.pixels >
-                                        n.metrics.maxScrollExtent - 400) {
+                                if (n.metrics.pixels >
+                                    n.metrics.maxScrollExtent - 400) {
                                   ref
                                       .read(
                                         collectionDetailProvider(_arg).notifier,
@@ -627,52 +654,24 @@ class _CollectionDetailPageState extends ConsumerState<CollectionDetailPage> {
                                     SliverToBoxAdapter(
                                       child: _buildHeader(context, c, state),
                                     ),
-                                  if (galleryOn)
-                                    SliverPadding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                        McTokens.pagePadding,
-                                        14,
-                                        McTokens.pagePadding,
-                                        32,
-                                      ),
-                                      sliver: SliverToBoxAdapter(
-                                        child: LibraryGalleryWall(
-                                          reloadKey:
-                                              '${c.id}|${state.sortKey}|${state.membersEpoch}',
-                                          fetch: (offset, limit) {
-                                            final p = state.sortParams;
-                                            return ref
-                                                .read(libraryApiProvider)
-                                                .collectionGallery(
-                                                  c.id,
-                                                  limit: limit,
-                                                  offset: offset,
-                                                  sort: p.sort,
-                                                  order: p.order,
-                                                );
-                                          },
-                                        ),
-                                      ),
-                                    )
-                                  else
-                                    SliverPadding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                        McTokens.pagePadding,
-                                        12,
-                                        McTokens.pagePadding,
-                                        36,
-                                      ),
-                                      sliver: state.loading && cells.isEmpty
-                                          ? const SliverToBoxAdapter(
-                                              child: McLoadingView(),
-                                            )
-                                          : cells.isEmpty
-                                              ? const SliverToBoxAdapter(
-                                                  child: McEmptyView(
-                                                    text: '合集还没有条目',
-                                                  ),
-                                                )
-                                              : SliverGrid(
+                                  SliverPadding(
+                                    padding: EdgeInsets.fromLTRB(
+                                      McTokens.pagePadding,
+                                      12,
+                                      McTokens.pagePadding,
+                                      36 + MediaQuery.paddingOf(context).bottom,
+                                    ),
+                                    sliver: state.loading && cells.isEmpty
+                                        ? const SliverToBoxAdapter(
+                                            child: McLoadingView(),
+                                          )
+                                        : cells.isEmpty
+                                            ? const SliverToBoxAdapter(
+                                                child: McEmptyView(
+                                                  text: '合集还没有条目',
+                                                ),
+                                              )
+                                            : SliverGrid(
                                                   gridDelegate: form ==
                                                           McDeviceForm.phone
                                                       ? const SliverGridDelegateWithMaxCrossAxisExtent(

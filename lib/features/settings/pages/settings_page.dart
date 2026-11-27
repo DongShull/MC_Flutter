@@ -35,6 +35,7 @@ class SettingsPage extends ConsumerStatefulWidget {
 
 class _SettingsEntry {
   const _SettingsEntry({
+    required this.id,
     required this.group,
     required this.icon,
     required this.title,
@@ -44,6 +45,7 @@ class _SettingsEntry {
     this.detail,
   });
 
+  final String id;
   final String group;
   final IconData icon;
   final String title;
@@ -54,199 +56,221 @@ class _SettingsEntry {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-  int _selected = 0;
+  String _selectedId = 'profile';
 
   List<_SettingsEntry> _entries({
     required bool isAdmin,
     required String? displayName,
     required McAppLanguage language,
+    required McL10n l10n,
   }) {
     final langLabel = language.nativeName;
 
     return [
       // ---- 个人与偏好（全员可见）----
       _SettingsEntry(
-        group: '个人与终端',
+        id: 'profile',
+        group: l10n.settingsGroupPersonal,
         icon: McIcons.accountCircle,
-        title: '个人信息',
+        title: l10n.settingsProfile,
         subtitle: displayName,
         phoneRoute: '/settings/profile',
         detail: const ProfilePage(),
       ),
-      const _SettingsEntry(
-        group: '个人与终端',
+      _SettingsEntry(
+        id: 'devices',
+        group: l10n.settingsGroupPersonal,
         icon: McIcons.device,
-        title: '我的设备',
+        title: l10n.settingsMyDevices,
         subtitle: '已登录终端、配对审批与 API 令牌',
         phoneRoute: '/settings/devices',
-        detail: DevicesPage(),
+        detail: const DevicesPage(),
       ),
-      const _SettingsEntry(
-        group: '个人与终端',
+      _SettingsEntry(
+        id: 'notifications',
+        group: l10n.settingsGroupPersonal,
         icon: McIcons.bellOn,
-        title: '通知偏好',
+        title: l10n.settingsNotificationPrefs,
         subtitle: '推送权限、事件开关、分库订阅与静音剧集',
         phoneRoute: '/settings/notifications',
-        detail: NotificationSettingsPage(),
+        detail: const NotificationSettingsPage(),
       ),
-      const _SettingsEntry(
-        group: '播放与媒体',
+      _SettingsEntry(
+        id: 'playback',
+        group: l10n.settingsGroupPlayback,
         icon: McIcons.playCircle,
-        title: '播放设置',
+        title: l10n.settingsPlaybackTitle,
         subtitle: '软硬解、已看判定、Trickplay、片段预切与远程转码',
         phoneRoute: '/settings/playback',
-        detail: PlaybackPage(),
+        detail: const PlaybackPage(),
       ),
       if (isAdmin) ...[
-        const _SettingsEntry(
-          group: '播放与媒体',
+        _SettingsEntry(
+          id: 'library_manage',
+          group: l10n.settingsGroupPlayback,
           icon: McIcons.mediaLibraryFill,
-          title: '媒体库与异常文件管控',
+          title: l10n.settingsEntryLibraryManage,
           subtitle: '创建/扫描媒体库、服务端目录浏览、回收站与外链分享',
           route: '/library/manage',
         ),
-        const _SettingsEntry(
-          group: '播放与媒体',
+        _SettingsEntry(
+          id: 'scrape',
+          group: l10n.settingsGroupPlayback,
           icon: McIcons.imageEdit,
-          title: '刮削与整理',
+          title: l10n.settingsEntryScrape,
           subtitle: '语言/分级顺序、Fanart、图片质量、命名模板与网盘挂载',
           phoneRoute: '/settings/scrape',
-          detail: ScrapeDrivesAdminPage(),
+          detail: const ScrapeDrivesAdminPage(),
         ),
-        const _SettingsEntry(
-          group: '自动化追更引擎',
+        _SettingsEntry(
+          id: 'overview',
+          group: l10n.settingsGroupAutomation,
           icon: McIcons.dashboard,
-          title: '自动化流水线巡检',
+          title: l10n.settingsEntryOverview,
           subtitle: '端到端追更就绪度自检',
           phoneRoute: '/settings/overview',
-          detail: AutomationOverviewPage(),
+          detail: const AutomationOverviewPage(),
         ),
-        const _SettingsEntry(
-          group: '自动化追更引擎',
+        _SettingsEntry(
+          id: 'rules',
+          group: l10n.settingsGroupAutomation,
           icon: McIcons.listSettings2,
-          title: '选种规则组',
+          title: l10n.settingsEntryRules,
           subtitle: '分辨率/编码/HDR/平台/免费促销与升降级规则',
           phoneRoute: '/settings/rules',
-          detail: RuleSetsAdminPage(),
+          detail: const RuleSetsAdminPage(),
         ),
-        const _SettingsEntry(
-          group: '自动化追更引擎',
+        _SettingsEntry(
+          id: 'sites',
+          group: l10n.settingsGroupAutomation,
           icon: McIcons.globe,
-          title: 'PT 索引站点与插件同步',
+          title: l10n.settingsEntrySites,
           subtitle: '站点 Cookie/APIKey 管理、连通测速与同步令牌',
           phoneRoute: '/settings/sites',
-          detail: SitesAdminPage(),
+          detail: const SitesAdminPage(),
         ),
-        const _SettingsEntry(
-          group: '自动化追更引擎',
+        _SettingsEntry(
+          id: 'downloaders',
+          group: l10n.settingsGroupAutomation,
           icon: McIcons.downloadCloudOut,
-          title: '下载器与目录监控',
+          title: l10n.settingsEntryDownloaders,
           subtitle: 'qBittorrent / Transmission 与完成目录自动入库',
           phoneRoute: '/settings/downloaders',
-          detail: DownloadersAdminPage(),
+          detail: const DownloadersAdminPage(),
         ),
-        const _SettingsEntry(
-          group: '家庭与通知通道',
+        _SettingsEntry(
+          id: 'members',
+          group: l10n.settingsGroupFamilyNotify,
           icon: McIcons.team,
-          title: '家庭成员',
+          title: l10n.settingsEntryMembers,
           subtitle: '成员权限、年龄分级、媒体库/站点范围与强制下线',
           phoneRoute: '/settings/members',
-          detail: MembersAdminPage(),
+          detail: const MembersAdminPage(),
         ),
-        const _SettingsEntry(
-          group: '家庭与通知通道',
+        _SettingsEntry(
+          id: 'push',
+          group: l10n.settingsGroupFamilyNotify,
           icon: McIcons.chat,
-          title: 'IM 推送通道',
+          title: l10n.settingsEntryPush,
           subtitle: 'Telegram / 微信 / 企业微信 / 飞书 / 钉钉机器人绑定',
           phoneRoute: '/settings/push',
-          detail: PushChannelsPage(),
+          detail: const PushChannelsPage(),
         ),
-        const _SettingsEntry(
-          group: '家庭与通知通道',
+        _SettingsEntry(
+          id: 'webhook',
+          group: l10n.settingsGroupFamilyNotify,
           icon: McIcons.sendPlane,
-          title: 'Webhook',
+          title: l10n.settingsEntryWebhook,
           subtitle: '事件订阅、模板与 HMAC 签名、投递记录排查',
           phoneRoute: '/settings/webhook',
-          detail: WebhookSettingsPage(),
+          detail: const WebhookSettingsPage(),
         ),
-        const _SettingsEntry(
-          group: 'AI 与云端服务',
+        _SettingsEntry(
+          id: 'ai',
+          group: l10n.settingsGroupAiCloud,
           icon: McIcons.aiStarFill,
-          title: '大模型、AI 默认与联网搜索',
+          title: l10n.settingsEntryAi,
           subtitle: 'LLM 供应商、助手/字幕默认模型与 Tavily/Brave 搜索',
           phoneRoute: '/settings/ai',
-          detail: AiIntegrationsAdminPage(),
+          detail: const AiIntegrationsAdminPage(),
         ),
-        const _SettingsEntry(
-          group: 'AI 与云端服务',
+        _SettingsEntry(
+          id: 'mcp',
+          group: l10n.settingsGroupAiCloud,
           icon: McIcons.codeBox,
-          title: 'MCP 服务',
+          title: l10n.settingsEntryMcp,
           subtitle: '服务端点令牌、连通探测与可用工具目录',
           phoneRoute: '/settings/mcp',
-          detail: McpSettingsPage(),
+          detail: const McpSettingsPage(),
         ),
-        const _SettingsEntry(
-          group: 'AI 与云端服务',
+        _SettingsEntry(
+          id: 'cloud',
+          group: l10n.settingsGroupAiCloud,
           icon: McIcons.cloud,
-          title: 'MovieClaw Cloud',
+          title: l10n.settingsEntryCloud,
           subtitle: '云端配对、推送配额、统计上报与账号管理',
           phoneRoute: '/settings/cloud',
-          detail: CloudSettingsPage(),
+          detail: const CloudSettingsPage(),
         ),
-        const _SettingsEntry(
-          group: '系统运维',
+        _SettingsEntry(
+          id: 'system',
+          group: l10n.settingsGroupOps,
           icon: McIcons.terminal,
-          title: '网络、定时任务与系统日志',
+          title: l10n.settingsEntrySystem,
           subtitle: '代理分流、外部地址与端口、计划任务、插件与在线日志',
           phoneRoute: '/settings/system',
-          detail: NetworkTasksLogsAdminPage(),
+          detail: const NetworkTasksLogsAdminPage(),
         ),
-        const _SettingsEntry(
-          group: '系统运维',
+        _SettingsEntry(
+          id: 'maintenance',
+          group: l10n.settingsGroupOps,
           icon: McIcons.tools,
-          title: '更新、缓存与维护',
+          title: l10n.settingsEntryMaintenance,
           subtitle: '服务端热更新、NER 模型、版本回退与磁盘清理',
           phoneRoute: '/settings/maintenance',
-          detail: MaintenancePage(),
+          detail: const MaintenancePage(),
         ),
       ],
       // ---- 通用与关于（全员可见）----
       _SettingsEntry(
-        group: '通用与关于',
+        id: 'language',
+        group: l10n.settingsGroupGeneral,
         icon: McIcons.translate,
-        title: '语言设置',
+        title: l10n.settingsLanguagePageTitle,
         subtitle: langLabel,
         phoneRoute: '/settings/language',
         detail: const LanguageSettingsPage(),
       ),
-      const _SettingsEntry(
-        group: '通用与关于',
+      _SettingsEntry(
+        id: 'update',
+        group: l10n.settingsGroupGeneral,
         icon: McIcons.dataupgrade,
-        title: '检查客户端更新',
+        title: l10n.settingsEntryCheckUpdate,
         subtitle: '查看客户端与服务端最新版本通道',
         route: '/update',
       ),
-      const _SettingsEntry(
-        group: '通用与关于',
+      _SettingsEntry(
+        id: 'about',
+        group: l10n.settingsGroupGeneral,
         icon: McIcons.information,
-        title: '关于 MovieClaw',
+        title: l10n.aboutTitle,
         subtitle: '版本信息、隐私政策、开源许可与 TMDB 声明',
         phoneRoute: '/settings/about',
-        detail: AboutPage(),
+        detail: const AboutPage(),
       ),
     ];
   }
 
-  void _openEntry(_SettingsEntry e, int index, {required bool isPhone}) {
+  void _openEntry(_SettingsEntry e, {required bool usePush}) {
     if (e.route != null) {
       context.push(e.route!);
       return;
     }
-    if (isPhone && e.phoneRoute != null) {
+    if (usePush && e.phoneRoute != null) {
       context.push(e.phoneRoute!);
       return;
     }
-    setState(() => _selected = index);
+    setState(() => _selectedId = e.id);
   }
 
   @override
@@ -256,23 +280,27 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final session = ref.watch(profileProvider).valueOrNull;
     final isAdmin = perms.isAdmin || (session?.isAdmin ?? false);
     final language = ref.watch(mcLanguageProvider);
+    final l10n = McL10n.of(context);
     final form = McFormWatch.of(context);
+    final width = MediaQuery.widthOf(context);
+    final useSplitLayout = form != McDeviceForm.phone && width >= 720;
     final entries = _entries(
       isAdmin: isAdmin,
       displayName: session?.displayName,
       language: language,
+      l10n: l10n,
     );
 
     final topBar = McFloatingDetailBar(
       onBack: () => context.canPop() ? context.pop() : context.go('/home'),
-      title: '设置与控制中心',
+      title: l10n.settingsHubTitle,
       titleVisible: true,
     );
 
-    if (form == McDeviceForm.phone) {
-      final groups = <String, List<(int, _SettingsEntry)>>{};
-      for (var i = 0; i < entries.length; i++) {
-        groups.putIfAbsent(entries[i].group, () => []).add((i, entries[i]));
+    if (!useSplitLayout) {
+      final groups = <String, List<_SettingsEntry>>{};
+      for (final entry in entries) {
+        groups.putIfAbsent(entry.group, () => []).add(entry);
       }
       return Scaffold(
         backgroundColor: McTokens.bg,
@@ -288,12 +316,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       header: group.key,
                       dividerIndent: 48,
                       children: [
-                        for (final (idx, entry) in group.value)
+                        for (final entry in group.value)
                           McInsetRow(
                             icon: entry.icon,
                             title: entry.title,
                             subtitle: entry.subtitle,
-                            onTap: () => _openEntry(entry, idx, isPhone: true),
+                            onTap: () => _openEntry(entry, usePush: true),
                           ),
                       ],
                     ),
@@ -307,8 +335,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       );
     }
 
-    final clampedIndex = _selected.clamp(0, entries.length - 1);
-    final selected = entries[clampedIndex];
+    final selected = entries.firstWhere(
+      (e) => e.id == _selectedId && e.detail != null,
+      orElse: () => entries.firstWhere(
+        (e) => e.detail != null,
+        orElse: () => entries.first,
+      ),
+    );
+    final sidebarWidth = width < 960 ? 240.0 : 288.0;
+
     return Scaffold(
       backgroundColor: McTokens.bg,
       body: McFormWatch(
@@ -322,7 +357,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    width: 288,
+                    width: sidebarWidth,
                     decoration: const BoxDecoration(
                       color: McTokens.surfaceSidebar,
                       border: Border(
@@ -354,11 +389,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                 child: _SidebarTile(
                                   entry: entries[i],
                                   selected: entries[i].detail != null &&
-                                      i == clampedIndex,
+                                      entries[i].id == selected.id,
                                   onTap: () => _openEntry(
                                     entries[i],
-                                    i,
-                                    isPhone: false,
+                                    usePush: false,
                                   ),
                                 ),
                               ),
@@ -371,10 +405,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   Expanded(
                     child: SettingsEmbeddedScope(
                       child: KeyedSubtree(
-                        key: ValueKey(clampedIndex),
+                        key: ValueKey(selected.id),
                         child: selected.detail ??
                             Center(
-                              child: Text('请在左侧选择分区', style: McText.sub.muted),
+                              child: Text(
+                                l10n.settingsSelectSectionHint,
+                                style: McText.sub.muted,
+                              ),
                             ),
                       ),
                     ),

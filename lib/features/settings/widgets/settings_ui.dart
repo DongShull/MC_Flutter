@@ -8,6 +8,7 @@ import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
+import '../../../core/l10n/mc_l10n.dart';
 
 /// 标记二级设置页当前是否内嵌在平板/TV 的右栏 master-detail 中（内嵌时隐藏重复返回按钮）。
 class SettingsEmbeddedScope extends InheritedWidget {
@@ -38,11 +39,13 @@ class SettingsScaffold extends StatelessWidget {
     required this.title,
     required this.body,
     this.actions = const [],
+    this.onBack,
   });
 
   final String title;
   final Widget body;
   final List<Widget> actions;
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -73,8 +76,8 @@ class SettingsScaffold extends StatelessWidget {
       body: Column(
         children: [
           McFloatingDetailBar(
-            onBack: () =>
-                context.canPop() ? context.pop() : context.go('/home'),
+            onBack: onBack ??
+                () => context.canPop() ? context.pop() : context.go('/home'),
             title: title,
             titleVisible: true,
             trailing: actions,
@@ -474,9 +477,11 @@ Future<bool> confirmDialog(
   BuildContext context, {
   required String title,
   required String message,
-  String confirmLabel = '确认',
+  String? confirmLabel,
   bool destructive = true,
 }) async {
+  final l10n = McL10n.of(context);
+  final effectiveConfirm = confirmLabel ?? l10n.confirm;
   final ok = await showMcSheet<bool>(
     context: context,
     builder: (ctx) => Padding(
@@ -493,7 +498,7 @@ Future<bool> confirmDialog(
             children: [
               Expanded(
                 child: McActionPill(
-                  label: '取消',
+                  label: l10n.cancel,
                   primary: false,
                   expanded: true,
                   onTap: () => Navigator.of(ctx).pop(false),
@@ -502,7 +507,7 @@ Future<bool> confirmDialog(
               const SizedBox(width: 12),
               Expanded(
                 child: McActionPill(
-                  label: confirmLabel,
+                  label: effectiveConfirm,
                   primary: !destructive,
                   tone: destructive ? McGlassTone.danger : McGlassTone.regular,
                   expanded: true,
@@ -566,6 +571,7 @@ class _TextInputSheetState extends State<_TextInputSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = McL10n.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
       child: Column(
@@ -587,7 +593,7 @@ class _TextInputSheetState extends State<_TextInputSheet> {
             children: [
               Expanded(
                 child: McActionPill(
-                  label: '取消',
+                  label: l10n.cancel,
                   primary: false,
                   expanded: true,
                   onTap: () => Navigator.of(context).pop(),
@@ -596,7 +602,7 @@ class _TextInputSheetState extends State<_TextInputSheet> {
               const SizedBox(width: 12),
               Expanded(
                 child: McActionPill(
-                  label: '保存',
+                  label: l10n.save,
                   primary: true,
                   expanded: true,
                   onTap: () =>

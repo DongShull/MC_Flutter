@@ -231,12 +231,21 @@ class McL10n {
 
   // ── 设置 ──
   String get settingsTitle => t('settings.title');
+  String get settingsHubTitle => t('settings.hub_title');
   String get settingsLanguage => t('settings.language');
+  String get settingsLanguagePageTitle => t('settings.language_page_title');
+  String get settingsLanguageHeader => t('settings.language_header');
+  String get settingsLanguageFooter => t('settings.language_footer');
   String get settingsLanguageSystem => t('settings.language_system');
+  String get settingsLanguageSystemSubtitle =>
+      t('settings.language_system_subtitle');
   String get settingsProfile => t('settings.profile');
   String get settingsDevices => t('settings.devices');
+  String get settingsMyDevices => t('settings.entry_devices');
   String get settingsNotifications => t('settings.notifications');
+  String get settingsNotificationPrefs => t('settings.entry_notifications');
   String get settingsPlayback => t('settings.playback');
+  String get settingsPlaybackTitle => t('settings.entry_playback');
   String get settingsStorage => t('settings.storage');
   String get settingsAbout => t('settings.about');
   String get settingsServer => t('settings.server');
@@ -250,6 +259,36 @@ class McL10n {
   String get settingsLogout => t('settings.logout');
   String get settingsSwitchAccount => t('settings.switch_account');
   String get settingsApproveLogin => t('settings.approve_login');
+  String get settingsGroupPersonal => t('settings.group_personal');
+  String get settingsGroupPlayback => t('settings.group_playback');
+  String get settingsGroupAutomation => t('settings.group_automation');
+  String get settingsGroupFamilyNotify => t('settings.group_family_notify');
+  String get settingsGroupAiCloud => t('settings.group_ai_cloud');
+  String get settingsGroupOps => t('settings.group_ops');
+  String get settingsGroupGeneral => t('settings.group_general');
+  String get settingsEntryLibraryManage => t('settings.entry_library_manage');
+  String get settingsEntryScrape => t('settings.entry_scrape');
+  String get settingsEntryOverview => t('settings.entry_overview');
+  String get settingsEntryRules => t('settings.entry_rules');
+  String get settingsEntrySites => t('settings.entry_sites');
+  String get settingsEntryDownloaders => t('settings.entry_downloaders');
+  String get settingsEntryMembers => t('settings.entry_members');
+  String get settingsEntryPush => t('settings.entry_push');
+  String get settingsEntryWebhook => t('settings.entry_webhook');
+  String get settingsEntryAi => t('settings.entry_ai');
+  String get settingsEntryMcp => t('settings.entry_mcp');
+  String get settingsEntryCloud => t('settings.entry_cloud');
+  String get settingsEntrySystem => t('settings.entry_system');
+  String get settingsEntryMaintenance => t('settings.entry_maintenance');
+  String get settingsEntryCheckUpdate => t('settings.entry_check_update');
+  String get settingsSelectSectionHint => t('settings.select_section_hint');
+  String get sidebarSearchPlaceholder => t('shell.search_commands');
+  String get sidebarCollapseTooltip => t('shell.collapse_sidebar');
+  String get sidebarExpandTooltip => t('shell.expand_sidebar');
+  String get send => t('common.send');
+  String get moreSectionConversations => t('more.section_conversations');
+  String get moreSectionDownloads => t('more.section_downloads');
+  String get moreSectionServer => t('more.section_server');
 
   // ── 播放器 ──
   String get playerSkipIntro => t('player.skip_intro');
@@ -407,6 +446,13 @@ class McL10n {
         'zh-Hant' => '$hours 小時 $minutes 分鐘',
         'de' => '$hours Std. $minutes Min.',
         _ => '${hours}h ${minutes}m',
+      };
+
+  String languageSwitched(String languageName) => switch (_langKey) {
+        'zh-Hans' => '语言已切换为 $languageName',
+        'zh-Hant' => '語言已切換為 $languageName',
+        'de' => 'Sprache geändert zu $languageName',
+        _ => 'Language switched to $languageName',
       };
 }
 
@@ -670,14 +716,30 @@ const Map<String, Map<String, String>> _strings = {
     'common.unknown_error': '发生未知错误',
     'common.enabled': '已开启',
     'common.disabled': '已关闭',
+    'common.send': '发送',
+    // Shell & More
+    'shell.search_commands': '搜索与命令…',
+    'shell.collapse_sidebar': '收起侧边栏',
+    'shell.expand_sidebar': '展开侧边栏',
+    'more.section_conversations': '会话',
+    'more.section_downloads': '下载',
+    'more.section_server': '服务器',
     // Settings
     'settings.title': '设置',
+    'settings.hub_title': '设置与控制中心',
     'settings.language': '语言',
+    'settings.language_page_title': '语言设置',
+    'settings.language_header': '应用界面语言',
+    'settings.language_footer': '切换后立即生效，并同步作为请求头 Accept-Language 发送给 MovieClaw 服务器。',
     'settings.language_system': '跟随系统',
+    'settings.language_system_subtitle': '随操作系统语言自动切换',
     'settings.profile': '个人信息',
     'settings.devices': '设备',
+    'settings.entry_devices': '我的设备',
     'settings.notifications': '通知',
+    'settings.entry_notifications': '通知偏好',
     'settings.playback': '播放',
+    'settings.entry_playback': '播放设置',
     'settings.storage': '存储',
     'settings.about': '关于',
     'settings.server': '服务器',
@@ -691,6 +753,29 @@ const Map<String, Map<String, String>> _strings = {
     'settings.logout': '退出登录',
     'settings.switch_account': '切换账号',
     'settings.approve_login': '批准登录',
+    'settings.group_personal': '个人与终端',
+    'settings.group_playback': '播放与媒体',
+    'settings.group_automation': '自动化追更引擎',
+    'settings.group_family_notify': '家庭与通知通道',
+    'settings.group_ai_cloud': 'AI 与云端服务',
+    'settings.group_ops': '系统运维',
+    'settings.group_general': '通用与关于',
+    'settings.entry_library_manage': '媒体库与异常文件管控',
+    'settings.entry_scrape': '刮削与整理',
+    'settings.entry_overview': '自动化流水线巡检',
+    'settings.entry_rules': '选种规则组',
+    'settings.entry_sites': 'PT 索引站点与插件同步',
+    'settings.entry_downloaders': '下载器与目录监控',
+    'settings.entry_members': '家庭成员',
+    'settings.entry_push': 'IM 推送通道',
+    'settings.entry_webhook': 'Webhook',
+    'settings.entry_ai': '大模型、AI 默认与联网搜索',
+    'settings.entry_mcp': 'MCP 服务',
+    'settings.entry_cloud': 'MovieClaw Cloud',
+    'settings.entry_system': '网络、定时任务与系统日志',
+    'settings.entry_maintenance': '更新、缓存与维护',
+    'settings.entry_check_update': '检查客户端更新',
+    'settings.select_section_hint': '请在左侧选择分区',
     // Player
     'player.skip_intro': '跳过片头',
     'player.skip_outro': '跳过片尾',
@@ -817,14 +902,30 @@ const Map<String, Map<String, String>> _strings = {
     'common.unknown_error': '發生未知錯誤',
     'common.enabled': '已開啟',
     'common.disabled': '已關閉',
+    'common.send': '傳送',
+    // Shell & More
+    'shell.search_commands': '搜尋與命令…',
+    'shell.collapse_sidebar': '收合側邊欄',
+    'shell.expand_sidebar': '展開側邊欄',
+    'more.section_conversations': '對話',
+    'more.section_downloads': '下載',
+    'more.section_server': '伺服器',
     // Settings
     'settings.title': '設定',
+    'settings.hub_title': '設定與控制中心',
     'settings.language': '語言',
+    'settings.language_page_title': '語言設定',
+    'settings.language_header': '應用程式介面語言',
+    'settings.language_footer': '切換後立即生效，並同步作為請求標頭 Accept-Language 傳送給 MovieClaw 伺服器。',
     'settings.language_system': '跟隨系統',
+    'settings.language_system_subtitle': '隨作業系統語言自動切換',
     'settings.profile': '個人資訊',
     'settings.devices': '裝置',
+    'settings.entry_devices': '我的裝置',
     'settings.notifications': '通知',
+    'settings.entry_notifications': '通知偏好',
     'settings.playback': '播放',
+    'settings.entry_playback': '播放設定',
     'settings.storage': '儲存空間',
     'settings.about': '關於',
     'settings.server': '伺服器',
@@ -838,6 +939,29 @@ const Map<String, Map<String, String>> _strings = {
     'settings.logout': '登出',
     'settings.switch_account': '切換帳號',
     'settings.approve_login': '核准登入',
+    'settings.group_personal': '個人與裝置',
+    'settings.group_playback': '播放與媒體',
+    'settings.group_automation': '自動化追更引擎',
+    'settings.group_family_notify': '家庭與通知管道',
+    'settings.group_ai_cloud': 'AI 與雲端服務',
+    'settings.group_ops': '系統維運',
+    'settings.group_general': '一般與關於',
+    'settings.entry_library_manage': '媒體庫與異常檔案控管',
+    'settings.entry_scrape': '刮削與整理',
+    'settings.entry_overview': '自動化流水線巡檢',
+    'settings.entry_rules': '選種規則組',
+    'settings.entry_sites': 'PT 索引站點與外掛同步',
+    'settings.entry_downloaders': '下載器與目錄監控',
+    'settings.entry_members': '家庭成員',
+    'settings.entry_push': 'IM 推播管道',
+    'settings.entry_webhook': 'Webhook',
+    'settings.entry_ai': '大模型、AI 預設與聯網搜尋',
+    'settings.entry_mcp': 'MCP 服務',
+    'settings.entry_cloud': 'MovieClaw Cloud',
+    'settings.entry_system': '網路、排程任務與系統日誌',
+    'settings.entry_maintenance': '更新、快取與維護',
+    'settings.entry_check_update': '檢查用戶端更新',
+    'settings.select_section_hint': '請在左側選擇分區',
     // Player
     'player.skip_intro': '略過片頭',
     'player.skip_outro': '略過片尾',
@@ -964,14 +1088,31 @@ const Map<String, Map<String, String>> _strings = {
     'common.unknown_error': 'An unexpected error occurred',
     'common.enabled': 'On',
     'common.disabled': 'Off',
+    'common.send': 'Send',
+    // Shell & More
+    'shell.search_commands': 'Search & commands…',
+    'shell.collapse_sidebar': 'Collapse sidebar',
+    'shell.expand_sidebar': 'Expand sidebar',
+    'more.section_conversations': 'Chats',
+    'more.section_downloads': 'Downloads',
+    'more.section_server': 'Server',
     // Settings
     'settings.title': 'Settings',
+    'settings.hub_title': 'Settings & Control Center',
     'settings.language': 'Language',
+    'settings.language_page_title': 'Language',
+    'settings.language_header': 'App Interface Language',
+    'settings.language_footer':
+        'Takes effect immediately and is also sent to the MovieClaw server via Accept-Language.',
     'settings.language_system': 'System Default',
+    'settings.language_system_subtitle': 'Follow operating system language',
     'settings.profile': 'Profile',
     'settings.devices': 'Devices',
+    'settings.entry_devices': 'My Devices',
     'settings.notifications': 'Notifications',
+    'settings.entry_notifications': 'Notifications',
     'settings.playback': 'Playback',
+    'settings.entry_playback': 'Playback Settings',
     'settings.storage': 'Storage',
     'settings.about': 'About',
     'settings.server': 'Server',
@@ -985,6 +1126,29 @@ const Map<String, Map<String, String>> _strings = {
     'settings.logout': 'Sign Out',
     'settings.switch_account': 'Switch Account',
     'settings.approve_login': 'Approve Sign-In',
+    'settings.group_personal': 'Account & Devices',
+    'settings.group_playback': 'Playback & Media',
+    'settings.group_automation': 'Automation Engine',
+    'settings.group_family_notify': 'Family & Notifications',
+    'settings.group_ai_cloud': 'AI & Cloud',
+    'settings.group_ops': 'System Operations',
+    'settings.group_general': 'General & About',
+    'settings.entry_library_manage': 'Libraries & Media Files',
+    'settings.entry_scrape': 'Metadata & Organizing',
+    'settings.entry_overview': 'Automation Overview',
+    'settings.entry_rules': 'Release Rule Sets',
+    'settings.entry_sites': 'Indexers & Plugin Sync',
+    'settings.entry_downloaders': 'Downloaders & Watch Folders',
+    'settings.entry_members': 'Family Members',
+    'settings.entry_push': 'IM Push Channels',
+    'settings.entry_webhook': 'Webhook',
+    'settings.entry_ai': 'LLMs, AI Defaults & Web Search',
+    'settings.entry_mcp': 'MCP Server',
+    'settings.entry_cloud': 'MovieClaw Cloud',
+    'settings.entry_system': 'Network, Tasks & System Logs',
+    'settings.entry_maintenance': 'Updates, Cache & Maintenance',
+    'settings.entry_check_update': 'Check for App Updates',
+    'settings.select_section_hint': 'Select a section on the left',
     // Player
     'player.skip_intro': 'Skip Intro',
     'player.skip_outro': 'Skip Credits',
@@ -1112,14 +1276,31 @@ const Map<String, Map<String, String>> _strings = {
     'common.unknown_error': 'Ein unerwarteter Fehler ist aufgetreten',
     'common.enabled': 'Ein',
     'common.disabled': 'Aus',
+    'common.send': 'Senden',
+    // Shell & More
+    'shell.search_commands': 'Suchen & Befehle…',
+    'shell.collapse_sidebar': 'Seitenleiste einklappen',
+    'shell.expand_sidebar': 'Seitenleiste ausklappen',
+    'more.section_conversations': 'Chats',
+    'more.section_downloads': 'Downloads',
+    'more.section_server': 'Server',
     // Settings
     'settings.title': 'Einstellungen',
+    'settings.hub_title': 'Einstellungen & Kontrollzentrum',
     'settings.language': 'Sprache',
+    'settings.language_page_title': 'Sprache',
+    'settings.language_header': 'App-Sprache',
+    'settings.language_footer':
+        'Wird sofort übernommen und über Accept-Language an den MovieClaw-Server gesendet.',
     'settings.language_system': 'Systemstandard',
+    'settings.language_system_subtitle': 'Automatisch an die Systemsprache anpassen',
     'settings.profile': 'Profil',
     'settings.devices': 'Geräte',
+    'settings.entry_devices': 'Meine Geräte',
     'settings.notifications': 'Mitteilungen',
+    'settings.entry_notifications': 'Mitteilungen',
     'settings.playback': 'Wiedergabe',
+    'settings.entry_playback': 'Wiedergabe',
     'settings.storage': 'Speicher',
     'settings.about': 'Über',
     'settings.server': 'Server',
@@ -1133,6 +1314,29 @@ const Map<String, Map<String, String>> _strings = {
     'settings.logout': 'Abmelden',
     'settings.switch_account': 'Konto wechseln',
     'settings.approve_login': 'Anmeldung bestätigen',
+    'settings.group_personal': 'Konto & Geräte',
+    'settings.group_playback': 'Wiedergabe & Medien',
+    'settings.group_automation': 'Automatisierung',
+    'settings.group_family_notify': 'Familie & Benachrichtigungen',
+    'settings.group_ai_cloud': 'KI & Cloud',
+    'settings.group_ops': 'Systembetrieb',
+    'settings.group_general': 'Allgemein & Über',
+    'settings.entry_library_manage': 'Mediatheken & Dateien',
+    'settings.entry_scrape': 'Metadaten & Organisation',
+    'settings.entry_overview': 'Automatisierungsübersicht',
+    'settings.entry_rules': 'Regelsätze',
+    'settings.entry_sites': 'Indexer & Plugin-Sync',
+    'settings.entry_downloaders': 'Downloader & Überwachung',
+    'settings.entry_members': 'Familienmitglieder',
+    'settings.entry_push': 'IM-Benachrichtigungen',
+    'settings.entry_webhook': 'Webhook',
+    'settings.entry_ai': 'LLMs, KI & Websuche',
+    'settings.entry_mcp': 'MCP-Dienst',
+    'settings.entry_cloud': 'MovieClaw Cloud',
+    'settings.entry_system': 'Netzwerk, Aufgaben & Protokolle',
+    'settings.entry_maintenance': 'Updates, Cache & Wartung',
+    'settings.entry_check_update': 'Nach App-Updates suchen',
+    'settings.select_section_hint': 'Bereich links auswählen',
     // Player
     'player.skip_intro': 'Intro überspringen',
     'player.skip_outro': 'Abspann überspringen',

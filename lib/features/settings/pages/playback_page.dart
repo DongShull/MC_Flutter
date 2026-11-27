@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/mc_chrome.dart';
+import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
@@ -28,7 +29,8 @@ class PlaybackPage extends ConsumerStatefulWidget {
   ConsumerState<PlaybackPage> createState() => _PlaybackPageState();
 }
 
-class _PlaybackPageState extends ConsumerState<PlaybackPage> {
+class _PlaybackPageState extends ConsumerState<PlaybackPage>
+    with WidgetsBindingObserver {
   Timer? _clipTimer;
   Timer? _workerTimer;
 
@@ -42,14 +44,8 @@ class _PlaybackPageState extends ConsumerState<PlaybackPage> {
 
   McClient get _mc => ref.read(mcClientProvider);
 
-  @override
-  void initState() {
-    super.initState();
-    Future.microtask(() async {
-      await ref.read(playbackProvider.notifier).load();
-      await _loadRemoteConfig();
-      await _pollRemoteStatus();
-    });
+  void _startPollingTimers() {
+    _stopPollingTimers();
     _clipTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       final p = ref.read(playbackProvider).valueOrNull;
       if (mounted &&
@@ -67,10 +63,46 @@ class _PlaybackPageState extends ConsumerState<PlaybackPage> {
     });
   }
 
+  void _stopPollingTimers() {
+    _clipTimer?.cancel();
+    _clipTimer = null;
+    _workerTimer?.cancel();
+    _workerTimer = null;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _stopPollingTimers();
+      case AppLifecycleState.resumed:
+        _startPollingTimers();
+        if (mounted && _isAdmin()) {
+          unawaited(_pollRemoteStatus());
+        }
+      case AppLifecycleState.inactive:
+        break;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    Future.microtask(() async {
+      await ref.read(playbackProvider.notifier).load();
+      await _loadRemoteConfig();
+      await _pollRemoteStatus();
+    });
+    _startPollingTimers();
+  }
+
   @override
   void dispose() {
-    _clipTimer?.cancel();
-    _workerTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _stopPollingTimers();
     super.dispose();
   }
 
@@ -224,6 +256,7 @@ class _PlaybackPageState extends ConsumerState<PlaybackPage> {
               McActionPill(
                 label: '关闭并清理全部片段 (${mcFormatBytes(bytes)})',
                 primary: false,
+                tone: McGlassTone.danger,
                 expanded: true,
                 onTap: () => Navigator.of(ctx).pop('purge'),
               ),
@@ -499,7 +532,7 @@ class _PlaybackPageState extends ConsumerState<PlaybackPage> {
                       ),
                       McInsetRow(
                         icon: McIcons.fastForward,
-                        title: '进入片尾即视为已看 (played_use_outro)',
+                        title: '进入片尾即视为已看',
                         subtitle: '识别到片尾时间戳时，播至片尾起点即自动标为已看',
                         trailing: Switch(
                           value: policy.playedUseOutro,

@@ -371,6 +371,7 @@ class _AppUpdatePanelState extends ConsumerState<_AppUpdatePanel> {
       title: '更新片名识别模型',
       message: '下载并切换最新 NER 识别模型，期间不需要重启服务端。',
       confirmLabel: '立即更新',
+      destructive: false,
     );
     if (!ok || !mounted) return;
     setState(() => _applyingModel = true);

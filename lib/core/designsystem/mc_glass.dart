@@ -351,7 +351,7 @@ class McGlassIconButton extends StatelessWidget {
       onTap: onTap,
       haptic: true,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
         child: Center(
           child: SizedBox(
             width: size,
@@ -391,7 +391,12 @@ class McGlassIconButton extends StatelessWidget {
       ),
     );
     if (tooltip != null && tooltip!.isNotEmpty) {
-      button = Tooltip(message: tooltip!, child: button);
+      button = Semantics(
+        button: true,
+        enabled: onTap != null,
+        label: tooltip,
+        child: Tooltip(message: tooltip!, child: button),
+      );
     }
     return button;
   }

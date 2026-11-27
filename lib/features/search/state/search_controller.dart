@@ -314,7 +314,12 @@ class SearchController extends Notifier<SearchState> {
   final _librarySeq = SeqGuard();
   final _mediaSeq = SeqGuard();
   final _historySeq = SeqGuard();
+  final _grabTargetSeq = SeqGuard();
   int _torrentStreamSeq = 0;
+
+  bool _routeArgsApplied = false;
+  bool _userChangedVertical = false;
+  Future<void>? _accessFuture;
 
   StreamSubscription<SseEvent>? _torrentSub;
   final List<StreamSubscription<SseEvent>> _auxSubs = [];
@@ -328,6 +333,9 @@ class SearchController extends Notifier<SearchState> {
   @override
   SearchState build() {
     ref.watch(sessionGenerationProvider);
+    _routeArgsApplied = false;
+    _userChangedVertical = false;
+    _accessFuture = null;
     ref.onDispose(() {
       _libraryDebounce.dispose();
       _cancelTorrentStreams();
@@ -348,24 +356,35 @@ class SearchController extends Notifier<SearchState> {
   Future<void> _bootstrap() async {
     await SearchModeMemory.instance.load();
     await _resolveAccess();
-    final saved = SearchModeMemory.instance.mode;
-    var nextVertical = saved != null
-        ? SearchVertical.fromRouteTab(saved, fallback: state.vertical)
-        : state.vertical;
-    if (state.access.available.isNotEmpty &&
-        !state.access.available.contains(nextVertical)) {
-      nextVertical = state.access.available.first;
+    if (!_routeArgsApplied && !_userChangedVertical) {
+      final saved = SearchModeMemory.instance.mode;
+      var nextVertical = saved != null
+          ? SearchVertical.fromRouteTab(saved, fallback: state.vertical)
+          : state.vertical;
+      if (state.access.available.isNotEmpty &&
+          !state.access.available.contains(nextVertical)) {
+        nextVertical = state.access.available.first;
+      }
+      state = state.copyWith(vertical: nextVertical);
     }
-    state = state.copyWith(vertical: nextVertical);
     unawaited(_loadPresets());
-    unawaited(loadHistory());
+    if (!_routeArgsApplied) {
+      unawaited(loadHistory());
+    }
     if (ref.read(permissionsProvider).isAdmin) {
       unawaited(prefsStore.refresh(_mc));
       unawaited(prefsStore.loadDirs(_mc));
     }
   }
 
-  Future<void> _resolveAccess() async {
+  Future<void> _resolveAccess() {
+    if (state.access.ready) return Future.value();
+    return _accessFuture ??= _doResolveAccess().whenComplete(() {
+      _accessFuture = null;
+    });
+  }
+
+  Future<void> _doResolveAccess() async {
     final perms = ref.read(permissionsProvider);
     var canLib = perms.isAdmin;
     if (!canLib && ref.read(sessionStoreProvider).isReady) {
@@ -431,6 +450,14 @@ class SearchController extends Notifier<SearchState> {
     }
   }
 
+  /// 清除从订阅手动选种进入的横幅上下文，防止泄漏到常规搜索。
+  void clearGrabTarget() {
+    _grabTargetSeq.next;
+    if (state.grabTarget != null) {
+      state = state.copyWith(grabTarget: null);
+    }
+  }
+
   /// 页面带 URL 参数进入（`?q=&tab=&scope=&also=&snapshot=&for_sub=&browse=1`）。
   Future<void> applyRouteArgs({
     String? query,
@@ -441,6 +468,7 @@ class SearchController extends Notifier<SearchState> {
     int? forSubscriptionId,
     bool browse = false,
   }) async {
+    _routeArgsApplied = true;
     if (!state.access.ready) {
       await _resolveAccess();
     }
@@ -452,7 +480,7 @@ class SearchController extends Notifier<SearchState> {
     if (forSubscriptionId != null && perms.canGrabForSubscription) {
       unawaited(_loadGrabTarget(forSubscriptionId));
     } else if (forSubscriptionId == null) {
-      state = state.copyWith(grabTarget: null);
+      clearGrabTarget();
     }
 
     var target = browse
@@ -502,12 +530,14 @@ class SearchController extends Notifier<SearchState> {
   }
 
   Future<void> _loadGrabTarget(int subscriptionId) async {
+    final seq = _grabTargetSeq.next;
     try {
       final raw = await _mc.unwrap<Map<String, dynamic>>(
         Channel.general,
         'GET',
         '/api/v1/subscriptions/$subscriptionId',
       );
+      if (!_grabTargetSeq.isCurrent(seq)) return;
       final media = raw['media'] is Map
           ? Map<String, dynamic>.from(raw['media'] as Map)
           : const <String, dynamic>{};
@@ -515,6 +545,7 @@ class SearchController extends Notifier<SearchState> {
           .toString();
       state = state.copyWith(grabTarget: (id: subscriptionId, title: title));
     } catch (_) {
+      if (!_grabTargetSeq.isCurrent(seq)) return;
       state = state.copyWith(
         grabTarget: (id: subscriptionId, title: '订阅 #$subscriptionId'),
       );
@@ -524,6 +555,7 @@ class SearchController extends Notifier<SearchState> {
   // ── 垂直 & 范围切换 ──
 
   Future<void> switchVertical(SearchVertical next) async {
+    _userChangedVertical = true;
     if (next == state.vertical) return;
     if (!state.access.available.contains(next)) return;
     SearchModeMemory.instance.remember(next.name);
@@ -656,6 +688,7 @@ class SearchController extends Notifier<SearchState> {
     String keyword = '',
   }) async {
     if (!state.access.canTorrent) return;
+    _userChangedVertical = true;
     final kw = keyword.trim();
     state = state.copyWith(
       vertical: SearchVertical.torrent,
@@ -755,6 +788,7 @@ class SearchController extends Notifier<SearchState> {
 
   /// 点选一条历史记录：有快照则离线秒开快照，否则发起实时搜索。
   Future<void> openHistoryItem(SearchHistoryItem item) async {
+    _userChangedVertical = true;
     if (item.vertical == 'titles') {
       state = state.copyWith(
         vertical: SearchVertical.media,

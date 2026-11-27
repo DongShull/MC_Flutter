@@ -375,20 +375,33 @@ class LibraryDetailArg {
 
   @override
   bool operator ==(Object other) =>
-      other is LibraryDetailArg &&
-      other.libraryId == libraryId &&
-      const MapEquality().equals(other.initialQuery, initialQuery);
+      identical(this, other) ||
+      (other is LibraryDetailArg &&
+          other.libraryId == libraryId &&
+          const MapEquality().equals(other.initialQuery, initialQuery));
 
   @override
-  int get hashCode =>
-      Object.hash(libraryId, Object.hashAllUnordered(initialQuery.entries));
+  int get hashCode => Object.hash(
+        libraryId,
+        Object.hashAllUnordered(
+          initialQuery.entries.map((e) => Object.hash(e.key, e.value)),
+        ),
+      );
 }
 
 class MapEquality {
   const MapEquality();
 
-  bool equals(Map<String, String> a, Map<String, String> b) =>
-      a.length == b.length && a.entries.every((e) => b[e.key] == e.value);
+  bool equals(Map<String, String> a, Map<String, String> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      if (!b.containsKey(entry.key) || b[entry.key] != entry.value) {
+        return false;
+      }
+    }
+    return true;
+  }
 }
 
 class LibraryDetailController

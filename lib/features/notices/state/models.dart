@@ -36,7 +36,7 @@ class Notice {
         if (idVal != null && idVal > 0) return '/subscriptions/$idVal';
         return '/subscriptions';
       case 'ingest':
-        return '/settings/import-watch';
+        return '/settings/downloaders?section=import-watch';
       case 'channel':
         return '/settings/im-push';
       case 'downloader':
@@ -45,7 +45,15 @@ class Notice {
         return '/settings/sites';
       case 'cloud':
         return '/settings/cloud';
+      case 'webhook':
+        return '/settings/webhook';
+      case 'mcp':
+        return '/settings/mcp';
+      case 'llm':
+      case 'ai':
+        return '/settings/ai';
       case 'plugin':
+      case 'plugins':
         final actionHref =
             (payload['action_href'] ?? payload['actionHref'])?.toString().trim();
         if (actionHref != null &&

@@ -104,7 +104,7 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                   child: McGlassIconButton(
                     icon: McIcons.mediaLibraryFill,
                     tooltip: '离线媒体库',
-                    onTap: () => context.push('/offline/library'),
+                    onTap: () => context.go('/offline/library'),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -179,7 +179,7 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                       ReorderableListView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        buildDefaultDragHandles: true,
+                        buildDefaultDragHandles: false,
                         itemCount: active.length,
                         onReorder: controller.reorder,
                         itemBuilder: (context, index) {
@@ -195,6 +195,26 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                               onPauseResume: () => controller.toggle(unit),
                               onCancel: () => controller.cancel(unit),
                               onPrioritize: () => controller.prioritize(unit),
+                              dragHandle: ReorderableDragStartListener(
+                                index: index,
+                                child: Tooltip(
+                                  message: '拖动调整下载顺序',
+                                  child: Semantics(
+                                    label: '拖动调整下载顺序',
+                                    child: const SizedBox(
+                                      width: 40,
+                                      height: 44,
+                                      child: Center(
+                                        child: Icon(
+                                          McIcons.draggableS,
+                                          size: 18,
+                                          color: McTokens.textFaint,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
                           );
                         },
@@ -210,7 +230,7 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                             child: McChip(
                               label: '进入离线媒体库',
                               compact: true,
-                              onTap: () => context.push('/offline/library'),
+                              onTap: () => context.go('/offline/library'),
                             ),
                           ),
                       ],

@@ -687,7 +687,15 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                 ),
               ),
             )
-          else
+          else ...[
+            if (_sheetOpen)
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: state.busy ? null : _closeModalOrSheet,
+                  child: const ColoredBox(color: Color(0x52000000)),
+                ),
+              ),
             Align(
               alignment: Alignment.bottomCenter,
               child: AnimatedSlide(
@@ -699,9 +707,12 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(
                       16,
+                      math.max(16.0, MediaQuery.paddingOf(context).top + 12),
                       16,
-                      16,
-                      math.max(16.0, kbHeight + 12),
+                      math.max(
+                        MediaQuery.paddingOf(context).bottom + 16.0,
+                        kbHeight + 12,
+                      ),
                     ),
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: cardMaxWidth),
@@ -711,6 +722,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                 ),
               ),
             ),
+          ],
         ],
       ),
     );
@@ -919,7 +931,12 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                 ),
               ),
               const SizedBox(width: 8),
-              Text('正在局域网查找 MovieClaw 服务器…', style: McText.caption.muted),
+              Expanded(
+                child: Text(
+                  '正在局域网查找 MovieClaw 服务器…',
+                  style: McText.caption.muted,
+                ),
+              ),
             ],
           ),
         );
@@ -948,9 +965,12 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
       case _DiscoveryStatus.notFound when _hostCtrl.text.trim().isEmpty:
         return Padding(
           padding: const EdgeInsets.only(top: 8),
-          child: Row(
+          child: Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 4,
+            runSpacing: 4,
             children: [
-              Text('未在局域网发现服务器，可手动输入或 ', style: McText.caption.muted),
+              Text('未在局域网发现服务器，可手动输入或', style: McText.caption.muted),
               McPressable(
                 onTap: () => _startLanDiscovery(manual: true),
                 child: Text(

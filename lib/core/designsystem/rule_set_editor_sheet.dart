@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +9,7 @@ import '../api/mc_client.dart';
 import '../api/session_providers.dart';
 import '../api/subscriptions_api.dart';
 import 'mc_chrome.dart';
+import 'mc_glass.dart';
 import 'mc_icons.dart';
 import 'theme.dart';
 
@@ -779,6 +782,11 @@ class _RuleSetEditorSheetState extends ConsumerState<RuleSetEditorSheet> {
   late final TextEditingController _sizeMaxCtrl;
   late final TextEditingController _groupsAllowCtrl;
   late final TextEditingController _groupsBlockCtrl;
+  final ScrollController _scrollCtrl = ScrollController();
+
+  late final String _initialSnapshot;
+  bool _saved = false;
+  bool _allowPop = false;
 
   late RuleSetSpec _original;
   String? _scopeKind;
@@ -869,8 +877,57 @@ class _RuleSetEditorSheetState extends ConsumerState<RuleSetEditorSheet> {
         ? [...spec.upgradeLadder!]
         : [...RuleSetVocabulary.defaultLadder];
 
+    _initialSnapshot = _snapshotSignature();
+    for (final ctrl in [
+      _nameCtrl,
+      _minSeedersCtrl,
+      _sizeMinCtrl,
+      _sizeMaxCtrl,
+      _groupsAllowCtrl,
+      _groupsBlockCtrl,
+    ]) {
+      ctrl.addListener(_onTextControllerChanged);
+    }
+
     _loadRoutingOptions();
   }
+
+  void _onTextControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  String _snapshotSignature() {
+    final sortedCodecs = _codecFamilies.toList()..sort();
+    return jsonEncode({
+      'name': _nameCtrl.text,
+      'scopeKind': _scopeKind,
+      'scopeRegions': _scopeRegions,
+      'scopeGenres': _scopeGenres,
+      'resolutions': _resolutions,
+      'mediaSources': _mediaSources,
+      'codecFamilies': sortedCodecs,
+      'platformsAllow': _platformsAllow,
+      'platformsBlock': _platformsBlock,
+      'hdrLevels': _hdrLevels,
+      'hdrBlock': _hdrBlock,
+      'subLangs': _subLangs,
+      'audioLangs': _audioLangs,
+      'freeOnly': _freeOnly,
+      'excludeHr': _excludeHr,
+      'hrStrict': _hrStrict,
+      'minSeeders': _minSeedersCtrl.text,
+      'sizeMin': _sizeMinCtrl.text,
+      'sizeMax': _sizeMaxCtrl.text,
+      'groupsAllow': _groupsAllowCtrl.text,
+      'groupsBlock': _groupsBlockCtrl.text,
+      'upgradeSource': _upgradeSource,
+      'upgradeKeepOld': _upgradeKeepOld,
+      'cutoffResolution': _cutoffResolution,
+      'upgradeLadder': _upgradeLadder,
+    });
+  }
+
+  bool get _isDirty => !_saved && _snapshotSignature() != _initialSnapshot;
 
   Future<void> _loadRoutingOptions() async {
     try {
@@ -881,6 +938,17 @@ class _RuleSetEditorSheetState extends ConsumerState<RuleSetEditorSheet> {
 
   @override
   void dispose() {
+    for (final ctrl in [
+      _nameCtrl,
+      _minSeedersCtrl,
+      _sizeMinCtrl,
+      _sizeMaxCtrl,
+      _groupsAllowCtrl,
+      _groupsBlockCtrl,
+    ]) {
+      ctrl.removeListener(_onTextControllerChanged);
+    }
+    _scrollCtrl.dispose();
     _nameCtrl.dispose();
     _minSeedersCtrl.dispose();
     _sizeMinCtrl.dispose();
@@ -1081,25 +1149,124 @@ class _RuleSetEditorSheetState extends ConsumerState<RuleSetEditorSheet> {
     }
   }
 
+  void _showValidationError(String message) {
+    setState(() => _error = message);
+    McToast.error(message);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scrollCtrl.hasClients) {
+        _scrollCtrl.animateTo(
+          0,
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+  }
+
+  Future<bool> _confirmDiscardChanges() async {
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: McTokens.surfaceSolid,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: McTokens.lineStrong),
+        ),
+        title: const Text('放弃未保存的修改？', style: McText.title),
+        content: Text(
+          '当前规则组还有未保存的更改，关闭后将丢失这些修改。',
+          style: McText.body.muted,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('继续编辑'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(
+              '放弃修改',
+              style: TextStyle(
+                color: McTokens.danger,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return discard == true;
+  }
+
+  Future<bool> _confirmUpdateReferenced(int refCount) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: McTokens.surfaceSolid,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: McTokens.lineStrong),
+        ),
+        title: const Text('确认更新规则组？', style: McText.title),
+        content: Text(
+          '当前有 $refCount 条订阅正在引用此规则组，保存后将影响这些关联订阅的后续资源匹配与洗版行为。',
+          style: McText.body.muted,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(
+              '确认保存',
+              style: TextStyle(
+                color: McTokens.accentStrong,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
+  Future<void> _handleCloseAttempt() async {
+    if (_busy) return;
+    if (_isDirty) {
+      final discard = await _confirmDiscardChanges();
+      if (!discard || !mounted) return;
+    }
+    setState(() => _allowPop = true);
+    if (mounted) Navigator.of(context).pop();
+  }
+
   Future<void> _submit() async {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
-      setState(() => _error = '请输入规则组名称');
+      _showValidationError('请输入规则组名称');
       return;
     }
     final draft = _buildDraft();
     if (draft.error != null) {
-      setState(() => _error = draft.error);
+      _showValidationError(draft.error!);
       return;
+    }
+    final existing = widget.ruleSet;
+    if (existing != null && existing.referenceCount > 0) {
+      final ok = await _confirmUpdateReferenced(existing.referenceCount);
+      if (!ok || !mounted) return;
     }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final saved = widget.ruleSet != null
+      final saved = existing != null
           ? await _api.updateRuleSet(
-              widget.ruleSet!.id,
+              existing.id,
               name: name,
               spec: draft.spec.toJson(),
               matchRules: _validScope.toRules(),
@@ -1110,20 +1277,22 @@ class _RuleSetEditorSheetState extends ConsumerState<RuleSetEditorSheet> {
               matchRules: _validScope.toRules(),
             );
       widget.onSaved?.call(saved);
-      if (mounted) Navigator.of(context).pop(saved);
-    } on ApiException catch (e) {
       if (mounted) {
         setState(() {
-          _busy = false;
-          _error = e.friendlyMessage;
+          _saved = true;
+          _allowPop = true;
         });
+        Navigator.of(context).pop(saved);
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        _showValidationError(e.friendlyMessage);
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _busy = false;
-          _error = '保存失败：$e';
-        });
+        setState(() => _busy = false);
+        _showValidationError('保存失败：$e');
       }
     }
   }
@@ -1139,37 +1308,60 @@ class _RuleSetEditorSheetState extends ConsumerState<RuleSetEditorSheet> {
     final isEdit = widget.ruleSet != null;
     final canSave = _nameCtrl.text.trim().isNotEmpty && !_busy;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 2, 14, 10),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(isEdit ? '编辑规则组' : '新建规则组', style: McText.title),
-                    const SizedBox(height: 2),
-                    Text('按点击顺序决定偏好优先级，不选则不限', style: McText.caption.muted),
-                  ],
+    return PopScope(
+      canPop: (!_isDirty && !_busy) || _allowPop,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop || _busy) return;
+        final discard = await _confirmDiscardChanges();
+        if (discard && mounted && context.mounted) {
+          setState(() => _allowPop = true);
+          Navigator.of(context).pop();
+        }
+      },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 2, 14, 10),
+            child: Row(
+              children: [
+                McGlassIconButton(
+                  icon: McIcons.close,
+                  tooltip: '关闭',
+                  onTap: _busy ? null : _handleCloseAttempt,
                 ),
-              ),
-              McActionPill(
-                label: _busy ? '保存中…' : '保存',
-                primary: true,
-                busy: _busy,
-                height: 36,
-                onTap: canSave ? _submit : null,
-              ),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(isEdit ? '编辑规则组' : '新建规则组', style: McText.title),
+                      const SizedBox(height: 2),
+                      Text(
+                        '按点击顺序决定偏好优先级，不选则不限',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: McText.caption.muted,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                McActionPill(
+                  label: _busy ? '保存中…' : '保存',
+                  primary: true,
+                  busy: _busy,
+                  height: 36,
+                  onTap: canSave ? _submit : null,
+                ),
+              ],
+            ),
           ),
-        ),
-        const Divider(height: 1, color: McTokens.line),
-        Flexible(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+          const Divider(height: 1, color: McTokens.line),
+          Flexible(
+            child: SingleChildScrollView(
+              controller: _scrollCtrl,
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -1326,7 +1518,8 @@ class _RuleSetEditorSheetState extends ConsumerState<RuleSetEditorSheet> {
             ),
           ),
         ),
-      ],
+        ],
+      ),
     );
   }
 

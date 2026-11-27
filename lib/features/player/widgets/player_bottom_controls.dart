@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../core/designsystem/adaptive.dart';
@@ -76,7 +78,10 @@ class PlayerBottomControls extends StatelessWidget {
               )
             else
               ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 280),
+                constraints: BoxConstraints(
+                  maxHeight:
+                      math.min(280.0, MediaQuery.sizeOf(ctx).height * 0.65),
+                ),
                 child: SingleChildScrollView(
                   child: McInsetGroup(
                     margin: EdgeInsets.zero,
@@ -141,7 +146,10 @@ class PlayerBottomControls extends StatelessWidget {
               )
             else
               ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 320),
+                constraints: BoxConstraints(
+                  maxHeight:
+                      math.min(320.0, MediaQuery.sizeOf(ctx).height * 0.65),
+                ),
                 child: SingleChildScrollView(
                   child: McInsetGroup(
                     margin: EdgeInsets.zero,
@@ -238,25 +246,33 @@ class PlayerBottomControls extends StatelessWidget {
               padding: EdgeInsets.fromLTRB(6, 4, 6, 12),
               child: Text('播放倍速', style: McText.titleSm),
             ),
-            McInsetGroup(
-              margin: EdgeInsets.zero,
-              children: [
-                for (final s in speeds)
-                  McInsetRow(
-                    title: s == 1.0 ? '1.0x（正常）' : '${_label(s)}x',
-                    trailing: s == speed
-                        ? const Icon(
-                            McIcons.check,
-                            size: 18,
-                            color: McTokens.accentStrong,
-                          )
-                        : null,
-                    onTap: () {
-                      onPickSpeed(s);
-                      Navigator.of(ctx).pop();
-                    },
-                  ),
-              ],
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight:
+                    math.min(340.0, MediaQuery.sizeOf(ctx).height * 0.65),
+              ),
+              child: SingleChildScrollView(
+                child: McInsetGroup(
+                  margin: EdgeInsets.zero,
+                  children: [
+                    for (final s in speeds)
+                      McInsetRow(
+                        title: s == 1.0 ? '1.0x（正常）' : '${_label(s)}x',
+                        trailing: s == speed
+                            ? const Icon(
+                                McIcons.check,
+                                size: 18,
+                                color: McTokens.accentStrong,
+                              )
+                            : null,
+                        onTap: () {
+                          onPickSpeed(s);
+                          Navigator.of(ctx).pop();
+                        },
+                      ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
@@ -268,146 +284,275 @@ class PlayerBottomControls extends StatelessWidget {
     required IconData icon,
     required String label,
     required VoidCallback onTap,
+    String? tooltip,
+    bool compact = false,
   }) {
-    return McFocusRing(
-      borderRadius: 999,
-      child: McPressable(
-        onTap: onTap,
-        haptic: true,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 16, color: McTokens.text),
-              const SizedBox(width: 5),
-              Text(
-                label,
-                style: McText.caption
-                    .copyWith(
-                      color: McTokens.text,
-                      fontWeight: FontWeight.w500,
-                    )
-                    .tabular,
+    final tip = tooltip ?? label;
+    return Tooltip(
+      message: tip,
+      child: Semantics(
+        button: true,
+        label: tip,
+        child: McFocusRing(
+          borderRadius: 999,
+          child: McPressable(
+            onTap: onTap,
+            haptic: true,
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 10 : 12,
+                vertical: 8,
               ),
-            ],
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 16, color: McTokens.text),
+                  const SizedBox(width: 5),
+                  Text(
+                    label,
+                    style: McText.caption
+                        .copyWith(
+                          color: McTokens.text,
+                          fontWeight: FontWeight.w500,
+                        )
+                        .tabular,
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+  Widget _buildAudioSubPill(BuildContext context, {bool compact = false}) {
+    return McLiquidGlass(
+      radius: McTokens.pillRadius,
+      withShadow: false,
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          McLiquidGlass(
-            radius: McTokens.pillRadius,
-            withShadow: false,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _segmentTap(
-                  icon: McIcons.equalizer,
-                  label: '音轨',
-                  onTap: () => _showAudioMenu(context),
-                ),
-                Container(width: 1, height: 16, color: McTokens.lineStrong),
-                _segmentTap(
-                  icon: McIcons.closedCaptioning,
-                  label: '字幕',
-                  onTap: () => _showSubtitleMenu(context),
-                ),
-              ],
-            ),
+          _segmentTap(
+            icon: McIcons.equalizer,
+            label: '音轨',
+            tooltip: '选择音轨',
+            compact: compact,
+            onTap: () => _showAudioMenu(context),
           ),
-          const Spacer(),
-          if (hasNext) ...[
-            McFocusRing(
-              borderRadius: 20,
-              child: McGlassIconButton(
-                icon: McIcons.skipForwardFill,
-                tooltip: '下一集',
-                onTap: onNext,
-              ),
-            ),
-            const SizedBox(width: 8),
-          ],
-          if (isEpisode) ...[
-            McLiquidGlass(
-              radius: McTokens.pillRadius,
-              withShadow: false,
-              child: _segmentTap(
-                icon: McIcons.playListAdd,
-                label: '选集',
-                onTap: onEpisodes,
-              ),
-            ),
-            const SizedBox(width: 8),
-          ],
-          if (onAirPlay != null) ...[
-            McFocusRing(
-              borderRadius: 20,
-              child: McGlassIconButton(
-                icon: McIcons.dlna,
-                tooltip: '隔空播放 AirPlay',
-                onTap: onAirPlay!,
-              ),
-            ),
-            const SizedBox(width: 8),
-          ],
-          McFocusRing(
-            borderRadius: 20,
-            child: McGlassIconButton(
-              icon: McIcons.cast,
-              tooltip: 'DLNA 投屏',
-              onTap: onCast,
-            ),
-          ),
-          const SizedBox(width: 8),
-          if (showOrientationToggle && onToggleOrientation != null) ...[
-            McFocusRing(
-              borderRadius: 20,
-              child: McGlassIconButton(
-                icon: isLandscape
-                    ? McIcons.screenVertical
-                    : McIcons.screenHorizontal,
-                tooltip: isLandscape ? '切换竖屏' : '切换横屏',
-                onTap: onToggleOrientation!,
-              ),
-            ),
-            const SizedBox(width: 8),
-          ],
-          McLiquidGlass(
-            radius: McTokens.pillRadius,
-            withShadow: false,
-            child: McFocusRing(
-              borderRadius: 999,
-              child: McPressable(
-                onTap: () => _showSpeedMenu(context),
-                haptic: true,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 13,
-                    vertical: 8,
-                  ),
-                  child: Text(
-                    speed == 1.0 ? '倍速' : '${_label(speed)}x',
-                    style: McText.caption
-                        .copyWith(
-                          color: McTokens.text,
-                          fontWeight: FontWeight.w600,
-                        )
-                        .tabular,
-                  ),
-                ),
-              ),
-            ),
+          Container(width: 1, height: 16, color: McTokens.lineStrong),
+          _segmentTap(
+            icon: McIcons.closedCaptioning,
+            label: '字幕',
+            tooltip: '选择字幕',
+            compact: compact,
+            onTap: () => _showSubtitleMenu(context),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildEpisodesPill({bool compact = false}) {
+    return McLiquidGlass(
+      radius: McTokens.pillRadius,
+      withShadow: false,
+      child: _segmentTap(
+        icon: McIcons.playListAdd,
+        label: '选集',
+        tooltip: '选择剧集',
+        compact: compact,
+        onTap: onEpisodes,
+      ),
+    );
+  }
+
+  Widget _buildSpeedPill(BuildContext context, {bool compact = false}) {
+    final speedLabel = speed == 1.0 ? '倍速' : '${_label(speed)}x';
+    return Tooltip(
+      message: '播放倍速',
+      child: Semantics(
+        button: true,
+        label: '播放倍速：$speedLabel',
+        child: McLiquidGlass(
+          radius: McTokens.pillRadius,
+          withShadow: false,
+          child: McFocusRing(
+            borderRadius: 999,
+            child: McPressable(
+              onTap: () => _showSpeedMenu(context),
+              haptic: true,
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: compact ? 11 : 13,
+                  vertical: 8,
+                ),
+                child: Text(
+                  speedLabel,
+                  style: McText.caption
+                      .copyWith(
+                        color: McTokens.text,
+                        fontWeight: FontWeight.w600,
+                      )
+                      .tabular,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildSecondaryActions() {
+    final actions = <Widget>[];
+    void addAction(Widget w) {
+      if (actions.isNotEmpty) actions.add(const SizedBox(width: 8));
+      actions.add(w);
+    }
+
+    if (hasNext) {
+      addAction(
+        McFocusRing(
+          borderRadius: 20,
+          child: McGlassIconButton(
+            icon: McIcons.skipForwardFill,
+            tooltip: '下一集',
+            onTap: onNext,
+          ),
+        ),
+      );
+    }
+    if (onAirPlay != null) {
+      addAction(
+        McFocusRing(
+          borderRadius: 20,
+          child: McGlassIconButton(
+            icon: McIcons.dlna,
+            tooltip: '隔空播放 AirPlay',
+            onTap: onAirPlay!,
+          ),
+        ),
+      );
+    }
+    addAction(
+      McFocusRing(
+        borderRadius: 20,
+        child: McGlassIconButton(
+          icon: McIcons.cast,
+          tooltip: 'DLNA 投屏',
+          onTap: onCast,
+        ),
+      ),
+    );
+    if (showOrientationToggle && onToggleOrientation != null) {
+      addAction(
+        McFocusRing(
+          borderRadius: 20,
+          child: McGlassIconButton(
+            icon: isLandscape
+                ? McIcons.screenVertical
+                : McIcons.screenHorizontal,
+            tooltip: isLandscape ? '切换竖屏' : '切换横屏',
+            onTap: onToggleOrientation!,
+          ),
+        ),
+      );
+    }
+    return actions;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 500;
+        if (isCompact) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    _buildAudioSubPill(context, compact: true),
+                    const Spacer(),
+                    if (isEpisode) ...[
+                      _buildEpisodesPill(compact: true),
+                      const SizedBox(width: 8),
+                    ],
+                    _buildSpeedPill(context, compact: true),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: _buildSecondaryActions(),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            children: [
+              _buildAudioSubPill(context),
+              const Spacer(),
+              if (hasNext) ...[
+                McFocusRing(
+                  borderRadius: 20,
+                  child: McGlassIconButton(
+                    icon: McIcons.skipForwardFill,
+                    tooltip: '下一集',
+                    onTap: onNext,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              if (isEpisode) ...[
+                _buildEpisodesPill(),
+                const SizedBox(width: 8),
+              ],
+              if (onAirPlay != null) ...[
+                McFocusRing(
+                  borderRadius: 20,
+                  child: McGlassIconButton(
+                    icon: McIcons.dlna,
+                    tooltip: '隔空播放 AirPlay',
+                    onTap: onAirPlay!,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              McFocusRing(
+                borderRadius: 20,
+                child: McGlassIconButton(
+                  icon: McIcons.cast,
+                  tooltip: 'DLNA 投屏',
+                  onTap: onCast,
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (showOrientationToggle && onToggleOrientation != null) ...[
+                McFocusRing(
+                  borderRadius: 20,
+                  child: McGlassIconButton(
+                    icon: isLandscape
+                        ? McIcons.screenVertical
+                        : McIcons.screenHorizontal,
+                    tooltip: isLandscape ? '切换竖屏' : '切换横屏',
+                    onTap: onToggleOrientation!,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              _buildSpeedPill(context),
+            ],
+          ),
+        );
+      },
     );
   }
 

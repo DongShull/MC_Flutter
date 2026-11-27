@@ -1094,7 +1094,7 @@ class ResumeInfo {
 /// 详情页整体状态。
 class DetailState {
   const DetailState({
-    this.loading = false,
+    this.loading = true,
     this.episodesLoading = false,
     this.error,
     this.entry,

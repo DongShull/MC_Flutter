@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -31,8 +33,14 @@ class DiscoverPage extends ConsumerStatefulWidget {
 }
 
 class _DiscoverPageState extends ConsumerState<DiscoverPage> {
-  double _scrollOffset = 0;
+  final ValueNotifier<double> _scrollOffset = ValueNotifier<double>(0);
   Color? _ambientTint;
+
+  @override
+  void dispose() {
+    _scrollOffset.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,14 +55,17 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         fit: StackFit.expand,
         children: [
           if (!filtering)
-            McAmbientTopGlow(
-              tint: _ambientTint,
-              scrollOffset: _scrollOffset,
+            ValueListenableBuilder<double>(
+              valueListenable: _scrollOffset,
+              builder: (_, offset, __) => McAmbientTopGlow(
+                tint: _ambientTint,
+                scrollOffset: offset,
+              ),
             ),
           NotificationListener<ScrollNotification>(
             onNotification: (n) {
               if (n.metrics.axis == Axis.vertical && n.depth == 0) {
-                setState(() => _scrollOffset = n.metrics.pixels);
+                _scrollOffset.value = n.metrics.pixels;
               }
               return false;
             },
@@ -70,7 +81,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                     )
                   : _DiscoverHomeBody(
                       state: state,
-                      scrollOffset: _scrollOffset,
+                      scrollOffsetListenable: _scrollOffset,
                       topBarClearance: topPad + 58,
                       onAmbientChanged: (c) {
                         if (mounted && c != _ambientTint) {
@@ -101,19 +112,24 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                         mediaType: state.mediaType,
                         source: state.source,
                         onMediaTypeChanged: (v) {
+                          HapticFeedback.selectionClick();
                           setState(() => _ambientTint = null);
                           notifier.switchMediaType(v);
                         },
                         onSourceChanged: (v) {
+                          HapticFeedback.selectionClick();
                           setState(() => _ambientTint = null);
                           notifier.switchSource(v);
                         },
                       ),
                       const Spacer(),
-                      if (state.source.toLowerCase() == 'tmdb')
+                      if (state.source.toLowerCase() == 'tmdb') ...[
                         PopupMenuButton<String>(
                           tooltip: '筛选',
-                          onSelected: (dim) => _openFilterDim(dim, state),
+                          onSelected: (dim) {
+                            HapticFeedback.selectionClick();
+                            _openFilterDim(dim, state);
+                          },
                           itemBuilder: (_) => [
                             for (final key in discoveryDimKeys)
                               PopupMenuItem(
@@ -166,6 +182,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                             ),
                           ),
                         ),
+                        const SizedBox(width: 8),
+                      ],
                       McGlassIconButton(
                         icon: McIcons.search,
                         tooltip: '搜索',
@@ -228,6 +246,7 @@ class _DiscoverTitleMenu extends StatelessWidget {
     final sourceLabel = source == 'douban' ? '豆瓣' : 'TMDB';
 
     return PopupMenuButton<String>(
+      tooltip: '切换媒体类型与数据源',
       offset: const Offset(0, 44),
       onSelected: (v) {
         if (v == 'type:movie') onMediaTypeChanged('movie');
@@ -331,13 +350,13 @@ class _DiscoverTitleMenu extends StatelessWidget {
 class _DiscoverHomeBody extends ConsumerWidget {
   const _DiscoverHomeBody({
     required this.state,
-    required this.scrollOffset,
+    required this.scrollOffsetListenable,
     required this.topBarClearance,
     required this.onAmbientChanged,
   });
 
   final DiscoverState state;
-  final double scrollOffset;
+  final ValueListenable<double> scrollOffsetListenable;
   final double topBarClearance;
   final ValueChanged<Color?> onAmbientChanged;
 
@@ -345,6 +364,7 @@ class _DiscoverHomeBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final perms = ref.watch(permissionsProvider);
     final subs = ref.watch(discoverSubscriptionIndexProvider);
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
 
     if (state.loading && state.rows.isEmpty) {
       return const McFeedSkeleton(showHero: true);
@@ -380,160 +400,164 @@ class _DiscoverHomeBody extends ConsumerWidget {
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(bottom: McTokens.bottomBarClearance),
+      padding: EdgeInsets.only(bottom: McTokens.bottomBarClearance + bottomPad),
       children: [
         if (heroItems.isNotEmpty)
-          McImmersiveHero(
-            height: 500,
-            scrollOffset: scrollOffset,
-            itemCount: heroItems.length,
-            imageUrlOf: (i) => heroItems[i].heroImageUrl,
-            onAmbientColorChanged: onAmbientChanged,
-            onTapSlide: (i) => feat_discover.pushTitle(
-              context,
-              heroItems[i].ref,
-              seed: heroItems[i],
-            ),
-            foregroundBuilder: (context, i) {
-              final t = heroItems[i];
-              final sub = subs.findByTitle(t);
-              final metaParts = <String>[
-                if (t.year != null) '${t.year}',
-                if (t.genres.isNotEmpty) t.genres.take(2).join(' / '),
-                if (t.extentLabel.isNotEmpty) t.extentLabel,
-              ];
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '今日精选 · ${t.mediaType == 'tv' ? '剧集' : '电影'}',
-                    style: McText.micro.copyWith(
-                      color: McTokens.accent2,
-                      letterSpacing: 2.0,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    t.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontFamily: McText.fontFamily,
-                      fontFamilyFallback: McText.fontFallback,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w700,
-                      height: 1.18,
-                      color: McTokens.text,
-                    ),
-                  ),
-                  if (t.originalTitle.isNotEmpty &&
-                      t.originalTitle != t.title) ...[
-                    const SizedBox(height: 2),
+          ValueListenableBuilder<double>(
+            valueListenable: scrollOffsetListenable,
+            builder: (context, scrollOffset, _) => McImmersiveHero(
+              height: 500,
+              scrollOffset: scrollOffset,
+              itemCount: heroItems.length,
+              imageUrlOf: (i) => heroItems[i].heroImageUrl,
+              onAmbientColorChanged: onAmbientChanged,
+              onTapSlide: (i) => feat_discover.pushTitle(
+                context,
+                heroItems[i].ref,
+                seed: heroItems[i],
+              ),
+              foregroundBuilder: (context, i) {
+                final t = heroItems[i];
+                final sub = subs.findByTitle(t);
+                final metaParts = <String>[
+                  if (t.year != null) '${t.year}',
+                  if (t.genres.isNotEmpty) t.genres.take(2).join(' / '),
+                  if (t.extentLabel.isNotEmpty) t.extentLabel,
+                ];
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     Text(
-                      t.originalTitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: McText.caption.copyWith(
-                        color: const Color(0x8CFFFFFF),
+                      '今日精选 · ${t.mediaType == 'tv' ? '剧集' : '电影'}',
+                      style: McText.micro.copyWith(
+                        color: McTokens.accent2,
+                        letterSpacing: 2.0,
                       ),
                     ),
-                  ],
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      if ((t.rating ?? 0) > 0)
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              McIcons.star2Fill,
-                              size: 13,
-                              color: McTokens.warning,
-                            ),
-                            const SizedBox(width: 3),
-                            Text(
-                              t.rating!.toStringAsFixed(1),
-                              style: McText.sub
-                                  .copyWith(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w600,
-                                  )
-                                  .tabular,
-                            ),
-                          ],
-                        ),
-                      for (final part in metaParts)
-                        Text(
-                          part,
-                          style: McText.sub
-                              .copyWith(color: const Color(0xCCFFFFFF))
-                              .tabular,
-                        ),
-                      if (t.owned)
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: const BoxDecoration(
-                                color: McTokens.ok,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              '已入库',
-                              style: McText.caption.copyWith(
-                                color: const Color(0xFF6EE7B7),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                  if (t.overview.isNotEmpty) ...[
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     Text(
-                      t.overview,
+                      t.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: McText.sub.copyWith(
-                        color: const Color(0xBFFFFFFF),
+                      style: const TextStyle(
+                        fontFamily: McText.fontFamily,
+                        fontFamilyFallback: McText.fontFallback,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                        height: 1.18,
+                        color: McTokens.text,
                       ),
                     ),
-                  ],
-                  if (perms.canSubscribe) ...[
-                    const SizedBox(height: 14),
-                    McActionPill(
-                      label: sub == null ? '订阅影片' : '已订阅',
-                      icon: sub == null ? McIcons.addCircle : McIcons.check,
-                      primary: sub == null,
-                      onTap: () async {
-                        final out = await showSubscribeSheet(
-                          context,
-                          ref,
-                          titleRef: t.ref,
-                        );
-                        if (out != null) {
+                    if (t.originalTitle.isNotEmpty &&
+                        t.originalTitle != t.title) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        t.originalTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: McText.caption.copyWith(
+                          color: const Color(0x8CFFFFFF),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if ((t.rating ?? 0) > 0)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                McIcons.star2Fill,
+                                size: 13,
+                                color: McTokens.warning,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                t.rating!.toStringAsFixed(1),
+                                style: McText.sub
+                                    .copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                    )
+                                    .tabular,
+                              ),
+                            ],
+                          ),
+                        for (final part in metaParts)
+                          Text(
+                            part,
+                            style: McText.sub
+                                .copyWith(color: const Color(0xCCFFFFFF))
+                                .tabular,
+                          ),
+                        if (t.owned)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: const BoxDecoration(
+                                  color: McTokens.ok,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '已入库',
+                                style: McText.caption.copyWith(
+                                  color: const Color(0xFF6EE7B7),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                    if (t.overview.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        t.overview,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: McText.sub.copyWith(
+                          color: const Color(0xBFFFFFFF),
+                        ),
+                      ),
+                    ],
+                    if (perms.canSubscribe) ...[
+                      const SizedBox(height: 14),
+                      McActionPill(
+                        label: sub == null ? '订阅影片' : '已订阅',
+                        icon: sub == null ? McIcons.addCircle : McIcons.check,
+                        primary: sub == null,
+                        onTap: () async {
+                          final out = await showSubscribeSheet(
+                            context,
+                            ref,
+                            titleRef: t.ref,
+                          );
+                          if (!context.mounted || out == null) return;
                           ref
                               .read(discoverSubscriptionIndexProvider.notifier)
                               .refresh();
                           if (out == SubscribeSheetOutcome.created) {
                             McToast.success('已加入追更订阅');
+                          } else if (out == SubscribeSheetOutcome.managed) {
+                            context.push('/subscriptions');
                           }
-                        }
-                      },
-                    ),
+                        },
+                      ),
+                    ],
                   ],
-                ],
-              );
-            },
+                );
+              },
+            ),
           )
         else
           SizedBox(height: topBarClearance),
@@ -843,12 +867,16 @@ class _DiscoverSectionShelf extends ConsumerWidget {
                               ref,
                               titleRef: t.ref,
                             );
-                            if (out != null) {
-                              ref
-                                  .read(
-                                    discoverSubscriptionIndexProvider.notifier,
-                                  )
-                                  .refresh();
+                            if (!context.mounted || out == null) return;
+                            ref
+                                .read(
+                                  discoverSubscriptionIndexProvider.notifier,
+                                )
+                                .refresh();
+                            if (out == SubscribeSheetOutcome.created) {
+                              McToast.success('已加入追更订阅');
+                            } else if (out == SubscribeSheetOutcome.managed) {
+                              context.push('/subscriptions');
                             }
                           },
                         ),

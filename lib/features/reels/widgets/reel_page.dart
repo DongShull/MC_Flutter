@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
@@ -56,8 +58,17 @@ class ReelPage extends StatefulWidget {
 class _ReelPageState extends State<ReelPage> {
   bool _overviewExpanded = false;
 
-  void _showQualityPicker(BuildContext context) {
-    showMcSheet<void>(
+  Future<void> _showQualityPicker(BuildContext context) async {
+    final session = widget.session;
+    final wasPlaying = session != null &&
+        !session.paused.value &&
+        session.service.playing.value;
+    if (wasPlaying) {
+      unawaited(session.pause());
+    }
+    var picked = false;
+    int? pickedQuality;
+    await showMcSheet<void>(
       context: context,
       builder: (ctx) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
@@ -84,6 +95,8 @@ class _ReelPageState extends State<ReelPage> {
                           )
                         : null,
                     onTap: () {
+                      picked = true;
+                      pickedQuality = opt.maxHeight;
                       Navigator.of(ctx).pop();
                       widget.onPickQuality(opt.maxHeight);
                     },
@@ -94,6 +107,12 @@ class _ReelPageState extends State<ReelPage> {
         ),
       ),
     );
+    if (!mounted) return;
+    if (wasPlaying &&
+        widget.session == session &&
+        (!picked || pickedQuality == widget.qualityMaxHeight)) {
+      unawaited(session.resume());
+    }
   }
 
   @override
@@ -116,75 +135,74 @@ class _ReelPageState extends State<ReelPage> {
             : '';
     final session = widget.session;
 
+    final mediaPadding = MediaQuery.paddingOf(context);
+    final topInset = mediaPadding.top;
+    final bottomInset = mediaPadding.bottom;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final bandWidth = constraints.maxWidth;
         final bandHeight = bandWidth * 9 / 16;
-        final bandTop = (constraints.maxHeight * 0.44 - bandHeight / 2).clamp(
-          72.0,
+        final bandTop = (constraints.maxHeight * 0.37 - bandHeight / 2).clamp(
+          topInset + 64.0,
           double.infinity,
         );
+        final actionRowTop = bandTop + bandHeight + 10.0;
+        const actionRowHeight = 36.0;
+        final progressBottom = math.max(16.0, bottomInset + 8.0);
+        final lowerTop = actionRowTop + actionRowHeight + 8.0;
+        final lowerBottom = progressBottom + 14.0;
+        final lowerAvailableHeight = math.max(
+          80.0,
+          constraints.maxHeight - lowerTop - lowerBottom,
+        );
+        final compactActions = lowerAvailableHeight < 250;
 
         return Stack(
           fit: StackFit.expand,
           children: [
-            // 整页手势区：单击暂停/继续，长按 2× 倍速（竖向滑动交给 PageView）
-            Positioned.fill(
-              child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onTap: () => session?.togglePause(),
-                onLongPressStart: (_) => session?.setHoldSpeed(true),
-                onLongPressEnd: (_) => session?.setHoldSpeed(false),
-                onLongPressCancel: () => session?.setHoldSpeed(false),
-                child: const SizedBox.expand(),
-              ),
-            ),
-
-            // 16:9 居中真内联视频画格
+            // 16:9 居中真内联视频画格（IgnorePointer 保证点击/长按直达手势层）
             Positioned(
               left: 0,
               right: 0,
               top: bandTop,
               height: bandHeight,
-              child: ColoredBox(
-                color: Colors.black,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (session != null)
-                      KeyedSubtree(
-                        key: ObjectKey(session),
-                        child: session.buildVideoView(),
-                      ),
-                    // 首帧出来前垫剧照，出画后淡出
-                    if (session != null)
-                      ValueListenableBuilder<bool>(
-                        valueListenable: session.hasFirstFrame,
-                        builder: (_, ready, __) => IgnorePointer(
-                          ignoring: ready,
-                          child: AnimatedOpacity(
+              child: IgnorePointer(
+                child: ColoredBox(
+                  color: Colors.black,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (session != null)
+                        KeyedSubtree(
+                          key: ObjectKey(session),
+                          child: session.buildVideoView(),
+                        ),
+                      // 首帧出来前垫剧照，出画后淡出
+                      if (session != null)
+                        ValueListenableBuilder<bool>(
+                          valueListenable: session.hasFirstFrame,
+                          builder: (_, ready, __) => AnimatedOpacity(
                             opacity: ready ? 0.0 : 1.0,
                             duration: const Duration(milliseconds: 220),
                             child: _coverStill(resolvedCover),
                           ),
-                        ),
-                      )
-                    else
-                      _coverStill(resolvedCover),
+                        )
+                      else
+                        _coverStill(resolvedCover),
 
-                    // 内联片段字幕叠字
-                    if (session != null)
-                      ValueListenableBuilder<String?>(
-                        valueListenable: session.subtitleText,
-                        builder: (_, sub, __) {
-                          if (sub == null || sub.isEmpty) {
-                            return const SizedBox.shrink();
-                          }
-                          return Positioned(
-                            left: 14,
-                            right: 14,
-                            bottom: 10,
-                            child: IgnorePointer(
+                      // 内联片段字幕叠字
+                      if (session != null)
+                        ValueListenableBuilder<String?>(
+                          valueListenable: session.subtitleText,
+                          builder: (_, sub, __) {
+                            if (sub == null || sub.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            return Positioned(
+                              left: 14,
+                              right: 14,
+                              bottom: 10,
                               child: Center(
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
@@ -206,25 +224,23 @@ class _ReelPageState extends State<ReelPage> {
                                   ),
                                 ),
                               ),
-                            ),
-                          );
-                        },
-                      ),
+                            );
+                          },
+                        ),
 
-                    // 缓冲 / 暂停 / 失败态中心提示
-                    if (widget.active && session != null)
-                      _VideoStatusOverlay(session: session),
+                      // 缓冲 / 暂停 / 失败态中心提示
+                      if (widget.active && session != null)
+                        _VideoStatusOverlay(session: session),
 
-                    // 长按 2× 倍速徽标
-                    if (session != null)
-                      ValueListenableBuilder<bool>(
-                        valueListenable: session.holdSpeed,
-                        builder: (_, holding, __) {
-                          if (!holding) return const SizedBox.shrink();
-                          return Positioned(
-                            top: 10,
-                            left: 12,
-                            child: IgnorePointer(
+                      // 长按 2× 倍速徽标
+                      if (session != null)
+                        ValueListenableBuilder<bool>(
+                          valueListenable: session.holdSpeed,
+                          builder: (_, holding, __) {
+                            if (!holding) return const SizedBox.shrink();
+                            return Positioned(
+                              top: 10,
+                              left: 12,
                               child: McLiquidGlass(
                                 radius: McTokens.pillRadius,
                                 padding: const EdgeInsets.symmetric(
@@ -241,12 +257,27 @@ class _ReelPageState extends State<ReelPage> {
                                       .tabular,
                                 ),
                               ),
-                            ),
-                          );
-                        },
-                      ),
-                  ],
+                            );
+                          },
+                        ),
+                    ],
+                  ),
                 ),
+              ),
+            ),
+
+            // 整页手势区（位于视频层之上、交互控件之下）：单击暂停/继续，长按 2× 倍速（竖向滑动交给 PageView）
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => session?.togglePause(),
+                onLongPressStart: (_) {
+                  HapticFeedback.selectionClick();
+                  session?.setHoldSpeed(true);
+                },
+                onLongPressEnd: (_) => session?.setHoldSpeed(false),
+                onLongPressCancel: () => session?.setHoldSpeed(false),
+                child: const SizedBox.expand(),
               ),
             ),
 
@@ -254,7 +285,7 @@ class _ReelPageState extends State<ReelPage> {
             Positioned(
               left: 16,
               right: 16,
-              top: bandTop + bandHeight + 12,
+              top: actionRowTop,
               child: session != null
                   ? ValueListenableBuilder<bool>(
                       valueListenable: session.paused,
@@ -267,189 +298,211 @@ class _ReelPageState extends State<ReelPage> {
                   : _videoActionRow(context),
             ),
 
-            // 右下交互列（收藏 / 详情 / 带进度环的已看 / 真实分享）
-            Positioned(
-              right: 12,
-              bottom: 58,
-              child: ReelActions(
-                favorite: widget.favorite,
-                played: widget.played,
-                progressPercent: title.progressPercent,
-                onToggleFavorite: widget.onToggleFavorite,
-                onOpenDetail: widget.onOpenDetail,
-                onTogglePlayed: widget.onTogglePlayed,
-                onShare: widget.onShare,
-              ),
-            ),
-
-            // 左下角信息区：透明片名 Logo / 评分徽章 / 导演头像行 / 简介
+            // 底部信息区与右侧交互列：严格限定在画格操作条之下与进度条之上，小屏/展开简介绝不重叠
             Positioned(
               left: 16,
-              right: 84,
-              bottom: 54,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
+              right: 12,
+              top: lowerTop,
+              bottom: lowerBottom,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  if (resolvedLogo.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(
-                          maxWidth: 180,
-                          maxHeight: 44,
-                        ),
-                        child: CachedNetworkImage(
-                          imageUrl: resolvedLogo,
-                          httpHeaders: mcImageHeaders(),
-                          fit: BoxFit.contain,
-                          alignment: Alignment.centerLeft,
-                          errorWidget: (_, __, ___) => const SizedBox.shrink(),
-                        ),
-                      ),
-                    ),
-                  if (title.rating != null && title.rating! > 0)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2.5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0x33F5C451),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: const Color(0x66F5C451),
-                            width: 0.7,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              McIcons.star2Fill,
-                              size: 11,
-                              color: McTokens.warning,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              title.rating!.toStringAsFixed(1),
-                              style: McText.micro
-                                  .copyWith(
-                                    color: McTokens.warning,
-                                    fontWeight: FontWeight.w700,
-                                  )
-                                  .tabular,
-                            ),
-                            if (title.genres.isNotEmpty) ...[
-                              const SizedBox(width: 6),
-                              Text(
-                                title.genres.take(2).join(' · '),
-                                style: McText.micro.copyWith(
-                                  color: const Color(0xCCFFFFFF),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: _overviewExpanded
+                          ? const ClampingScrollPhysics()
+                          : const NeverScrollableScrollPhysics(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (resolvedLogo.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 180,
+                                  maxHeight: 44,
+                                ),
+                                child: CachedNetworkImage(
+                                  imageUrl: resolvedLogo,
+                                  httpHeaders: mcImageHeaders(),
+                                  fit: BoxFit.contain,
+                                  alignment: Alignment.centerLeft,
+                                  errorWidget: (_, __, ___) =>
+                                      const SizedBox.shrink(),
                                 ),
                               ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-                  if (directorNames.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: McPressable(
-                        onTap: (leadDirector?.tmdbPersonId != null &&
-                                widget.onOpenPerson != null)
-                            ? () => widget.onOpenPerson!(
-                                  leadDirector!.tmdbPersonId!,
-                                  leadDirector.name,
-                                )
-                            : null,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            ClipOval(
+                            ),
+                          if (title.rating != null && title.rating! > 0)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
                               child: Container(
-                                width: 32,
-                                height: 32,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2.5,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: McTokens.surfaceInset,
-                                  shape: BoxShape.circle,
+                                  color: const Color(0x33F5C451),
+                                  borderRadius: BorderRadius.circular(999),
                                   border: Border.all(
-                                    color: McTokens.lineStrong,
-                                    width: 1,
+                                    color: const Color(0x66F5C451),
+                                    width: 0.7,
                                   ),
                                 ),
-                                child: directorAvatar.isNotEmpty
-                                    ? CachedNetworkImage(
-                                        imageUrl: directorAvatar,
-                                        httpHeaders: mcImageHeaders(),
-                                        fit: BoxFit.cover,
-                                        errorWidget: (_, __, ___) => const Icon(
-                                          McIcons.user,
-                                          size: 16,
-                                          color: McTokens.textMuted,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      McIcons.star2Fill,
+                                      size: 11,
+                                      color: McTokens.warning,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      title.rating!.toStringAsFixed(1),
+                                      style: McText.micro
+                                          .copyWith(
+                                            color: McTokens.warning,
+                                            fontWeight: FontWeight.w700,
+                                          )
+                                          .tabular,
+                                    ),
+                                    if (title.genres.isNotEmpty) ...[
+                                      const SizedBox(width: 6),
+                                      Flexible(
+                                        child: Text(
+                                          title.genres.take(2).join(' · '),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: McText.micro.copyWith(
+                                            color: const Color(0xCCFFFFFF),
+                                          ),
                                         ),
-                                      )
-                                    : const Icon(
-                                        McIcons.user,
-                                        size: 16,
-                                        color: McTokens.textMuted,
                                       ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                directorNames,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: McText.sub.copyWith(
-                                  color: McTokens.text,
-                                  fontWeight: FontWeight.w600,
+                                    ],
+                                  ],
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              title.kind == 'tv' ? '主创' : '导演',
-                              style: McText.caption.muted,
+                          if (directorNames.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: McPressable(
+                                onTap: (leadDirector?.tmdbPersonId != null &&
+                                        widget.onOpenPerson != null)
+                                    ? () => widget.onOpenPerson!(
+                                          leadDirector!.tmdbPersonId!,
+                                          leadDirector.name,
+                                        )
+                                    : null,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    ClipOval(
+                                      child: Container(
+                                        width: 32,
+                                        height: 32,
+                                        decoration: BoxDecoration(
+                                          color: McTokens.surfaceInset,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: McTokens.lineStrong,
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: directorAvatar.isNotEmpty
+                                            ? CachedNetworkImage(
+                                                imageUrl: directorAvatar,
+                                                httpHeaders: mcImageHeaders(),
+                                                fit: BoxFit.cover,
+                                                errorWidget: (_, __, ___) =>
+                                                    const Icon(
+                                                  McIcons.user,
+                                                  size: 16,
+                                                  color: McTokens.textMuted,
+                                                ),
+                                              )
+                                            : const Icon(
+                                                McIcons.user,
+                                                size: 16,
+                                                color: McTokens.textMuted,
+                                              ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        directorNames,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: McText.sub.copyWith(
+                                          color: McTokens.text,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      title.kind == 'tv' ? '主创' : '导演',
+                                      style: McText.caption.muted,
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ],
-                        ),
+                          if (overview.isNotEmpty)
+                            GestureDetector(
+                              onTap: () => setState(
+                                () => _overviewExpanded = !_overviewExpanded,
+                              ),
+                              child: Text(
+                                title.episode != null
+                                    ? 'S${title.episode!.season}E${title.episode!.episode}${title.episode!.name != null ? '「${title.episode!.name}」' : ''} $overview'
+                                    : overview,
+                                maxLines: _overviewExpanded ? 8 : 3,
+                                overflow: TextOverflow.ellipsis,
+                                style: McText.sub.copyWith(
+                                  height: 1.42,
+                                  fontWeight: FontWeight.w400,
+                                  color: const Color(0xDCF3F5F9),
+                                  shadows: const [
+                                    Shadow(
+                                      color: Color(0x99000000),
+                                      blurRadius: 4,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                  if (overview.isNotEmpty)
-                    GestureDetector(
-                      onTap: () => setState(
-                        () => _overviewExpanded = !_overviewExpanded,
-                      ),
-                      child: Text(
-                        title.episode != null
-                            ? 'S${title.episode!.season}E${title.episode!.episode}${title.episode!.name != null ? '「${title.episode!.name}」' : ''} $overview'
-                            : overview,
-                        maxLines: _overviewExpanded ? 8 : 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: McText.sub.copyWith(
-                          height: 1.42,
-                          fontWeight: FontWeight.w400,
-                          color: const Color(0xDCF3F5F9),
-                          shadows: const [
-                            Shadow(color: Color(0x99000000), blurRadius: 4),
-                          ],
-                        ),
-                      ),
+                  ),
+                  const SizedBox(width: 12),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.bottomRight,
+                    child: ReelActions(
+                      favorite: widget.favorite,
+                      played: widget.played,
+                      progressPercent: title.progressPercent,
+                      compact: compactActions,
+                      onToggleFavorite: widget.onToggleFavorite,
+                      onOpenDetail: widget.onOpenDetail,
+                      onTogglePlayed: widget.onTogglePlayed,
+                      onShare: widget.onShare,
                     ),
+                  ),
                 ],
               ),
             ),
 
-            // 贴底实时片段进度条（按当前片段起止实时推进）
+            // 贴底实时片段进度条（抬升至 Home Indicator 安全区之上）
             Positioned(
               left: 16,
               right: 16,
-              bottom: 20,
+              bottom: progressBottom,
               child: session != null
                   ? ValueListenableBuilder<double>(
                       valueListenable: session.progress,
@@ -495,11 +548,13 @@ class _ReelPageState extends State<ReelPage> {
       children: [
         _OutlineCapsule(
           label: ReelsQuality.label(widget.qualityMaxHeight),
+          tooltip: '切换画质',
           trailingIcon: McIcons.arrowDownS,
           onTap: () => _showQualityPicker(context),
         ),
         _OutlineCapsule(
           label: '全屏观看',
+          tooltip: '全屏观看片段',
           icon: McIcons.fullscreen1,
           onTap: widget.onFullscreen,
         ),
@@ -587,6 +642,7 @@ class ReelActions extends StatelessWidget {
     required this.favorite,
     required this.played,
     this.progressPercent,
+    this.compact = false,
     required this.onToggleFavorite,
     required this.onOpenDetail,
     required this.onTogglePlayed,
@@ -596,6 +652,7 @@ class ReelActions extends StatelessWidget {
   final bool favorite;
   final bool played;
   final int? progressPercent;
+  final bool compact;
   final VoidCallback onToggleFavorite;
   final VoidCallback onOpenDetail;
   final VoidCallback onTogglePlayed;
@@ -606,66 +663,85 @@ class ReelActions extends StatelessWidget {
     final pct = (!played && progressPercent != null && progressPercent! > 0)
         ? (progressPercent!.clamp(1, 99) / 100.0)
         : 0.0;
+    final gap = compact ? 10.0 : 16.0;
+    final watchedTooltip = played ? '标为未看' : '标为已看';
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         _ReelIcon(
           icon: favorite ? McIcons.heart2Fill : McIcons.heart2,
           label: '收藏',
+          tooltip: favorite ? '取消收藏' : '收藏影片',
           color: favorite ? McTokens.danger : McTokens.text,
           onTap: onToggleFavorite,
         ),
-        const SizedBox(height: 18),
+        SizedBox(height: gap),
         _ReelIcon(
           icon: McIcons.movie,
           label: '详情',
+          tooltip: '查看影片详情',
           iconSize: 22,
           onTap: onOpenDetail,
         ),
-        const SizedBox(height: 18),
-        McPressable(
-          onTap: onTogglePlayed,
-          haptic: true,
-          child: SizedBox(
-            width: 52,
-            child: Column(
-              children: [
-                SizedBox(
-                  width: 30,
-                  height: 30,
-                  child: played
-                      ? const Icon(
-                          McIcons.checkCircleFill,
-                          size: 26,
-                          color: McTokens.ok,
-                        )
-                      : CustomPaint(
-                          painter: _WatchedRingPainter(progress: pct),
-                          child: const Center(
-                            child: Icon(
-                              McIcons.check,
-                              size: 14,
-                              color: Colors.white,
+        SizedBox(height: gap),
+        Tooltip(
+          message: watchedTooltip,
+          child: Semantics(
+            button: true,
+            label: watchedTooltip,
+            child: McPressable(
+              onTap: onTogglePlayed,
+              haptic: true,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 52, minHeight: 48),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 30,
+                      height: 30,
+                      child: played
+                          ? const Icon(
+                              McIcons.checkCircleFill,
+                              size: 26,
+                              color: McTokens.ok,
+                            )
+                          : CustomPaint(
+                              painter: _WatchedRingPainter(progress: pct),
+                              child: const Center(
+                                child: Icon(
+                                  McIcons.check,
+                                  size: 14,
+                                  color: Colors.white,
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      played
+                          ? '已看'
+                          : (pct > 0 ? '${(pct * 100).round()}%' : '已看'),
+                      style: McText.micro.copyWith(
+                        fontWeight: FontWeight.w500,
+                        color: played ? McTokens.ok : McTokens.text,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  played
-                      ? '已看'
-                      : (pct > 0 ? '${(pct * 100).round()}%' : '已看'),
-                  style: McText.micro.copyWith(
-                    fontWeight: FontWeight.w500,
-                    color: played ? McTokens.ok : McTokens.text,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
-        const SizedBox(height: 18),
-        _ReelIcon(icon: McIcons.share, label: '分享', onTap: onShare),
+        SizedBox(height: gap),
+        _ReelIcon(
+          icon: McIcons.share,
+          label: '分享',
+          tooltip: '分享影片',
+          onTap: onShare,
+        ),
       ],
     );
   }
@@ -711,6 +787,7 @@ class _ReelIcon extends StatelessWidget {
   const _ReelIcon({
     required this.icon,
     required this.label,
+    this.tooltip,
     this.color = McTokens.text,
     this.iconSize = 25,
     this.onTap,
@@ -718,29 +795,40 @@ class _ReelIcon extends StatelessWidget {
 
   final IconData icon;
   final String label;
+  final String? tooltip;
   final Color color;
   final double iconSize;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return McPressable(
-      onTap: onTap,
-      haptic: true,
-      child: SizedBox(
-        width: 52,
-        child: Column(
-          children: [
-            Icon(icon, size: iconSize, color: color),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: McText.micro.copyWith(
-                fontWeight: FontWeight.w500,
-                color: color,
-              ),
+    final tip = tooltip ?? label;
+    return Tooltip(
+      message: tip,
+      child: Semantics(
+        button: true,
+        label: tip,
+        child: McPressable(
+          onTap: onTap,
+          haptic: true,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 52, minHeight: 48),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: iconSize, color: color),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: McText.micro.copyWith(
+                    fontWeight: FontWeight.w500,
+                    color: color,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -750,47 +838,57 @@ class _ReelIcon extends StatelessWidget {
 class _OutlineCapsule extends StatelessWidget {
   const _OutlineCapsule({
     required this.label,
+    this.tooltip,
     this.icon,
     this.trailingIcon,
     this.onTap,
   });
 
   final String label;
+  final String? tooltip;
   final IconData? icon;
   final IconData? trailingIcon;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return McPressable(
-      onTap: onTap,
-      haptic: true,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        decoration: BoxDecoration(
-          color: const Color(0x40000000),
-          borderRadius: BorderRadius.circular(McTokens.pillRadius),
-          border: Border.all(color: const Color(0x59FFFFFF), width: 1),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: 14, color: Colors.white),
-              const SizedBox(width: 5),
-            ],
-            Text(
-              label,
-              style: McText.caption.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
+    final tip = tooltip ?? label;
+    return Tooltip(
+      message: tip,
+      child: Semantics(
+        button: true,
+        label: tip,
+        child: McPressable(
+          onTap: onTap,
+          haptic: true,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: BoxDecoration(
+              color: const Color(0x40000000),
+              borderRadius: BorderRadius.circular(McTokens.pillRadius),
+              border: Border.all(color: const Color(0x59FFFFFF), width: 1),
             ),
-            if (trailingIcon != null) ...[
-              const SizedBox(width: 3),
-              Icon(trailingIcon, size: 13, color: Colors.white),
-            ],
-          ],
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: 14, color: Colors.white),
+                  const SizedBox(width: 5),
+                ],
+                Text(
+                  label,
+                  style: McText.caption.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (trailingIcon != null) ...[
+                  const SizedBox(width: 3),
+                  Icon(trailingIcon, size: 13, color: Colors.white),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );

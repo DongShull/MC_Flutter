@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/session_watch.dart';
 import '../../../core/designsystem/adaptive.dart';
+import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/image/image_urls.dart';
+import '../../../core/l10n/mc_l10n.dart';
 import '../../../core/session/permissions.dart';
 import '../../../core/session/session_store.dart';
 import '../../../core/shell/command_palette.dart';
@@ -45,13 +47,16 @@ class RootShell extends ConsumerWidget {
   final Widget? sidebarExtra;
   final Widget? accountGestureTip;
 
-  static String labelOf(MainTab tab) => switch (tab) {
-        MainTab.library => '媒体库',
-        MainTab.subscriptions => '订阅',
-        MainTab.discover => '发现',
-        MainTab.activity => '活动',
-        MainTab.more => '我的',
-      };
+  static String labelOf(MainTab tab, [McL10n? l10n]) {
+    final t = l10n ?? McL10n.current;
+    return switch (tab) {
+      MainTab.library => t.tabLibrary,
+      MainTab.subscriptions => t.tabSubscriptions,
+      MainTab.discover => t.tabDiscover,
+      MainTab.activity => t.tabActivity,
+      MainTab.more => t.tabMore,
+    };
+  }
 
   static IconData iconOf(MainTab tab, {required bool selected}) => switch (tab) {
         MainTab.library => McIcons.mediaLibraryFill,
@@ -76,9 +81,14 @@ class RootShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(mcLanguageProvider);
+    ref.watch(mcSessionGenerationProvider);
+    final l10n = McL10n.of(context);
     final badges = ref.watch(shellBadgesProvider);
     final form = ref.watch(mcFormProvider);
     final activeIndex = tabs.indexOf(activeTab).clamp(0, pages.length - 1);
+    final effectiveAvatarDoubleTap =
+        appSession.previousAccount != null ? onAvatarDoubleTap : null;
 
     final body = AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
@@ -93,6 +103,11 @@ class RootShell extends ConsumerWidget {
 
     if (form == McDeviceForm.phone) {
       final collapsed = ref.watch(tabCollapseProvider).collapsed;
+      final extraToastOffset =
+          (!collapsed && bottomAccessory != null) ? 62.0 : 0.0;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        McToast.setBottomAccessoryOffset(extraToastOffset);
+      });
       return Scaffold(
         backgroundColor: McTokens.bg,
         extendBody: true,
@@ -133,7 +148,7 @@ class RootShell extends ConsumerWidget {
                 onSelectTab: onSelectTab,
                 bottomAccessory: bottomAccessory,
                 onAvatarLongPress: onAvatarLongPress,
-                onAvatarDoubleTap: onAvatarDoubleTap,
+                onAvatarDoubleTap: effectiveAvatarDoubleTap,
                 accountGestureTip: accountGestureTip,
               ),
             ),
@@ -142,10 +157,34 @@ class RootShell extends ConsumerWidget {
       );
     }
 
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      McToast.setBottomAccessoryOffset(0);
+    });
+
     // 侧边栏：移除重复的「我的」导航项（底部 `_SidebarAccountFooter` 即为专属账号/我的入口）。
     final sidebarTabs = tabs.where((t) => t != MainTab.more).toList();
     final sidebarIndex =
         activeTab == MainTab.more ? -1 : sidebarTabs.indexOf(activeTab);
+
+    final wideBody = bottomAccessory == null
+        ? body
+        : Stack(
+            children: [
+              Positioned.fill(child: body),
+              Positioned(
+                right: 20,
+                bottom: 20,
+                child: SafeArea(
+                  top: false,
+                  left: false,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 380),
+                    child: bottomAccessory!,
+                  ),
+                ),
+              ),
+            ],
+          );
 
     return McFormWatch(
       form: form,
@@ -155,7 +194,7 @@ class RootShell extends ConsumerWidget {
             McAdaptiveDestination(
               icon: iconOf(t, selected: false),
               selectedIcon: iconOf(t, selected: true),
-              label: labelOf(t),
+              label: labelOf(t, l10n),
               dotColor: dotColorOf(t, badges),
             ),
         ],
@@ -166,7 +205,7 @@ class RootShell extends ConsumerWidget {
           }
         },
         onOpenCommandPalette: McCommandPaletteController.instance.open,
-        body: body,
+        body: wideBody,
         railTrailing: sidebarExtra,
         footerAccount: _SidebarAccountFooter(
           selected: activeTab == MainTab.more,
@@ -407,47 +446,55 @@ class _TabSlotItem extends StatelessWidget {
       ),
     );
 
-    return Tooltip(
-      message: RootShell.labelOf(tab),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        onDoubleTap: onDoubleTap,
-        onLongPress: onLongPress == null
-            ? null
-            : () {
-                HapticFeedback.mediumImpact();
-                onLongPress!();
-              },
-        child: Center(
-          child: Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.center,
-            children: [
-              AnimatedScale(
-                scale: selected ? 1.06 : 1.0,
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOutBack,
-                child: iconWidget,
-              ),
-              if (dotColor != null)
-                Positioned(
-                  right: -4,
-                  top: -3,
-                  child: Container(
-                    width: 7,
-                    height: 7,
-                    decoration: BoxDecoration(
-                      color: dotColor,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: const Color(0xCC0E1016),
-                        width: 1.2,
+    final label = RootShell.labelOf(tab, McL10n.of(context));
+    final effectiveDoubleTap =
+        (isAvatar && appSession.previousAccount != null) ? onDoubleTap : null;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: Tooltip(
+        message: label,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          onDoubleTap: effectiveDoubleTap,
+          onLongPress: onLongPress == null
+              ? null
+              : () {
+                  HapticFeedback.mediumImpact();
+                  onLongPress!();
+                },
+          child: Center(
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                AnimatedScale(
+                  scale: selected ? 1.06 : 1.0,
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutBack,
+                  child: iconWidget,
+                ),
+                if (dotColor != null)
+                  Positioned(
+                    right: -4,
+                    top: -3,
+                    child: Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: dotColor,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: const Color(0xCC0E1016),
+                          width: 1.2,
+                        ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -540,84 +587,90 @@ class _SidebarAccountFooter extends ConsumerWidget {
     final username = perms.displayName.isNotEmpty
         ? perms.displayName
         : (appSession.username.isEmpty ? '当前账号' : appSession.username);
-    final wide = MediaQuery.widthOf(context) >= 900 && !collapsed;
-    return McPressable(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: wide ? 12 : 0,
-          vertical: 10,
-        ),
-        decoration: BoxDecoration(
-          color: selected ? McTokens.glassFillActive : McTokens.glassFill,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? McTokens.lineStrong : McTokens.line,
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment:
-              wide ? MainAxisAlignment.start : MainAxisAlignment.center,
-          children: [
-            Stack(
-              clipBehavior: Clip.none,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = MediaQuery.widthOf(context) >= 900 &&
+            !collapsed &&
+            constraints.maxWidth >= 140;
+        return McPressable(
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: wide ? 12 : 0,
+              vertical: 10,
+            ),
+            decoration: BoxDecoration(
+              color: selected ? McTokens.glassFillActive : McTokens.glassFill,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: selected ? McTokens.lineStrong : McTokens.line,
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment:
+                  wide ? MainAxisAlignment.start : MainAxisAlignment.center,
               children: [
-                _TabAvatarBadge(size: 30, selected: selected),
-                if (hasUpdateDot)
-                  Positioned(
-                    right: -2,
-                    top: -2,
-                    child: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: McTokens.info,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: const Color(0xCC0E1016),
-                          width: 1.2,
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    _TabAvatarBadge(size: 30, selected: selected),
+                    if (hasUpdateDot)
+                      Positioned(
+                        right: -2,
+                        top: -2,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: McTokens.info,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: const Color(0xCC0E1016),
+                              width: 1.2,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-              ],
-            ),
-            if (wide) ...[
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      username,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: McText.sub.copyWith(
-                        color: McTokens.text,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      hasUpdateDot ? '有可用更新 · 长按切账号' : '长按切换账号',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: McText.micro.copyWith(
-                        color: hasUpdateDot
-                            ? McTokens.info
-                            : McTokens.textFaint,
-                        fontWeight: FontWeight.w400,
-                      ),
-                    ),
                   ],
                 ),
-              ),
-            ],
-          ],
-        ),
-      ),
+                if (wide) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          username,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: McText.sub.copyWith(
+                            color: McTokens.text,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          hasUpdateDot ? '有可用更新 · 长按切账号' : '长按切换账号',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: McText.micro.copyWith(
+                            color: hasUpdateDot
+                                ? McTokens.info
+                                : McTokens.textFaint,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

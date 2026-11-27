@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
@@ -392,11 +393,22 @@ class _ChapterLightboxPageState extends State<_ChapterLightboxPage> {
       PageController(initialPage: widget.initialIndex);
   late int _index = widget.initialIndex;
   bool _chromeVisible = true;
+  bool _isZoomed = false;
 
   @override
   void dispose() {
     _page.dispose();
     super.dispose();
+  }
+
+  void _stepPage(int delta) {
+    final target = _index + delta;
+    if (target < 0 || target >= widget.chapters.length) return;
+    _page.animateToPage(
+      target,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
@@ -407,44 +419,45 @@ class _ChapterLightboxPageState extends State<_ChapterLightboxPage> {
         ? '${current.title!.trim()} · $clock'
         : '第 ${current.index + 1} 章 · $clock';
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          GestureDetector(
-            onTap: () => setState(() => _chromeVisible = !_chromeVisible),
-            child: PageView.builder(
-              controller: _page,
-              itemCount: widget.chapters.length,
-              onPageChanged: (i) => setState(() => _index = i),
-              itemBuilder: (_, i) {
-                final ch = widget.chapters[i];
-                final url = McImageUrls.resolve(ch.imageUrl, widthPx: 1440);
-                return InteractiveViewer(
-                  minScale: 1.0,
-                  maxScale: 4.0,
-                  child: Center(
-                    child: CachedNetworkImage(
-                      imageUrl: url,
-                      httpHeaders: mcImageHeaders(),
-                      fit: BoxFit.contain,
-                      placeholder: (_, __) => const Center(
-                        child: CircularProgressIndicator(
-                          color: McTokens.accent,
-                        ),
-                      ),
-                      errorWidget: (_, __, ___) => const Icon(
-                        McIcons.film,
-                        size: 48,
-                        color: McTokens.textFaint,
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).maybePop(),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _stepPage(-1),
+        const SingleActivator(LogicalKeyboardKey.arrowRight): () => _stepPage(1),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              PageView.builder(
+                controller: _page,
+                physics: _isZoomed
+                    ? const NeverScrollableScrollPhysics()
+                    : const BouncingScrollPhysics(),
+                itemCount: widget.chapters.length,
+                onPageChanged: (i) => setState(() {
+                  _index = i;
+                  _isZoomed = false;
+                }),
+                itemBuilder: (_, i) {
+                  final ch = widget.chapters[i];
+                  final url = McImageUrls.resolve(ch.imageUrl, widthPx: 1440);
+                  return _ZoomableChapterSlide(
+                    imageUrl: url,
+                    onSingleTap: () =>
+                        setState(() => _chromeVisible = !_chromeVisible),
+                    onZoomChanged: (zoomed) {
+                      if (i == _index && _isZoomed != zoomed) {
+                        setState(() => _isZoomed = zoomed);
+                      }
+                    },
+                  );
+                },
+              ),
           if (_chromeVisible)
             Positioned(
               top: 0,
@@ -562,6 +575,90 @@ class _ChapterLightboxPageState extends State<_ChapterLightboxPage> {
               ),
             ),
         ],
+      ),
+    ),
+      ),
+    );
+  }
+}
+
+class _ZoomableChapterSlide extends StatefulWidget {
+  const _ZoomableChapterSlide({
+    required this.imageUrl,
+    required this.onSingleTap,
+    required this.onZoomChanged,
+  });
+
+  final String imageUrl;
+  final VoidCallback onSingleTap;
+  final ValueChanged<bool> onZoomChanged;
+
+  @override
+  State<_ZoomableChapterSlide> createState() => _ZoomableChapterSlideState();
+}
+
+class _ZoomableChapterSlideState extends State<_ZoomableChapterSlide> {
+  final TransformationController _ctrl = TransformationController();
+  TapDownDetails? _doubleTapDetails;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl.addListener(_onTransformChanged);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.removeListener(_onTransformChanged);
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _onTransformChanged() {
+    final zoomed = _ctrl.value.getMaxScaleOnAxis() > 1.01;
+    widget.onZoomChanged(zoomed);
+  }
+
+  void _handleDoubleTap() {
+    final scale = _ctrl.value.getMaxScaleOnAxis();
+    if (scale > 1.05) {
+      _ctrl.value = Matrix4.identity();
+    } else {
+      final pos = _doubleTapDetails?.localPosition ?? Offset.zero;
+      const zoom = 2.5;
+      _ctrl.value = Matrix4.identity()
+        ..translateByDouble(-pos.dx * (zoom - 1), -pos.dy * (zoom - 1), 0, 1)
+        ..scaleByDouble(zoom, zoom, 1, 1);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onSingleTap,
+      onDoubleTapDown: (d) => _doubleTapDetails = d,
+      onDoubleTap: _handleDoubleTap,
+      child: InteractiveViewer(
+        transformationController: _ctrl,
+        minScale: 1.0,
+        maxScale: 4.0,
+        child: Center(
+          child: CachedNetworkImage(
+            imageUrl: widget.imageUrl,
+            httpHeaders: mcImageHeaders(),
+            fit: BoxFit.contain,
+            placeholder: (_, __) => const Center(
+              child: CircularProgressIndicator(
+                color: McTokens.accent,
+              ),
+            ),
+            errorWidget: (_, __, ___) => const Icon(
+              McIcons.film,
+              size: 48,
+              color: McTokens.textFaint,
+            ),
+          ),
+        ),
       ),
     );
   }

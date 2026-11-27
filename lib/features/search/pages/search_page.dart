@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart' hide SearchController;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -78,6 +79,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               browse: widget.initialBrowse,
             );
       } else {
+        ref.read(searchProvider.notifier).clearGrabTarget();
         final cur = ref.read(searchProvider).query;
         if (cur.isNotEmpty && _input.text.isEmpty) {
           _input.text = cur;
@@ -267,7 +269,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       downloadState: s.downloadStates[hit.rowKey] ?? TorrentSubmitState.idle,
       grabState: s.grabStates[hit.rowKey] ?? TorrentSubmitState.idle,
       grabTarget: s.grabTarget,
-      showsImages: fromGallery,
+      showsImages: true,
       onOpenImages: () => _openTorrentLightbox(hit),
       onGrab: () => _grabForSubscription(hit),
       onDownload: () => _startDownload(hit),
@@ -300,6 +302,12 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     final showTorrentToolbar = s.vertical == SearchVertical.torrent &&
         s.showingResults &&
         s.access.canTorrent;
+    final showClearBtn =
+        s.query.isNotEmpty || _input.text.isNotEmpty || s.browsing;
+    final showStandaloneScopeChip = s.vertical == SearchVertical.torrent &&
+        !s.scope.isAll &&
+        s.scope.label != null &&
+        !showTorrentToolbar;
 
     return Scaffold(
       backgroundColor: McTokens.bg,
@@ -319,13 +327,16 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Container(
-                    height: 42,
+                    height: 44,
                     decoration: BoxDecoration(
                       color: McTokens.surfaceInset,
                       borderRadius: BorderRadius.circular(McTokens.pillRadius),
                       border: Border.all(color: McTokens.lineStrong, width: 1),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    padding: EdgeInsets.only(
+                      left: 12,
+                      right: showClearBtn ? 0 : 12,
+                    ),
                     child: Row(
                       children: [
                         const Icon(
@@ -333,43 +344,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                           size: 16,
                           color: McTokens.textMuted,
                         ),
-                        const SizedBox(width: 6),
-                        if (s.vertical == SearchVertical.torrent &&
-                            !s.scope.isAll &&
-                            s.scope.label != null) ...[
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 7,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF57637A),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  s.scope.label!,
-                                  style: McText.micro.copyWith(
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                const SizedBox(width: 3),
-                                GestureDetector(
-                                  onTap: () =>
-                                      notifier.switchScope(SearchScope.all),
-                                  child: const Icon(
-                                    McIcons.close,
-                                    size: 11,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                        ],
+                        const SizedBox(width: 8),
                         Expanded(
                           child: TextField(
                             controller: _input,
@@ -389,25 +364,38 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                             ),
                           ),
                         ),
-                        if (s.query.isNotEmpty ||
-                            _input.text.isNotEmpty ||
-                            s.browsing)
-                          GestureDetector(
-                            onTap: () {
-                              _input.clear();
-                              notifier.onQueryChanged('');
-                            },
-                            child: Container(
-                              width: 20,
-                              height: 20,
-                              decoration: const BoxDecoration(
-                                color: Color(0x29FFFFFF),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                McIcons.close,
-                                size: 12,
-                                color: McTokens.text,
+                        if (showClearBtn)
+                          Tooltip(
+                            message: '清空搜索',
+                            child: Semantics(
+                              button: true,
+                              label: '清空搜索',
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  _input.clear();
+                                  notifier.onQueryChanged('');
+                                },
+                                child: SizedBox(
+                                  width: 44,
+                                  height: 44,
+                                  child: Center(
+                                    child: Container(
+                                      width: 20,
+                                      height: 20,
+                                      decoration: const BoxDecoration(
+                                        color: Color(0x29FFFFFF),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        McIcons.close,
+                                        size: 12,
+                                        color: McTokens.text,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -432,26 +420,82 @@ class _SearchPageState extends ConsumerState<SearchPage> {
             ),
           ),
 
-          // 垂直切换条（按权限裁剪）
-          if (visibleVerticals.length > 1)
+          // 垂直切换条（按权限裁剪）+ 搜索首页态的当前范围清除胶囊
+          if (visibleVerticals.length > 1 || showStandaloneScopeChip)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Row(
-                children: [
-                  for (var i = 0; i < visibleVerticals.length; i++) ...[
-                    if (i > 0) const SizedBox(width: 8),
-                    McChip(
-                      label: visibleVerticals[i].label,
-                      icon: switch (visibleVerticals[i]) {
-                        SearchVertical.media => McIcons.compass,
-                        SearchVertical.torrent => McIcons.fileSeed,
-                        SearchVertical.library => McIcons.mediaLibraryFill,
-                      },
-                      selected: s.vertical == visibleVerticals[i],
-                      onTap: () => notifier.switchVertical(visibleVerticals[i]),
-                    ),
+              padding: const EdgeInsets.only(bottom: 8),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    if (visibleVerticals.length > 1)
+                      for (var i = 0; i < visibleVerticals.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 8),
+                        McChip(
+                          label: visibleVerticals[i].label,
+                          icon: switch (visibleVerticals[i]) {
+                            SearchVertical.media => McIcons.compass,
+                            SearchVertical.torrent => McIcons.fileSeed,
+                            SearchVertical.library => McIcons.mediaLibraryFill,
+                          },
+                          selected: s.vertical == visibleVerticals[i],
+                          onTap: () =>
+                              notifier.switchVertical(visibleVerticals[i]),
+                        ),
+                      ],
+                    if (showStandaloneScopeChip) ...[
+                      if (visibleVerticals.length > 1)
+                        const SizedBox(width: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF57637A),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(left: 10),
+                              child: Text(
+                                '范围：${s.scope.label!}',
+                                style: McText.caption.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            Tooltip(
+                              message: '清除搜索范围',
+                              child: Semantics(
+                                button: true,
+                                label: '清除搜索范围',
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    notifier.switchScope(SearchScope.all);
+                                  },
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 8,
+                                    ),
+                                    child: Icon(
+                                      McIcons.close,
+                                      size: 13,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
 
@@ -531,7 +575,10 @@ class _ScopeMenuButton extends StatelessWidget {
     final builtIn = tabs.where((t) => !t.isPreset).toList();
     return PopupMenuButton<SearchScope>(
       tooltip: '搜索范围',
-      onSelected: onPick,
+      onSelected: (picked) {
+        HapticFeedback.selectionClick();
+        onPick(picked);
+      },
       itemBuilder: (_) => [
         PopupMenuItem(
           value: SearchScope.all,
@@ -584,21 +631,30 @@ class _ScopeMenuButton extends StatelessWidget {
             ),
         ],
       ],
-      child: Container(
-        height: 36,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: McTokens.surfaceInset,
-          borderRadius: BorderRadius.circular(McTokens.pillRadius),
-          border: Border.all(color: McTokens.lineStrong, width: 0.8),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          scope.label ?? '全部',
-          maxLines: 1,
-          style: McText.caption.copyWith(
-            color: McTokens.text,
-            fontWeight: FontWeight.w600,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 78),
+        child: Container(
+          height: 38,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: scope.isAll
+                ? McTokens.surfaceInset
+                : McTokens.accentStrong.withValues(alpha: 0.18),
+            borderRadius: BorderRadius.circular(McTokens.pillRadius),
+            border: Border.all(
+              color: scope.isAll ? McTokens.lineStrong : McTokens.accentStrong,
+              width: 0.8,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            scope.label ?? '全部',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: McText.caption.copyWith(
+              color: McTokens.text,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ),
@@ -617,7 +673,10 @@ class _ViewModeButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopupMenuButton<TorrentResultView>(
       tooltip: '切换视图',
-      onSelected: onPick,
+      onSelected: (picked) {
+        HapticFeedback.selectionClick();
+        onPick(picked);
+      },
       itemBuilder: (_) => [
         for (final v in TorrentResultView.values)
           PopupMenuItem(
@@ -671,9 +730,11 @@ class _SearchHomeBody extends ConsumerWidget {
     final torrentActive =
         state.vertical == SearchVertical.torrent && state.access.canTorrent;
 
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
+
     return ListView(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 40),
+      padding: EdgeInsets.fromLTRB(16, 14, 16, 40 + bottomPad),
       children: [
         // 输入了关键词时，顶部给「搜索“…”」一键提交行
         if (kw.isNotEmpty) ...[
@@ -923,8 +984,10 @@ class _MediaResultsBody extends ConsumerWidget {
             : McTokens.pagePaddingWide;
         final cols = mcGridCrossAxisCount(form, constraints, cellExtent: 126);
 
+        final bottomPad = MediaQuery.paddingOf(context).bottom;
+
         return ListView(
-          padding: EdgeInsets.fromLTRB(pad, 14, pad, 44),
+          padding: EdgeInsets.fromLTRB(pad, 14, pad, 44 + bottomPad),
           children: [
             if (s.mediaSnapshotAt != null && s.mediaSnapshotAt!.isNotEmpty)
               Padding(
@@ -1404,7 +1467,11 @@ class _LibraryResultsBody extends ConsumerWidget {
                     ),
                   ),
                 ),
-              const SliverToBoxAdapter(child: SizedBox(height: 40)),
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 40 + MediaQuery.paddingOf(context).bottom,
+                ),
+              ),
             ],
           );
         },
@@ -1431,10 +1498,11 @@ class _TorrentResultsBody extends ConsumerWidget {
     final s = ref.watch(searchProvider);
     final notifier = ref.read(searchProvider.notifier);
     final perms = ref.watch(permissionsProvider);
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
 
     return ListView(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.only(bottom: 48),
+      padding: EdgeInsets.only(bottom: 48 + bottomPad),
       children: [
         // 手动选种横幅（for_sub 模式）
         if (s.grabTarget != null)
@@ -1685,6 +1753,7 @@ class _TorrentResultsBody extends ConsumerWidget {
                 rows: b.rows,
                 entity: s.torrentEntities[b.key],
                 onTapHit: onTapHit,
+                onOpenImages: onOpenPosterImages,
               ),
           ],
         );
@@ -1696,6 +1765,7 @@ class _TorrentResultsBody extends ConsumerWidget {
                 hit: hit,
                 rawTitles: s.torrentView == TorrentResultView.list,
                 onTap: () => onTapHit(hit),
+                onOpenImages: () => onOpenPosterImages(hit),
               ),
               const SizedBox(height: 10),
             ],
@@ -1795,6 +1865,7 @@ class _TorrentResultsBody extends ConsumerWidget {
                 TorrentRowCard(
                   hit: hit,
                   onTap: () => onTapHit(hit),
+                  onOpenImages: () => onOpenPosterImages(hit),
                 ),
                 const SizedBox(height: 10),
               ],
@@ -1828,12 +1899,19 @@ class _SnapshotBanner extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         GestureDetector(
-          onTap: onResearch,
-          child: Text(
-            '重新搜索',
-            style: McText.caption.copyWith(
-              color: McTokens.accentStrong,
-              fontWeight: FontWeight.w600,
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onResearch();
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+            child: Text(
+              '重新搜索',
+              style: McText.caption.copyWith(
+                color: McTokens.accentStrong,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ),

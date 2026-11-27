@@ -75,39 +75,9 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
   }
 
   Future<void> _promptRename(SessionSummary session) async {
-    final ctrl = TextEditingController(text: session.displayTitle);
     final nextTitle = await showMcSheet<String>(
       context: context,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          8,
-          20,
-          MediaQuery.viewInsetsOf(ctx).bottom + 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('重命名会话', style: McText.title),
-            const SizedBox(height: 12),
-            TextField(
-              controller: ctrl,
-              autofocus: true,
-              style: McText.body,
-              decoration: const InputDecoration(hintText: '输入会话标题'),
-              onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
-            ),
-            const SizedBox(height: 16),
-            McActionPill(
-              label: '保存',
-              icon: McIcons.check,
-              primary: true,
-              onTap: () => Navigator.of(ctx).pop(ctrl.text.trim()),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => _RenameSessionSheet(initialTitle: session.displayTitle),
     );
     if (nextTitle != null && nextTitle.isNotEmpty) {
       await ref.read(sessionsProvider.notifier).rename(session.id, nextTitle);
@@ -493,6 +463,61 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RenameSessionSheet extends StatefulWidget {
+  const _RenameSessionSheet({required this.initialTitle});
+
+  final String initialTitle;
+
+  @override
+  State<_RenameSessionSheet> createState() => _RenameSessionSheetState();
+}
+
+class _RenameSessionSheetState extends State<_RenameSessionSheet> {
+  late final TextEditingController _ctrl = TextEditingController(
+    text: widget.initialTitle,
+  );
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        8,
+        20,
+        MediaQuery.viewInsetsOf(context).bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('重命名会话', style: McText.title),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            style: McText.body,
+            decoration: const InputDecoration(hintText: '输入会话标题'),
+            onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+          ),
+          const SizedBox(height: 16),
+          McActionPill(
+            label: '保存',
+            icon: McIcons.check,
+            primary: true,
+            onTap: () => Navigator.of(context).pop(_ctrl.text.trim()),
           ),
         ],
       ),

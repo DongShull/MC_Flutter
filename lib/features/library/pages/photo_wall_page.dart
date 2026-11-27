@@ -65,6 +65,9 @@ class PhotoWallView extends ConsumerStatefulWidget {
     this.jumpRequest,
     this.workingLabel,
     this.onFirstVisible,
+    this.headerSlivers = const [],
+    this.padding = EdgeInsets.zero,
+    this.controller,
   });
 
   static const int pageSize = 60;
@@ -78,6 +81,9 @@ class PhotoWallView extends ConsumerStatefulWidget {
   final PhotoWallJump? jumpRequest;
   final String? Function(LibraryItemView item)? workingLabel;
   final void Function(int offset)? onFirstVisible;
+  final List<Widget> headerSlivers;
+  final EdgeInsetsGeometry padding;
+  final ScrollController? controller;
 
   static String monthOf(LibraryItemView item) {
     final d = item.releaseDate;
@@ -215,7 +221,7 @@ class _PhotoWallViewState extends ConsumerState<PhotoWallView> {
 
   Future<void> _loadMore() async {
     if (_loadingMore || !_hasMore || _loading) return;
-    _loadingMore = true;
+    setState(() => _loadingMore = true);
     final g = _gen;
     try {
       final page = await widget.fetch(
@@ -233,7 +239,13 @@ class _PhotoWallViewState extends ConsumerState<PhotoWallView> {
     } catch (_) {
       if (mounted && g == _gen) setState(() => _hasMore = false);
     } finally {
-      if (g == _gen) _loadingMore = false;
+      if (g == _gen) {
+        if (mounted) {
+          setState(() => _loadingMore = false);
+        } else {
+          _loadingMore = false;
+        }
+      }
     }
   }
 
@@ -402,26 +414,55 @@ class _PhotoWallViewState extends ConsumerState<PhotoWallView> {
 
   @override
   Widget build(BuildContext context) {
+    final resolvedPad = widget.padding.resolve(Directionality.of(context));
+
     if (_loading) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 80),
-        child: Center(child: CircularProgressIndicator()),
+      return CustomScrollView(
+        controller: widget.controller,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          ...widget.headerSlivers,
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 80),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          ),
+        ],
       );
     }
     if (_error != null) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 48),
-        child: McErrorView(text: _error!, onRetry: _reload),
+      return CustomScrollView(
+        controller: widget.controller,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          ...widget.headerSlivers,
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 48),
+              child: McErrorView(text: _error!, onRetry: _reload),
+            ),
+          ),
+        ],
       );
     }
     if (_items.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 64),
-        child: McEmptyView(
-          icon: McIcons.imageAdd,
-          title: '照片库暂无照片',
-          text: '扫描照片目录后会按拍摄月份展示在这里',
-        ),
+      return CustomScrollView(
+        controller: widget.controller,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          ...widget.headerSlivers,
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 64),
+              child: McEmptyView(
+                icon: McIcons.imageAdd,
+                title: '照片库暂无照片',
+                text: '扫描照片目录后会按拍摄月份展示在这里',
+              ),
+            ),
+          ),
+        ],
       );
     }
 
@@ -436,15 +477,31 @@ class _PhotoWallViewState extends ConsumerState<PhotoWallView> {
         );
         final showsJump = widget.grouped && _monthIndex.length > 1;
 
-        return LayoutBuilder(
-          builder: (context, box) {
-            final rows = _buildRows(box.maxWidth, density);
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (_start > 0 || showsJump)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
+        return NotificationListener<ScrollNotification>(
+          onNotification: (n) {
+            if (n is ScrollUpdateNotification &&
+                n.metrics.axis == Axis.vertical &&
+                n.metrics.extentAfter < 600 &&
+                _hasMore &&
+                !_loadingMore) {
+              _loadMore();
+            }
+            return false;
+          },
+          child: CustomScrollView(
+            controller: widget.controller,
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              ...widget.headerSlivers,
+              if (_start > 0 || showsJump)
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(
+                    resolvedPad.left,
+                    resolvedPad.top,
+                    resolvedPad.right,
+                    12,
+                  ),
+                  sliver: SliverToBoxAdapter(
                     child: Row(
                       children: [
                         if (_start > 0)
@@ -463,30 +520,58 @@ class _PhotoWallViewState extends ConsumerState<PhotoWallView> {
                       ],
                     ),
                   ),
-                for (var r = 0; r < rows.length; r++)
-                  _buildRow(rows[r], r, rows.length, tileW),
-                if (_hasMore)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 20),
+                ),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  resolvedPad.left,
+                  (_start > 0 || showsJump) ? 0 : resolvedPad.top,
+                  resolvedPad.right,
+                  _hasMore ? 0 : resolvedPad.bottom,
+                ),
+                sliver: SliverLayoutBuilder(
+                  builder: (context, constraints) {
+                    final rows = _buildRows(
+                      constraints.crossAxisExtent,
+                      density,
+                    );
+                    return SliverList.builder(
+                      itemCount: rows.length,
+                      itemBuilder: (_, r) => _buildRow(rows[r], tileW),
+                    );
+                  },
+                ),
+              ),
+              if (_hasMore)
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(
+                    resolvedPad.left,
+                    20,
+                    resolvedPad.right,
+                    20 + resolvedPad.bottom,
+                  ),
+                  sliver: SliverToBoxAdapter(
                     child: Center(
-                      child: OutlinedButton(
-                        onPressed: _loadMore,
-                        child: const Text('加载更多照片'),
-                      ),
+                      child: _loadingMore
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : OutlinedButton(
+                              onPressed: _loadMore,
+                              child: const Text('加载更多照片'),
+                            ),
                     ),
                   ),
-              ],
-            );
-          },
+                ),
+            ],
+          ),
         );
       },
     );
   }
 
-  Widget _buildRow(_PhotoRow row, int rowIndex, int totalRows, int tileW) {
-    if (rowIndex >= totalRows - 3 && _hasMore && !_loadingMore) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _loadMore());
-    }
+  Widget _buildRow(_PhotoRow row, int tileW) {
     if (row.band == null) {
       return Padding(
         padding: EdgeInsets.only(top: row.isFirst ? 0 : 24, bottom: 10),
