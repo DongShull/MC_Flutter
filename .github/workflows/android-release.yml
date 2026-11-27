@@ -1,0 +1,284 @@
+# =============================================================================
+# Android APK 发版与手动打包流水线（借鉴 MovieClaw android-release.yml 两段式设计）
+#
+# 两种使用方式：
+# 1. 打正式版本 Tag（vX.Y.Z 或 android-vX.Y.Z）：
+#    prepare(校验版本 + 建 draft Release) → build-apk(测试 + 编译 + 校验) → publish(上传附件 + 转正 Release)
+#    任一步失败时 Release 留在 draft，修复后重跑即可（--clobber 覆盖上传）。
+# 2. 手动触发（Actions → Android Release APK → Run workflow）：
+#    - 可选分 ABI 瘦身包（arm64-v8a + armeabi-v7a）、通用全架构包（universal）或两者同时构建；
+#    - 默认仅产出可下载的 GitHub Actions Artifact；勾选 publish_release=true 可顺带发布 GitHub Release。
+#
+# 签名策略（对齐 android/app/build.gradle.kts）：
+# - 已配置仓库 Secrets（MC_KEYSTORE_BASE64 / MC_KEYSTORE_PASSWORD / MC_KEY_ALIAS / MC_KEY_PASSWORD）时
+#   自动使用正式密钥签名（临时解码至 $RUNNER_TEMP，umask 077，退出即删）；
+# - 未配置 Secrets 时自动回落 Debug 签名，保证开发预览阶段零门槛即可打包安装。
+# =============================================================================
+name: Android Release APK
+
+concurrency:
+  group: android-release-${{ inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "android-v*"
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: "APK 打包模式"
+        type: choice
+        default: split-per-abi
+        options:
+          - split-per-abi
+          - universal
+          - both
+      publish_release:
+        description: "是否同步创建/发布 GitHub Release"
+        type: boolean
+        default: false
+      release_tag:
+        description: "Release Tag（留空则自动使用 v<pubspec版本号>）"
+        type: string
+        required: false
+      require_release_cert:
+        description: "严格要求正式签名证书（未配置 Secrets 时失败）"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: "3.50.1"
+
+jobs:
+  prepare:
+    name: Prepare Version & Draft Release
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      should_publish: ${{ steps.meta.outputs.should_publish }}
+      build_mode: ${{ steps.meta.outputs.build_mode }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - id: meta
+        name: 解析版本与发布参数
+        run: |
+          pub_ver="$(sed -n 's/^version:[[:space:]]*\([^+#[:space:]]*\).*/\1/p' pubspec.yaml | head -1)"
+          if [ -z "$pub_ver" ]; then
+            echo "::error::无法从 pubspec.yaml 读取 version"
+            exit 1
+          fi
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            should_publish="true"
+            tag="${{ github.ref_name }}"
+            build_mode="split-per-abi"
+            # Tag 发版时校验 tag 版本与 pubspec.yaml 一致（参考 MovieClaw android-release.yml）
+            tag_ver="${tag#android-}"
+            tag_ver="${tag_ver#v}"
+            if [ "$tag_ver" != "$pub_ver" ]; then
+              echo "::error::Tag $tag ($tag_ver) 与 pubspec.yaml version ($pub_ver) 不一致"
+              exit 1
+            fi
+          else
+            should_publish="${{ inputs.publish_release }}"
+            build_mode="${{ inputs.build_mode }}"
+            tag="${{ inputs.release_tag }}"
+            if [ -z "$tag" ]; then
+              tag="v${pub_ver}"
+            fi
+          fi
+
+          echo "version=$pub_ver" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "should_publish=$should_publish" >> "$GITHUB_OUTPUT"
+          echo "build_mode=$build_mode" >> "$GITHUB_OUTPUT"
+
+      - name: 创建或校准 draft Release
+        if: steps.meta.outputs.should_publish == 'true'
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.release_tag }}
+          APP_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --draft \
+              --title "MovieClaw Flutter $APP_VERSION" \
+              --generate-notes
+          elif [ "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = "true" ]; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA"
+          else
+            echo "::error::Release $RELEASE_TAG 已发布；请递增 pubspec.yaml 版本后使用新 Tag"
+            exit 1
+          fi
+
+  build-apk:
+    name: Test, Build & Verify Android APK
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: 适配 GitHub Runner Gradle 源与内存上限
+        run: |
+          sed -i 's|https\\://mirrors.cloud.tencent.com/gradle/|https\\://services.gradle.org/distributions/|g' \
+            android/gradle/wrapper/gradle-wrapper.properties
+          sed -i 's|-Xmx8G -XX:MaxMetaspaceSize=4G|-Xmx4G -XX:MaxMetaspaceSize=1G|g' \
+            android/gradle.properties
+
+      - name: 依赖、静态分析与单测把关（ci-verified）
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+      - name: 构建 Android Release APK
+        env:
+          MC_KEYSTORE_BASE64: ${{ secrets.MC_KEYSTORE_BASE64 }}
+          MC_KEYSTORE_PASSWORD: ${{ secrets.MC_KEYSTORE_PASSWORD }}
+          MC_KEY_ALIAS: ${{ secrets.MC_KEY_ALIAS }}
+          MC_KEY_PASSWORD: ${{ secrets.MC_KEY_PASSWORD }}
+          APP_VERSION: ${{ needs.prepare.outputs.version }}
+          BUILD_MODE: ${{ needs.prepare.outputs.build_mode }}
+          REQUIRE_RELEASE_CERT: ${{ inputs.require_release_cert || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ -n "${MC_KEYSTORE_BASE64:-}" ] && [ -n "${MC_KEYSTORE_PASSWORD:-}" ] && [ -n "${MC_KEY_ALIAS:-}" ] && [ -n "${MC_KEY_PASSWORD:-}" ]; then
+            export MC_KEYSTORE_PATH="$RUNNER_TEMP/mc-release.jks"
+            umask 077
+            trap 'rm -f "$MC_KEYSTORE_PATH"' EXIT
+            printf '%s' "$MC_KEYSTORE_BASE64" | base64 --decode > "$MC_KEYSTORE_PATH"
+            echo "SIGNING_MODE=release" >> "$GITHUB_ENV"
+            echo "✓ 已加载正式签名密钥"
+          else
+            if [ "$REQUIRE_RELEASE_CERT" = "true" ]; then
+              echo "::error::未配置 MC_KEYSTORE_BASE64 / MC_KEYSTORE_PASSWORD / MC_KEY_ALIAS / MC_KEY_PASSWORD"
+              exit 1
+            fi
+            echo "SIGNING_MODE=debug-fallback" >> "$GITHUB_ENV"
+            echo "::warning::未配置正式签名 Secrets，将按 build.gradle.kts 规则回落 Debug 密钥签名（可直接安装测试）"
+          fi
+
+          mkdir -p dist
+          build_num="${GITHUB_RUN_NUMBER}"
+
+          if [ "$BUILD_MODE" = "split-per-abi" ] || [ "$BUILD_MODE" = "both" ]; then
+            flutter build apk --release --split-per-abi \
+              --target-platform android-arm64,android-arm \
+              --build-name="$APP_VERSION" \
+              --build-number="$build_num"
+            cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+              "dist/MovieClaw-Flutter-${APP_VERSION}-arm64-v8a.apk"
+            cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
+              "dist/MovieClaw-Flutter-${APP_VERSION}-armeabi-v7a.apk"
+          fi
+
+          if [ "$BUILD_MODE" = "universal" ] || [ "$BUILD_MODE" = "both" ]; then
+            flutter build apk --release \
+              --build-name="$APP_VERSION" \
+              --build-number="$build_num"
+            cp build/app/outputs/flutter-apk/app-release.apk \
+              "dist/MovieClaw-Flutter-${APP_VERSION}-universal.apk"
+          fi
+
+      - name: 校验 APK 并生成校验清单与摘要
+        env:
+          REQUIRE_RELEASE_CERT: ${{ inputs.require_release_cert || 'false' }}
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          tools="$(ls -d "$sdk"/build-tools/* | sort -V | tail -1)"
+          extra_args=()
+          if [ "$REQUIRE_RELEASE_CERT" = "true" ]; then
+            extra_args+=(--require-release-cert)
+          fi
+          python3 scripts/verify_apk.py dist/*.apk \
+            --aapt2 "$tools/aapt2" \
+            --apksigner "$tools/apksigner" \
+            "${extra_args[@]}"
+
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+
+          {
+            echo "## MovieClaw Flutter Android APK 构建完成"
+            echo ""
+            echo "- **版本**：\`v${{ needs.prepare.outputs.version }}\` (build \`${{ github.run_number }}\`)"
+            echo "- **提交**：\`${GITHUB_SHA::7}\`"
+            echo "- **打包模式**：\`${{ needs.prepare.outputs.build_mode }}\`"
+            if [ "${SIGNING_MODE:-}" = "release" ]; then
+              echo "- **签名状态**：正式签名证书"
+            else
+              echo "- **签名状态**：Debug 兜底签名（配置 \`MC_KEYSTORE_BASE64\` / \`MC_KEYSTORE_PASSWORD\` / \`MC_KEY_ALIAS\` / \`MC_KEY_PASSWORD\` 后将自动切换正式签名）"
+            fi
+            echo ""
+            echo "| 文件 | ABI | 大小 | SHA-256 |"
+            echo "| --- | --- | --- | --- |"
+            python3 - <<'PY'
+          import glob, json
+          for path in sorted(glob.glob("dist/*.json")):
+              m = json.load(open(path, encoding="utf-8"))
+              mb = m["size"] / (1024 * 1024)
+              print(f"| `{m['asset']}` | `{', '.join(m['abis'])}` | {mb:.1f} MB | `{m['sha256'][:16]}…` |")
+          PY
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 上传 APK 产物 (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mc-flutter-android-apk-${{ needs.prepare.outputs.version }}-b${{ github.run_number }}
+          path: |
+            dist/*.apk
+            dist/*.json
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish GitHub Release
+    needs: [prepare, build-apk]
+    if: ${{ !cancelled() && needs.prepare.outputs.should_publish == 'true' && needs.build-apk.result == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: mc-flutter-android-apk-${{ needs.prepare.outputs.version }}-b${{ github.run_number }}
+          path: dist
+
+      - name: 上传附件并转正 Release
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            dist/*.apk dist/*.json dist/SHA256SUMS.txt
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          url="https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG"
+          echo "已发布 Release：$url" | tee -a "$GITHUB_STEP_SUMMARY"

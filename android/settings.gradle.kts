@@ -11,10 +11,13 @@ pluginManagement {
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
     repositories {
-        // 国内直连 dl.google.com / mavenCentral 常超时，镜像优先。
-        maven("https://maven.aliyun.com/repository/google")
-        maven("https://maven.aliyun.com/repository/central")
-        maven("https://maven.aliyun.com/repository/gradle-plugin")
+        val isCi = System.getenv("CI") == "true" || System.getenv("GITHUB_ACTIONS") == "true"
+        if (!isCi) {
+            // 国内直连 dl.google.com / mavenCentral 常超时，本地开发优先走镜像。
+            maven("https://maven.aliyun.com/repository/google")
+            maven("https://maven.aliyun.com/repository/central")
+            maven("https://maven.aliyun.com/repository/gradle-plugin")
+        }
         google()
         mavenCentral()
         gradlePluginPortal()
@@ -29,11 +32,14 @@ plugins {
 
 include(":app")
 
-// 依赖仓库同样镜像优先（PREFER_SETTINGS 模式下依赖解析也读这里）。
+// 依赖仓库：CI 环境直连官方源，本地开发镜像优先。
 dependencyResolutionManagement {
     repositories {
-        maven("https://maven.aliyun.com/repository/google")
-        maven("https://maven.aliyun.com/repository/central")
+        val isCi = System.getenv("CI") == "true" || System.getenv("GITHUB_ACTIONS") == "true"
+        if (!isCi) {
+            maven("https://maven.aliyun.com/repository/google")
+            maven("https://maven.aliyun.com/repository/central")
+        }
         google()
         mavenCentral()
     }

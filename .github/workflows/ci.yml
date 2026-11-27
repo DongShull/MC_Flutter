@@ -1,0 +1,158 @@
+# =============================================================================
+# MC_Flutter 合并门禁 CI（借鉴 MovieClaw 主仓 ci.yml + android-stability.yml）
+#
+# - analyze-and-test：跨 feature 依赖守卫 + flutter analyze + flutter test；
+# - android-apk-check：当 Dart/Android/依赖变动时编译 Release arm64 APK 并通过
+#   aapt2 / apksigner / 原生库完整校验，同时上传可安装的构建产物；
+# - ci-ok：单一聚合门禁作业，供分支保护设为必需检查。
+# =============================================================================
+name: Flutter CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: flutter-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: "3.50.1"
+
+jobs:
+  analyze-and-test:
+    name: Analyze, Architecture Guard & Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: 输出工具链版本
+        run: flutter --version
+
+      - name: 安装依赖
+        run: flutter pub get
+
+      - name: 跨 feature 依赖架构守卫
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+          root = "lib/features"
+          bad = []
+          for feat in sorted(os.listdir(root)):
+              fpath = os.path.join(root, feat)
+              if not os.path.isdir(fpath):
+                  continue
+              for dirpath, _, files in os.walk(fpath):
+                  for fn in files:
+                      if not fn.endswith(".dart"):
+                          continue
+                      p = os.path.join(dirpath, fn)
+                      with open(p, encoding="utf-8") as f:
+                          for i, line in enumerate(f, 1):
+                              m = re.search(
+                                  r"""import\s+['"](?:package:[^/]+/)?(?:\.\./)*features/([^/'"]+)/([^'"]+)['"]""",
+                                  line,
+                              )
+                              if m:
+                                  other, rest = m.group(1), m.group(2)
+                                  if other != feat and not (other == "offline" and rest == "embed.dart"):
+                                      bad.append(f"{p}:{i}: {line.strip()}")
+          if bad:
+              print("::error::检测到非法跨 feature 导入（仅允许导入本 feature、lib/core/** 或 features/offline/embed.dart）：")
+              for item in bad:
+                  print(" ", item)
+              sys.exit(1)
+          print("✓ 跨 feature 依赖检查通过（0 违规）")
+          PY
+
+      - name: 静态分析 (flutter analyze)
+        run: flutter analyze
+
+      - name: 全量单元与组件测试 (flutter test)
+        run: flutter test --reporter expanded
+
+  android-apk-check:
+    name: Android Release APK Verification
+    needs: analyze-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # 同 MovieClaw android-stability.yml：ubuntu-latest 自带 Android SDK 且许可证已接受，
+      # 无需 android-actions/setup-android。Gradle 9.5 + AGP 9.3 需要 JDK 21。
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: 适配 GitHub Runner Gradle 源与内存上限
+        run: |
+          sed -i 's|https\\://mirrors.cloud.tencent.com/gradle/|https\\://services.gradle.org/distributions/|g' \
+            android/gradle/wrapper/gradle-wrapper.properties
+          sed -i 's|-Xmx8G -XX:MaxMetaspaceSize=4G|-Xmx4G -XX:MaxMetaspaceSize=1G|g' \
+            android/gradle.properties
+
+      - name: 构建验证版 Android arm64 APK
+        run: |
+          flutter pub get
+          flutter build apk --release --target-platform android-arm64 --build-number="${{ github.run_number }}"
+
+      - name: 校验 APK 结构、原生库与签名
+        run: |
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          tools="$(ls -d "$sdk"/build-tools/* | sort -V | tail -1)"
+          mkdir -p dist
+          short_sha="${GITHUB_SHA::7}"
+          apk="dist/MovieClaw-Flutter-ci-${short_sha}-arm64-v8a.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "$apk"
+          python3 scripts/verify_apk.py "$apk" \
+            --aapt2 "$tools/aapt2" \
+            --apksigner "$tools/apksigner"
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+
+      - name: 上传验证 APK 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: mc-flutter-ci-arm64-apk-${{ github.run_number }}
+          path: |
+            dist/*.apk
+            dist/*.json
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  ci-ok:
+    name: CI Gate
+    needs: [analyze-and-test, android-apk-check]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总检查结果
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then
+            echo "::error::Flutter CI 存在失败或被取消的作业"
+            exit 1
+          fi
