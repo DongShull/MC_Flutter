@@ -11,7 +11,8 @@ import '../state/qr_connect.dart';
 class QrScanPage extends StatefulWidget {
   const QrScanPage({super.key, this.popRaw = false});
 
-  /// true = 任何二维码原样带回（配对码扫码用；false = 只认服务器分享码）。
+  /// true = 设备登录配对扫码（严格按 `PairingQrParser` 校验，原样带回完整原始二维码/配对码）；
+  /// false = 服务器连接扫码（走 `parseServerQr` 提取服务器地址）。
   final bool popRaw;
 
   @override
@@ -23,6 +24,7 @@ class _QrScanPageState extends State<QrScanPage> {
     formats: const [BarcodeFormat.qrCode],
   );
   bool _handled = false;
+  DateTime? _lastInvalidToastAt;
 
   @override
   void dispose() {
@@ -30,19 +32,38 @@ class _QrScanPageState extends State<QrScanPage> {
     super.dispose();
   }
 
+  void _notifyInvalidPairingQr() {
+    final now = DateTime.now();
+    if (_lastInvalidToastAt != null &&
+        now.difference(_lastInvalidToastAt!) < const Duration(milliseconds: 2400)) {
+      return;
+    }
+    _lastInvalidToastAt = now;
+    McToast.error('这不是 MovieClaw 的登录二维码');
+  }
+
   void _onDetect(BarcodeCapture capture) {
     if (_handled) return;
     for (final barcode in capture.barcodes) {
-      final raw = barcode.rawValue ?? '';
+      final raw = (barcode.rawValue ?? '').trim();
+      if (raw.isEmpty) continue;
+
+      if (widget.popRaw) {
+        // 配对扫码模式：绝不走 `parseServerQr`（会截断 `?code=`），只认 MovieClaw 登录二维码。
+        final parsed = PairingQrParser.parse(raw);
+        if (parsed != null) {
+          _handled = true;
+          Navigator.of(context).pop(raw);
+          return;
+        }
+        _notifyInvalidPairingQr();
+        continue;
+      }
+
       final info = parseServerQr(raw);
       if (info != null) {
         _handled = true;
         Navigator.of(context).pop(info.baseUrl);
-        return;
-      }
-      if (widget.popRaw && raw.isNotEmpty) {
-        _handled = true;
-        Navigator.of(context).pop(raw);
         return;
       }
     }

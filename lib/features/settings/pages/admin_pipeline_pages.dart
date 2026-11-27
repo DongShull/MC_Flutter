@@ -10,6 +10,7 @@ import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
 import '../widgets/settings_ui.dart';
+import 'member_detail_sheet.dart';
 
 /// 1) 自动化流水线总览巡检页（GET /api/v1/subscriptions/automation-readiness）。
 class AutomationOverviewPage extends ConsumerStatefulWidget {
@@ -252,6 +253,7 @@ class MembersAdminPage extends ConsumerStatefulWidget {
 
 class _MembersAdminPageState extends ConsumerState<MembersAdminPage> {
   List<Map<String, dynamic>> _members = const [];
+  String _search = '';
   bool _loading = true;
   String? _error;
 
@@ -265,7 +267,7 @@ class _MembersAdminPageState extends ConsumerState<MembersAdminPage> {
 
   Future<void> _load() async {
     setState(() {
-      _loading = true;
+      _loading = _members.isEmpty;
       _error = null;
     });
     try {
@@ -281,7 +283,8 @@ class _MembersAdminPageState extends ConsumerState<MembersAdminPage> {
               : const <dynamic>[]);
       if (mounted) {
         setState(() {
-          _members = list.whereType<Map>().map(Map<String, dynamic>.from).toList();
+          _members =
+              list.whereType<Map>().map(Map<String, dynamic>.from).toList();
           _loading = false;
         });
       }
@@ -289,180 +292,64 @@ class _MembersAdminPageState extends ConsumerState<MembersAdminPage> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = '读取成员列表失败：$e';
+          _error = '读取成员列表失败：${settingsErrorText(e)}';
         });
       }
     }
   }
 
   Future<void> _openCreateMember() async {
-    final userCtrl = TextEditingController();
-    final nickCtrl = TextEditingController();
-    final pwdCtrl = TextEditingController();
-    var role = 'member';
-    final ok = await showMcSheet<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('新增家庭成员', style: McText.titleSm),
-              const SizedBox(height: 12),
-              TextField(
-                controller: userCtrl,
-                decoration: const InputDecoration(labelText: '登录用户名'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: nickCtrl,
-                decoration: const InputDecoration(labelText: '显示昵称（可选）'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: pwdCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: '初始登录密码'),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  McChip(
-                    label: '普通成员',
-                    compact: true,
-                    selected: role == 'member',
-                    onTap: () => setSheet(() => role = 'member'),
-                  ),
-                  const SizedBox(width: 8),
-                  McChip(
-                    label: '管理员',
-                    compact: true,
-                    selected: role == 'admin',
-                    onTap: () => setSheet(() => role = 'admin'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              McActionPill(
-                label: '创建成员账号',
-                primary: true,
-                expanded: true,
-                onTap: () => Navigator.of(ctx).pop(true),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (ok != true || !mounted) return;
-    final username = userCtrl.text.trim();
-    final password = pwdCtrl.text;
-    if (username.isEmpty || password.isEmpty) {
-      McToast.error('请填写用户名与初始密码');
-      return;
-    }
-    try {
-      await _mc.unwrap<dynamic>(
-        Channel.general,
-        'POST',
-        '/api/v1/members',
-        body: {
-          'username': username,
-          'nickname': nickCtrl.text.trim(),
-          'password': password,
-          'role': role,
-        },
-      );
-      if (mounted) McToast.success('已创建成员「$username」');
-      await _load();
-    } catch (e) {
-      if (mounted) McToast.error('创建失败：$e');
+    final created = await showCreateMemberSheet(context, mc: _mc);
+    if (created != null && mounted) {
+      setState(() => _members = [..._members, created]);
     }
   }
 
-  Future<void> _manageMember(Map<String, dynamic> m) async {
-    final id = (m['id'] as num? ?? 0).toInt();
+  Future<void> _openMemberDetail(Map<String, dynamic> member) async {
+    final id = (member['id'] as num?)?.toInt() ?? 0;
     if (id <= 0) return;
-    final name = (m['nickname'] ?? m['username'] ?? '').toString();
-    final enabled = m['enabled'] != false;
-    final act = await showMcSheet<String>(
-      context: context,
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-        child: McInsetGroup(
-          header: name,
-          margin: EdgeInsets.zero,
-          children: [
-            McInsetRow(
-              icon: McIcons.key,
-              title: '重置登录密码…',
-              onTap: () => Navigator.of(ctx).pop('pwd'),
-            ),
-            McInsetRow(
-              icon: enabled ? McIcons.userForbid : McIcons.userFollow,
-              title: enabled ? '停用该账号' : '重新启用账号',
-              onTap: () => Navigator.of(ctx).pop('toggle'),
-            ),
-            McInsetRow(
-              icon: McIcons.trash2,
-              title: '删除成员账号',
-              destructive: true,
-              onTap: () => Navigator.of(ctx).pop('delete'),
-            ),
-          ],
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MemberDetailSheetPage(
+          mc: _mc,
+          member: member,
+          onChanged: (updated) {
+            if (!mounted) return;
+            setState(() {
+              _members = [
+                for (final m in _members)
+                  (m['id'] as num?)?.toInt() == id ? updated : m,
+              ];
+            });
+          },
+          onDeleted: () {
+            if (!mounted) return;
+            setState(() {
+              _members = _members
+                  .where((m) => (m['id'] as num?)?.toInt() != id)
+                  .toList();
+            });
+          },
         ),
       ),
     );
-    if (act == null || !mounted) return;
-    try {
-      if (act == 'pwd') {
-        final pw = await textInputDialog(
-          context,
-          title: '为「$name」设置新密码',
-          hint: '输入新密码',
-          obscureText: true,
-        );
-        if (pw == null || pw.isEmpty) return;
-        await _mc.unwrap<dynamic>(
-          Channel.general,
-          'POST',
-          '/api/v1/members/$id/reset-password',
-          body: {'password': pw, 'new_password': pw},
-        );
-        if (mounted) McToast.success('密码已重置');
-      } else if (act == 'toggle') {
-        await _mc.unwrap<dynamic>(
-          Channel.general,
-          'PUT',
-          '/api/v1/members/$id/status',
-          body: {'enabled': !enabled},
-        );
-        await _load();
-      } else if (act == 'delete') {
-        final ok = await confirmDialog(
-          context,
-          title: '删除成员「$name」？',
-          message: '该成员的独立观看进度与收藏将被一并移除。',
-          confirmLabel: '删除',
-        );
-        if (!ok) return;
-        await _mc.unwrap<dynamic>(
-          Channel.general,
-          'DELETE',
-          '/api/v1/members/$id',
-        );
-        if (mounted) McToast.success('成员已删除');
-        await _load();
-      }
-    } catch (e) {
-      if (mounted) McToast.error('操作失败：$e');
-    }
   }
+
+  bool _isActive(Map<String, dynamic> m) =>
+      (m['status'] ?? 'active').toString() == 'active';
 
   @override
   Widget build(BuildContext context) {
+    final q = _search.trim().toLowerCase();
+    final matched = _members.where((m) {
+      if (q.isEmpty) return true;
+      final nick = (m['nickname'] ?? '').toString().toLowerCase();
+      final user = (m['username'] ?? '').toString().toLowerCase();
+      return nick.contains(q) || user.contains(q);
+    }).toList();
+    final activeList = matched.where(_isActive).toList();
+    final disabledList = matched.where((m) => !_isActive(m)).toList();
+
     return SettingsScaffold(
       title: '家庭成员管理',
       actions: [
@@ -476,48 +363,87 @@ class _MembersAdminPageState extends ConsumerState<MembersAdminPage> {
       ],
       body: _loading
           ? const McLoadingView()
-          : _error != null
+          : _error != null && _members.isEmpty
               ? McErrorView(text: _error!, onRetry: _load)
               : _members.isEmpty
                   ? McEmptyView(
                       icon: McIcons.team,
                       title: '暂无额外成员',
-                      text: '为家人创建独立账号，各自维护独立的继续观看与年龄分级权限。',
+                      text: '为家人创建独立账号，各自维护独立的继续观看、媒体库范围与年龄分级权限。',
                       actionLabel: '新增成员',
                       onRetry: _openCreateMember,
                     )
-                  : ListView(
-                      padding: const EdgeInsets.only(top: 8, bottom: 36),
-                      children: [
-                        McInsetGroup(
-                          children: [
-                            for (final m in _members)
-                              McInsetRow(
-                                icon: m['role'] == 'admin'
-                                    ? McIcons.adminFill
-                                    : McIcons.user,
-                                iconColor: m['role'] == 'admin'
-                                    ? McTokens.accentStrong
-                                    : McTokens.textMuted,
-                                title: (m['nickname']?.toString().isNotEmpty ==
-                                        true)
-                                    ? '${m['nickname']} (@${m['username']})'
-                                    : (m['username'] ?? '').toString(),
-                                subtitle: [
-                                  m['role'] == 'admin' ? '管理员' : '家庭成员',
-                                  if (m['enabled'] == false) '已停用',
-                                ].join(' · '),
-                                onTap: () => _manageMember(m),
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView(
+                        padding: const EdgeInsets.only(top: 8, bottom: 36),
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: McTokens.pagePadding,
+                            ),
+                            child: TextField(
+                              decoration: const InputDecoration(
+                                prefixIcon: Icon(McIcons.search, size: 17),
+                                hintText: '搜索成员昵称或用户名…',
                               ),
+                              onChanged: (v) => setState(() => _search = v),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          if (activeList.isNotEmpty) ...[
+                            McInsetGroup(
+                              header: '已启用 · ${activeList.length}',
+                              children: [
+                                for (final m in activeList) _buildMemberRow(m),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
                           ],
-                        ),
-                      ],
+                          if (disabledList.isNotEmpty)
+                            McInsetGroup(
+                              header: '已停用 · ${disabledList.length}',
+                              children: [
+                                for (final m in disabledList)
+                                  _buildMemberRow(m),
+                              ],
+                            ),
+                          if (matched.isEmpty)
+                            const McEmptyView(
+                              title: '没有匹配的成员',
+                              text: '请尝试调整搜索关键词。',
+                            ),
+                        ],
+                      ),
                     ),
+    );
+  }
+
+  Widget _buildMemberRow(Map<String, dynamic> m) {
+    final user = (m['username'] ?? '').toString();
+    final nick = (m['nickname'] ?? '').toString();
+    final active = _isActive(m);
+    final devCount = (m['device_count'] as num?)?.toInt() ?? 0;
+    final age = (m['content_age_limit'] as num?)?.toInt();
+
+    return McInsetRow(
+      icon: active ? McIcons.user : McIcons.userForbid,
+      iconColor: active ? McTokens.accentStrong : McTokens.textFaint,
+      title: nick.isNotEmpty && nick.toLowerCase() != user.toLowerCase()
+          ? '$nick (@$user)'
+          : (nick.isNotEmpty ? nick : user),
+      subtitle: [
+        devCount == 0 ? '暂无登录设备' : '$devCount 台设备',
+        if (age != null) '$age 岁以下',
+        if (!active) '已停用',
+      ].join(' · '),
+      showChevron: true,
+      onTap: () => _openMemberDetail(m),
     );
   }
 }
 
-/// 3) 订阅策略与选种规则组 CRUD 页（GET / POST / PUT / DELETE /api/v1/rule-sets）。
+/// 3) 订阅策略与选种规则组 CRUD 页（完整后端 RuleSetPayload Schema）。
 class RuleSetsAdminPage extends ConsumerStatefulWidget {
   const RuleSetsAdminPage({super.key});
 
@@ -531,6 +457,23 @@ class _RuleSetsAdminPageState extends ConsumerState<RuleSetsAdminPage> {
   String? _error;
 
   McClient get _mc => ref.read(mcClientProvider);
+
+  static const _resOptions = ['2160p', '1080p', '720p'];
+  static const _sourceOptions = ['remux', 'blu-ray', 'web-dl', 'rip', 'tv'];
+  static const _codecOptions = ['x265', 'x264', 'av1'];
+  static const _hdrOptions = ['DV', 'HDR10+', 'HDR10', 'HLG', 'SDR'];
+  static const _platformOptions = [
+    'netflix',
+    'disney_plus',
+    'apple_tv_plus',
+    'amazon',
+    'hbo',
+    'iqiyi',
+    'tencent',
+    'youku',
+    'bilibili',
+  ];
+  static const _langOptions = ['zh', 'en', 'ja', 'ko'];
 
   @override
   void initState() {
@@ -556,7 +499,8 @@ class _RuleSetsAdminPageState extends ConsumerState<RuleSetsAdminPage> {
               : const <dynamic>[]);
       if (mounted) {
         setState(() {
-          _rules = list.whereType<Map>().map(Map<String, dynamic>.from).toList();
+          _rules =
+              list.whereType<Map>().map(Map<String, dynamic>.from).toList();
           _loading = false;
         });
       }
@@ -564,128 +508,485 @@ class _RuleSetsAdminPageState extends ConsumerState<RuleSetsAdminPage> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = '读取规则组失败：$e';
+          _error = '读取规则组失败：${settingsErrorText(e)}';
         });
       }
     }
+  }
+
+  List<String> _strList(Map<String, dynamic> map, String key) {
+    final v = map[key];
+    if (v is List) {
+      return v.map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
+    }
+    return [];
   }
 
   Future<void> _editRule({Map<String, dynamic>? existing}) async {
     final spec = existing?['spec'] is Map
         ? Map<String, dynamic>.from(existing!['spec'] as Map)
         : <String, dynamic>{};
+    final matchRulesRaw = existing?['match_rules'] is List
+        ? (existing!['match_rules'] as List)
+            .whereType<Map>()
+            .map(Map<String, dynamic>.from)
+            .toList()
+        : <Map<String, dynamic>>[];
+
     final nameCtrl =
         TextEditingController(text: (existing?['name'] ?? '').toString());
-    final incCtrl = TextEditingController(
-      text: ((spec['include_keywords'] as List?) ?? const []).join(', '),
+    final resOrder = _strList(spec, 'resolutions');
+    final sourceOrder = _strList(spec, 'media_sources');
+    final codecs = _strList(spec, 'video_codecs').toSet();
+    final hdrAllow = _strList(spec, 'hdr_levels');
+    final hdrBlock = _strList(spec, 'hdr_block').toSet();
+    final platAllow = _strList(spec, 'platforms').toSet();
+    final platBlock = _strList(spec, 'platforms_block').toSet();
+    final subLangs = _strList(spec, 'subtitle_languages_require').toSet();
+    final audLangs = _strList(spec, 'audio_languages_require').toSet();
+
+    final groupAllowCtrl = TextEditingController(
+      text: _strList(spec, 'release_groups_allow').join(', '),
     );
-    final excCtrl = TextEditingController(
-      text: ((spec['exclude_keywords'] as List?) ?? const []).join(', '),
+    final groupBlockCtrl = TextEditingController(
+      text: _strList(spec, 'release_groups_block').join(', '),
     );
-    final resSet = <String>{
-      for (final r in ((spec['resolutions'] as List?) ?? const ['2160p', '1080p']))
-        r.toString(),
-    };
+    final sizeMinCtrl = TextEditingController(
+      text: spec['size_min_mb'] != null ? '${spec['size_min_mb']}' : '',
+    );
+    final sizeMaxCtrl = TextEditingController(
+      text: spec['size_max_mb'] != null ? '${spec['size_max_mb']}' : '',
+    );
+    final minSeedersCtrl = TextEditingController(
+      text: spec['min_seeders'] != null ? '${spec['min_seeders']}' : '',
+    );
+
     var freeOnly = spec['free_only'] == true;
+    var excludeHr = spec['exclude_hr'] == true;
+    var hrUnknown = (spec['hr_unknown_policy'] ?? '').toString();
+    var upgradeSource = (spec['upgrade_source'] ?? '').toString();
+    var cutoffRes = (spec['cutoff_resolution'] ?? '').toString();
+
+    // 适用范围 match_rules（kind + origin_countries）
+    String? matchKind;
+    final matchCountriesCtrl = TextEditingController();
+    for (final r in matchRulesRaw) {
+      final f = (r['field'] ?? '').toString();
+      final vals = (r['values'] as List? ?? const []).map((e) => e.toString()).toList();
+      if (f == 'kind' && vals.isNotEmpty) matchKind = vals.first;
+      if (f == 'origin_countries' && vals.isNotEmpty) {
+        matchCountriesCtrl.text = vals.join(', ');
+      }
+    }
 
     final ok = await showMcSheet<bool>(
       context: context,
-      maxWidth: 580,
+      maxWidth: 620,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                existing == null ? '新建选种规则组' : '编辑规则组',
-                style: McText.titleSm,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: '规则组名称',
-                  hintText: '例如：4K 杜比视界优先 / 1080P 省空间',
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text('允许分辨率', style: McText.caption.muted),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
+        builder: (ctx, setSheet) {
+          Widget chipOrder(
+            String label,
+            List<String> options,
+            List<String> selected,
+          ) =>
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final r in const ['2160p', '1080p', '720p'])
-                    McChip(
-                      label: r,
-                      compact: true,
-                      selected: resSet.contains(r),
-                      onTap: () => setSheet(() {
-                        resSet.contains(r) ? resSet.remove(r) : resSet.add(r);
-                      }),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: incCtrl,
-                decoration: const InputDecoration(
-                  labelText: '必含关键词（逗号分隔，可选）',
-                  hintText: 'DoVi, HDR, BluRay',
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: excCtrl,
-                decoration: const InputDecoration(
-                  labelText: '排除关键词（逗号分隔，可选）',
-                  hintText: 'CAM, TS, HC',
-                ),
-              ),
-              const SizedBox(height: 12),
-              McInsetGroup(
-                margin: EdgeInsets.zero,
-                children: [
-                  McInsetRow(
-                    title: '仅抓免费促销种 (FREE / 2XFREE)',
-                    trailing: Switch(
-                      value: freeOnly,
-                      onChanged: (v) => setSheet(() => freeOnly = v),
-                    ),
-                    onTap: () => setSheet(() => freeOnly = !freeOnly),
+                  Text(label, style: McText.caption.muted),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final o in options)
+                        McChip(
+                          label: selected.contains(o)
+                              ? '${selected.indexOf(o) + 1}. $o'
+                              : o,
+                          compact: true,
+                          selected: selected.contains(o),
+                          onTap: () => setSheet(() {
+                            selected.contains(o)
+                                ? selected.remove(o)
+                                : selected.add(o);
+                          }),
+                        ),
+                    ],
                   ),
                 ],
-              ),
-              const SizedBox(height: 18),
-              McActionPill(
-                label: '保存规则组',
-                primary: true,
-                expanded: true,
-                onTap: () => Navigator.of(ctx).pop(true),
-              ),
-            ],
-          ),
-        ),
+              );
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  existing == null ? '新建选种规则组' : '编辑选种规则组',
+                  style: McText.titleSm,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '规则组名称 *',
+                    hintText: '例如：4K 杜比视界原盘 / 1080P 剧集省空间',
+                  ),
+                ),
+                const SizedBox(height: 14),
+                chipOrder('分辨率偏好序（留空=不限）', _resOptions, resOrder),
+                const SizedBox(height: 12),
+                chipOrder('片源档白名单与偏好序（留空=不限）', _sourceOptions, sourceOrder),
+                const SizedBox(height: 12),
+                Text('视频编码白名单（video_codecs）', style: McText.caption.muted),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final c in _codecOptions)
+                      McChip(
+                        label: c,
+                        compact: true,
+                        selected: codecs.contains(c),
+                        onTap: () => setSheet(() {
+                          codecs.contains(c) ? codecs.remove(c) : codecs.add(c);
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                chipOrder('HDR 偏好白名单 (hdr_levels)', _hdrOptions, hdrAllow),
+                const SizedBox(height: 10),
+                Text('排除 HDR 类型 (hdr_block)', style: McText.caption.muted),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final h in _hdrOptions)
+                      McChip(
+                        label: h,
+                        compact: true,
+                        selected: hdrBlock.contains(h),
+                        onTap: () => setSheet(() {
+                          hdrBlock.contains(h)
+                              ? hdrBlock.remove(h)
+                              : hdrBlock.add(h);
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text('流媒体平台白名单 (platforms)', style: McText.caption.muted),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final p in _platformOptions)
+                      McChip(
+                        label: p,
+                        compact: true,
+                        selected: platAllow.contains(p),
+                        onTap: () => setSheet(() {
+                          platAllow.contains(p)
+                              ? platAllow.remove(p)
+                              : platAllow.add(p);
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text('流媒体平台黑名单 (platforms_block)', style: McText.caption.muted),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final p in _platformOptions)
+                      McChip(
+                        label: p,
+                        compact: true,
+                        selected: platBlock.contains(p),
+                        onTap: () => setSheet(() {
+                          platBlock.contains(p)
+                              ? platBlock.remove(p)
+                              : platBlock.add(p);
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text('字幕语言要求 (subtitle_languages_require)',
+                    style: McText.caption.muted),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  children: [
+                    for (final l in _langOptions)
+                      McChip(
+                        label: l,
+                        compact: true,
+                        selected: subLangs.contains(l),
+                        onTap: () => setSheet(() {
+                          subLangs.contains(l)
+                              ? subLangs.remove(l)
+                              : subLangs.add(l);
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text('音轨语言要求 (audio_languages_require)',
+                    style: McText.caption.muted),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  children: [
+                    for (final l in _langOptions)
+                      McChip(
+                        label: l,
+                        compact: true,
+                        selected: audLangs.contains(l),
+                        onTap: () => setSheet(() {
+                          audLangs.contains(l)
+                              ? audLangs.remove(l)
+                              : audLangs.add(l);
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: sizeMinCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration:
+                            const InputDecoration(labelText: '最小体积 (MB)'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: sizeMaxCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration:
+                            const InputDecoration(labelText: '最大体积 (MB)'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: minSeedersCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: '最低做种'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: groupAllowCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '制作组白名单（逗号分隔）',
+                    hintText: 'FRDS, CMCT, WiKi',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: groupBlockCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '制作组黑名单（逗号分隔）',
+                    hintText: 'CAM, HC',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                McInsetGroup(
+                  margin: EdgeInsets.zero,
+                  children: [
+                    McInsetRow(
+                      title: '仅抓免费促销种 (free_only)',
+                      trailing: Switch(
+                        value: freeOnly,
+                        onChanged: (v) => setSheet(() => freeOnly = v),
+                      ),
+                    ),
+                    McInsetRow(
+                      title: '排除 H&R 考核种 (exclude_hr)',
+                      trailing: Switch(
+                        value: excludeHr,
+                        onChanged: (v) => setSheet(() => excludeHr = v),
+                      ),
+                    ),
+                  ],
+                ),
+                if (excludeHr) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Text('H&R 未知策略：', style: McText.caption.muted),
+                      const SizedBox(width: 8),
+                      McChip(
+                        label: '宽松放行',
+                        compact: true,
+                        selected: hrUnknown != 'strict',
+                        onTap: () => setSheet(() => hrUnknown = 'lenient'),
+                      ),
+                      const SizedBox(width: 6),
+                      McChip(
+                        label: '严格排除',
+                        compact: true,
+                        selected: hrUnknown == 'strict',
+                        onTap: () => setSheet(() => hrUnknown = 'strict'),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: const ['', 'web-dl', 'blu-ray', 'remux']
+                                .contains(upgradeSource)
+                            ? upgradeSource
+                            : '',
+                        decoration:
+                            const InputDecoration(labelText: '洗版目标片源'),
+                        items: const [
+                          DropdownMenuItem(value: '', child: Text('不自动洗版')),
+                          DropdownMenuItem(value: 'web-dl', child: Text('WEB-DL')),
+                          DropdownMenuItem(
+                              value: 'blu-ray', child: Text('Blu-ray')),
+                          DropdownMenuItem(value: 'remux', child: Text('Remux')),
+                        ],
+                        onChanged: (v) =>
+                            setSheet(() => upgradeSource = v ?? ''),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: const ['', '2160p', '1080p', '720p']
+                                .contains(cutoffRes)
+                            ? cutoffRes
+                            : '',
+                        decoration:
+                            const InputDecoration(labelText: '洗版截止分辨率'),
+                        items: const [
+                          DropdownMenuItem(value: '', child: Text('跟随首选')),
+                          DropdownMenuItem(value: '2160p', child: Text('2160p')),
+                          DropdownMenuItem(value: '1080p', child: Text('1080p')),
+                          DropdownMenuItem(value: '720p', child: Text('720p')),
+                        ],
+                        onChanged: (v) => setSheet(() => cutoffRes = v ?? ''),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text('自动适用范围 (match_rules，可选)', style: McText.caption.muted),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    for (final (k, lbl) in const [
+                      (null, '不限类型'),
+                      ('movie', '仅电影'),
+                      ('tv', '仅剧集'),
+                    ]) ...[
+                      McChip(
+                        label: lbl,
+                        compact: true,
+                        selected: matchKind == k,
+                        onTap: () => setSheet(() => matchKind = k),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: matchCountriesCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '适用制片国家/地区码（可选，逗号分隔）',
+                    hintText: 'JP, KR, US, CN',
+                  ),
+                ),
+                const SizedBox(height: 18),
+                McActionPill(
+                  label: '保存规则组',
+                  primary: true,
+                  expanded: true,
+                  onTap: () => Navigator.of(ctx).pop(true),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
     if (ok != true || !mounted) return;
     final name = nameCtrl.text.trim();
     if (name.isEmpty) return;
+
     List<String> splitCsv(String s) => s
         .split(RegExp(r'[,，]'))
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
         .toList();
-    final payload = {
+
+    final nextSpec = <String, dynamic>{
+      if (resOrder.isNotEmpty) 'resolutions': resOrder,
+      if (sourceOrder.isNotEmpty) 'media_sources': sourceOrder,
+      if (codecs.isNotEmpty) 'video_codecs': codecs.toList(),
+      if (hdrAllow.isNotEmpty) 'hdr_levels': hdrAllow,
+      if (hdrBlock.isNotEmpty) 'hdr_block': hdrBlock.toList(),
+      if (platAllow.isNotEmpty) 'platforms': platAllow.toList(),
+      if (platBlock.isNotEmpty) 'platforms_block': platBlock.toList(),
+      if (subLangs.isNotEmpty) 'subtitle_languages_require': subLangs.toList(),
+      if (audLangs.isNotEmpty) 'audio_languages_require': audLangs.toList(),
+      if (splitCsv(groupAllowCtrl.text).isNotEmpty)
+        'release_groups_allow': splitCsv(groupAllowCtrl.text),
+      if (splitCsv(groupBlockCtrl.text).isNotEmpty)
+        'release_groups_block': splitCsv(groupBlockCtrl.text),
+      if (int.tryParse(sizeMinCtrl.text.trim()) != null)
+        'size_min_mb': int.parse(sizeMinCtrl.text.trim()),
+      if (int.tryParse(sizeMaxCtrl.text.trim()) != null)
+        'size_max_mb': int.parse(sizeMaxCtrl.text.trim()),
+      if (int.tryParse(minSeedersCtrl.text.trim()) != null)
+        'min_seeders': int.parse(minSeedersCtrl.text.trim()),
+      if (freeOnly) 'free_only': true,
+      if (excludeHr) 'exclude_hr': true,
+      if (excludeHr && hrUnknown.isNotEmpty) 'hr_unknown_policy': hrUnknown,
+      if (upgradeSource.isNotEmpty) 'upgrade_source': upgradeSource,
+      if (cutoffRes.isNotEmpty) 'cutoff_resolution': cutoffRes,
+    };
+
+    final nextMatchRules = <Map<String, dynamic>>[
+      if (matchKind != null)
+        {
+          'field': 'kind',
+          'op': 'any_of',
+          'values': [matchKind],
+        },
+      if (splitCsv(matchCountriesCtrl.text).isNotEmpty)
+        {
+          'field': 'origin_countries',
+          'op': 'any_of',
+          'values': splitCsv(matchCountriesCtrl.text)
+              .map((e) => e.toUpperCase())
+              .toList(),
+        },
+    ];
+
+    final payload = <String, dynamic>{
       'name': name,
-      'spec': {
-        ...spec,
-        'resolutions': resSet.toList(),
-        'include_keywords': splitCsv(incCtrl.text),
-        'exclude_keywords': splitCsv(excCtrl.text),
-        'free_only': freeOnly,
-      },
+      'spec': nextSpec,
+      'match_rules': nextMatchRules,
     };
     try {
       if (existing == null) {
@@ -706,8 +1007,26 @@ class _RuleSetsAdminPageState extends ConsumerState<RuleSetsAdminPage> {
       if (mounted) McToast.success('规则组已保存');
       await _load();
     } catch (e) {
-      if (mounted) McToast.error('保存失败：$e');
+      if (mounted) McToast.error('保存失败：${settingsErrorText(e)}');
     }
+  }
+
+  String _describeSpec(Map<String, dynamic> r) {
+    final spec = r['spec'] is Map
+        ? Map<String, dynamic>.from(r['spec'] as Map)
+        : const <String, dynamic>{};
+    final parts = <String>[
+      if (r['is_default'] == true) '默认',
+      if (_strList(spec, 'resolutions').isNotEmpty)
+        _strList(spec, 'resolutions').join('/'),
+      if (_strList(spec, 'media_sources').isNotEmpty)
+        _strList(spec, 'media_sources').join('/'),
+      if (spec['free_only'] == true) '仅免费',
+      if (spec['exclude_hr'] == true) '排 H&R',
+      if ((spec['upgrade_source'] ?? '').toString().isNotEmpty)
+        '洗版→${spec['upgrade_source']}',
+    ];
+    return parts.isEmpty ? '不限条件' : parts.join(' · ');
   }
 
   @override
@@ -731,7 +1050,7 @@ class _RuleSetsAdminPageState extends ConsumerState<RuleSetsAdminPage> {
                   ? McEmptyView(
                       icon: McIcons.listSettings2,
                       title: '暂无自定义规则组',
-                      text: '默认使用智能选源策略；可新建规则精确限定 4K/HDR/字幕组与促销要求。',
+                      text: '默认使用智能选源策略；可新建规则精确限定分辨率、片源、HDR、字幕音轨、制作组与洗版策略。',
                       actionLabel: '新建规则组',
                       onRetry: () => _editRule(),
                     )
@@ -744,8 +1063,7 @@ class _RuleSetsAdminPageState extends ConsumerState<RuleSetsAdminPage> {
                               McInsetRow(
                                 icon: McIcons.listSettings2,
                                 title: (r['name'] ?? '').toString(),
-                                subtitle:
-                                    r['is_default'] == true ? '默认规则组' : '自定义规则',
+                                subtitle: _describeSpec(r),
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -754,12 +1072,16 @@ class _RuleSetsAdminPageState extends ConsumerState<RuleSetsAdminPage> {
                                         label: '设为默认',
                                         compact: true,
                                         onTap: () async {
-                                          await _mc.unwrap<dynamic>(
-                                            Channel.general,
-                                            'POST',
-                                            '/api/v1/rule-sets/${r['id']}/default',
-                                          );
-                                          await _load();
+                                          try {
+                                            await _mc.unwrap<dynamic>(
+                                              Channel.general,
+                                              'POST',
+                                              '/api/v1/rule-sets/${r['id']}/default',
+                                            );
+                                            await _load();
+                                          } catch (e) {
+                                            McToast.error(settingsErrorText(e));
+                                          }
                                         },
                                       ),
                                     IconButton(
@@ -769,12 +1091,26 @@ class _RuleSetsAdminPageState extends ConsumerState<RuleSetsAdminPage> {
                                         color: McTokens.danger,
                                       ),
                                       onPressed: () async {
-                                        await _mc.unwrap<dynamic>(
-                                          Channel.general,
-                                          'DELETE',
-                                          '/api/v1/rule-sets/${r['id']}',
-                                        );
-                                        await _load();
+                                        final refCount =
+                                            (r['reference_count'] as num?)
+                                                    ?.toInt() ??
+                                                0;
+                                        if (refCount > 0) {
+                                          McToast.error(
+                                            '该规则组正被 $refCount 个订阅引用，无法删除',
+                                          );
+                                          return;
+                                        }
+                                        try {
+                                          await _mc.unwrap<dynamic>(
+                                            Channel.general,
+                                            'DELETE',
+                                            '/api/v1/rule-sets/${r['id']}',
+                                          );
+                                          await _load();
+                                        } catch (e) {
+                                          McToast.error(settingsErrorText(e));
+                                        }
                                       },
                                     ),
                                   ],

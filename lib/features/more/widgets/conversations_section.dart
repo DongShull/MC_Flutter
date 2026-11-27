@@ -116,6 +116,47 @@ class ConversationsSection extends ConsumerWidget {
     WidgetRef ref,
     SessionSummary s,
   ) async {
+    final confirmed = await showMcSheet<bool>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('续接「${s.displayTitle}」？', style: McText.titleSm),
+            const SizedBox(height: 8),
+            Text(
+              '将复制当前对话上下文并创建一条独立新会话，原会话记录不受影响。',
+              style: McText.caption.muted,
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: McStrings.cancel,
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: '新建续接会话',
+                    primary: true,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
     final newId = await ref.read(moreProvider.notifier).forkSession(s.id);
     if (!context.mounted) return;
     if (newId != null) {
@@ -130,7 +171,10 @@ class ConversationsSection extends ConsumerWidget {
     WidgetRef ref,
     SessionSummary s,
   ) async {
-    final controller = TextEditingController(text: s.title);
+    final initialTitle = s.title.isNotEmpty
+        ? s.title
+        : (s.lastPrompt.isNotEmpty ? s.lastPrompt : '');
+    final controller = TextEditingController(text: initialTitle);
     final next = await showMcSheet<String>(
       context: context,
       builder: (ctx) => Padding(
@@ -177,7 +221,7 @@ class ConversationsSection extends ConsumerWidget {
     if (next == null) return;
     var title = next.trim();
     if (title.length > 80) title = title.substring(0, 80);
-    if (title.isEmpty || title == s.title) return;
+    if (title.isEmpty || title == initialTitle) return;
     final err = await ref
         .read(moreProvider.notifier)
         .renameSession(s.id, title);

@@ -1,6 +1,10 @@
-// 扫码连服务器（task6）：解析服务器分享二维码内容。
-// 兼容格式：JSON（含 host/port，可选 scheme/ssl）或 URL（http://host:port 等）。
+// 扫码连服务器（task6）与配对码解析：
+// - `parseServerQr`：解析服务器分享二维码（JSON 或 URL）；
+// - `PairingQrParser`：解析设备登录配对二维码（对齐 iOS `PairingQRCode.swift`）。
 import 'dart:convert';
+
+export '../../../core/auth/pairing_qr_parser.dart'
+    show PairingQrParser, PairingQrResult;
 
 /// 解析成功的结果：规范化后的服务器基础地址（scheme://host[:port][/path]）。
 class QrServerInfo {

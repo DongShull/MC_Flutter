@@ -7,6 +7,7 @@ import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/image/image_urls.dart';
+import '../../../core/session/permissions.dart';
 
 /// 个人中心顶卡（对齐 iOS `ProfileHeaderCard`）：
 /// 居中 `80dp` 圆形大头像（右下嵌 `28dp` 银玻璃编辑圆标）+ 居中昵称与身份摘要 +
@@ -36,9 +37,7 @@ class ProfileCard extends StatelessWidget {
     final identity = username.isNotEmpty && username != nickname
         ? '@$username${roleLabel.isNotEmpty ? ' · $roleLabel' : ''}'
         : roleLabel;
-    final avatarChar = nickname.isEmpty
-        ? 'M'
-        : String.fromCharCode(nickname.runes.first).toUpperCase();
+    final avatarChar = McPermissions.avatarInitials(nickname);
     final resolvedAvatar = McImageUrls.resolve(avatarUrl, widthPx: 200);
 
     return Container(

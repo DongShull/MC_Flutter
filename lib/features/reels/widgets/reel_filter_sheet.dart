@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/theme.dart';
 import '../state/controllers.dart';
 import '../state/models.dart';
+import '../state/reels_api.dart';
 
-/// 片段流毛玻璃筛选面板（使用 `showMcSheet` + `McChip` 胶囊与亮银白应用按钮）。
+/// 片段流多选毛玻璃筛选面板（维内多选 OR、维间 AND，每次勾选实时刷新 `/reels/facets` 剩余计数）。
 Future<ReelFilter?> showReelFilterSheet(
   BuildContext context,
   ReelsState state,
@@ -15,47 +19,58 @@ Future<ReelFilter?> showReelFilterSheet(
     context: context,
     builder: (_) => _ReelFilterSheet(
       initial: state.filter,
-      facets: state.facets,
+      initialFacets: state.facets,
     ),
   );
 }
 
-class _ReelFilterSheet extends StatefulWidget {
-  const _ReelFilterSheet({required this.initial, this.facets});
+class _ReelFilterSheet extends ConsumerStatefulWidget {
+  const _ReelFilterSheet({required this.initial, this.initialFacets});
 
   final ReelFilter initial;
-  final ReelFacetsView? facets;
+  final ReelFacetsView? initialFacets;
 
   @override
-  State<_ReelFilterSheet> createState() => _ReelFilterSheetState();
+  ConsumerState<_ReelFilterSheet> createState() => _ReelFilterSheetState();
 }
 
-class _ReelFilterSheetState extends State<_ReelFilterSheet> {
-  late String? _kind = widget.initial.kind;
-  late String? _genres = widget.initial.genres;
-  late String? _countries = widget.initial.countries;
-  late String? _decades = widget.initial.decades;
-  late double? _ratingGte = widget.initial.ratingGte;
-  late String? _runtimes = widget.initial.runtimes;
-  late String? _watch = widget.initial.watch;
+class _ReelFilterSheetState extends ConsumerState<_ReelFilterSheet> {
+  late ReelFilter _draft = widget.initial;
+  late ReelFacetsView? _facets = widget.initialFacets;
+  bool _refreshing = false;
+  int _requestSeq = 0;
 
-  ReelFilter get _filter => ReelFilter(
-        kind: _kind,
-        genres: _genres,
-        countries: _countries,
-        decades: _decades,
-        ratingGte: _ratingGte,
-        runtimes: _runtimes,
-        watch: _watch,
-      );
+  void _update(ReelFilter next) {
+    setState(() => _draft = next);
+    unawaited(_refreshFacets(next));
+  }
+
+  Future<void> _refreshFacets(ReelFilter filter) async {
+    final seq = ++_requestSeq;
+    setState(() => _refreshing = true);
+    try {
+      final latest = await ref.read(reelsApiProvider).facets(filter: filter);
+      if (!mounted || seq != _requestSeq) return;
+      setState(() {
+        _facets = latest;
+        _refreshing = false;
+      });
+    } catch (_) {
+      if (mounted && seq == _requestSeq) {
+        setState(() => _refreshing = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final facets = widget.facets;
-    final filterable = facets?.filterable ?? true;
+    final facets = _facets;
+    final filterable = _draft.kind != 'video' && (facets?.filterable ?? true);
+    final total = facets?.total;
+
     return ConstrainedBox(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * 0.78,
+        maxHeight: MediaQuery.sizeOf(context).height * 0.80,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -64,17 +79,30 @@ class _ReelFilterSheetState extends State<_ReelFilterSheet> {
             padding: const EdgeInsets.fromLTRB(20, 4, 16, 8),
             child: Row(
               children: [
-                const Expanded(child: Text('筛选片段', style: McText.titleSm)),
+                Expanded(
+                  child: Row(
+                    children: [
+                      const Text('筛选片段', style: McText.titleSm),
+                      if (total != null) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          '共 $total 部',
+                          style: McText.caption.muted.tabular,
+                        ),
+                      ],
+                      if (_refreshing) ...[
+                        const SizedBox(width: 8),
+                        const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 1.6),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
                 McPressable(
-                  onTap: () => setState(() {
-                    _kind = null;
-                    _genres = null;
-                    _countries = null;
-                    _decades = null;
-                    _ratingGte = null;
-                    _runtimes = null;
-                    _watch = null;
-                  }),
+                  onTap: () => _update(const ReelFilter()),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
@@ -95,57 +123,83 @@ class _ReelFilterSheetState extends State<_ReelFilterSheet> {
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
               children: [
                 if (facets != null) ...[
-                  _FacetRow(
+                  _SingleFacetRow(
                     title: '类型',
                     values: facets.kinds,
-                    selected: _kind,
-                    enabled: filterable,
-                    onSelect: (v) => setState(() => _kind = v),
+                    selected: _draft.kind,
+                    enabled: true,
+                    onSelect: (v) {
+                      if (v == 'video') {
+                        _update(ReelFilter(kind: 'video', watch: _draft.watch));
+                      } else {
+                        _update(
+                          _draft.copyWith(kind: v, clearKind: v == null),
+                        );
+                      }
+                    },
                   ),
-                  _FacetRow(
+                  _SingleFacetRow(
                     title: '观看状态',
                     values: facets.watch,
-                    selected: _watch,
+                    selected: _draft.watch,
                     enabled: true,
-                    onSelect: (v) => setState(() => _watch = v),
+                    onSelect: (v) => _update(
+                      _draft.copyWith(watch: v, clearWatch: v == null),
+                    ),
                   ),
                   if (filterable) ...[
-                    _FacetRow(
-                      title: '题材',
+                    _MultiFacetRow(
+                      title: '题材（可多选）',
                       values: facets.genres,
-                      selected: _genres,
-                      enabled: true,
-                      onSelect: (v) => setState(() => _genres = v),
+                      selected: _draft.genres,
+                      onToggle: (v) => _update(
+                        _draft.copyWith(
+                          genres: ReelFilter.toggleInSet(_draft.genres, v),
+                        ),
+                      ),
                     ),
-                    _FacetRow(
-                      title: '地区',
+                    _MultiFacetRow(
+                      title: '地区（可多选）',
                       values: facets.countries,
-                      selected: _countries,
-                      enabled: true,
-                      onSelect: (v) => setState(() => _countries = v),
+                      selected: _draft.countries,
+                      onToggle: (v) => _update(
+                        _draft.copyWith(
+                          countries:
+                              ReelFilter.toggleInSet(_draft.countries, v),
+                        ),
+                      ),
                     ),
-                    _FacetRow(
-                      title: '年代',
+                    _MultiFacetRow(
+                      title: '年代（可多选）',
                       values: facets.decades,
-                      selected: _decades,
-                      enabled: true,
-                      onSelect: (v) => setState(() => _decades = v),
+                      selected: _draft.decades,
+                      onToggle: (v) => _update(
+                        _draft.copyWith(
+                          decades: ReelFilter.toggleInSet(_draft.decades, v),
+                        ),
+                      ),
                     ),
-                    _FacetRow(
+                    _SingleFacetRow(
                       title: '评分',
                       values: facets.ratings,
-                      selected: _ratingGte?.toString(),
+                      selected: _draft.ratingGte?.toString(),
                       enabled: true,
-                      onSelect: (v) => setState(() {
-                        _ratingGte = v == null ? null : double.tryParse(v);
-                      }),
+                      onSelect: (v) => _update(
+                        _draft.copyWith(
+                          ratingGte: v == null ? null : double.tryParse(v),
+                          clearRating: v == null,
+                        ),
+                      ),
                     ),
-                    _FacetRow(
-                      title: '片长',
+                    _MultiFacetRow(
+                      title: '片长（可多选）',
                       values: facets.runtimes,
-                      selected: _runtimes,
-                      enabled: true,
-                      onSelect: (v) => setState(() => _runtimes = v),
+                      selected: _draft.runtimes,
+                      onToggle: (v) => _update(
+                        _draft.copyWith(
+                          runtimes: ReelFilter.toggleInSet(_draft.runtimes, v),
+                        ),
+                      ),
                     ),
                   ],
                 ],
@@ -155,11 +209,11 @@ class _ReelFilterSheetState extends State<_ReelFilterSheet> {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
             child: McActionPill(
-              label: '应用筛选',
+              label: total != null ? '应用筛选（$total 部）' : '应用筛选',
               primary: true,
               expanded: true,
               height: 44,
-              onTap: () => Navigator.of(context).pop(_filter),
+              onTap: () => Navigator.of(context).pop(_draft),
             ),
           ),
         ],
@@ -168,8 +222,8 @@ class _ReelFilterSheetState extends State<_ReelFilterSheet> {
   }
 }
 
-class _FacetRow extends StatelessWidget {
-  const _FacetRow({
+class _SingleFacetRow extends StatelessWidget {
+  const _SingleFacetRow({
     required this.title,
     required this.values,
     required this.selected,
@@ -207,15 +261,78 @@ class _FacetRow extends StatelessWidget {
             children: [
               for (final v in values)
                 Opacity(
-                  opacity: (enabled && v.count > 0) ? 1.0 : 0.35,
+                  opacity:
+                      (enabled && (v.count > 0 || selected == v.value))
+                          ? 1.0
+                          : 0.35,
                   child: McChip(
                     label: v.count > 0 ? '${v.label} · ${v.count}' : v.label,
                     compact: true,
                     selected: selected == v.value,
-                    onTap: (enabled && v.count > 0)
+                    onTap: (enabled && (v.count > 0 || selected == v.value))
                         ? () => onSelect(selected == v.value ? null : v.value)
                         : null,
                   ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MultiFacetRow extends StatelessWidget {
+  const _MultiFacetRow({
+    required this.title,
+    required this.values,
+    required this.selected,
+    required this.onToggle,
+  });
+
+  final String title;
+  final List<FacetValue> values;
+  final Set<String> selected;
+  final ValueChanged<String> onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    if (values.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              title,
+              style: McText.caption.copyWith(
+                color: McTokens.textMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final v in values)
+                Builder(
+                  builder: (_) {
+                    final isSel = selected.contains(v.value);
+                    final active = isSel || v.count > 0;
+                    return Opacity(
+                      opacity: active ? 1.0 : 0.35,
+                      child: McChip(
+                        label:
+                            v.count > 0 ? '${v.label} · ${v.count}' : v.label,
+                        compact: true,
+                        selected: isSel,
+                        onTap: active ? () => onToggle(v.value) : null,
+                      ),
+                    );
+                  },
                 ),
             ],
           ),

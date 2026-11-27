@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/agent/agent_ai_consent.dart';
+import '../../../core/api/mc_client.dart';
+import '../../../core/api/session_providers.dart';
 import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
 import '../../../core/designsystem/theme.dart';
-import '../../agent/state/agent_state.dart';
 
 /// AI 快捷发起胶囊（`McAgentQuickBar`：一句话直接新建 AI 任务并跳入对话页）。
 class QuickInputCard extends ConsumerStatefulWidget {
@@ -30,9 +32,16 @@ class _QuickInputCardState extends ConsumerState<QuickInputCard> {
   Future<void> _send() async {
     final content = _controller.text.trim();
     if (content.isEmpty || _sending) return;
+    final consented = await ensureAgentAiConsent(context, ref);
+    if (!consented || !mounted) return;
     setState(() => _sending = true);
     try {
-      final accepted = await ref.read(agentApiProvider).start(content: content);
+      final accepted = await ref.read(mcClientProvider).unwrap<Map<String, dynamic>>(
+        Channel.general,
+        'POST',
+        '/api/v1/sessions',
+        body: <String, dynamic>{'content': content},
+      );
       final nested = accepted['session'];
       final newId = (nested is Map ? nested['id']?.toString() : null) ??
           accepted['id']?.toString() ??

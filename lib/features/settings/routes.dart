@@ -1,14 +1,19 @@
 import 'package:go_router/go_router.dart';
 
+import 'pages/about_language_pages.dart';
 import 'pages/admin_pipeline_pages.dart';
 import 'pages/admin_system_pages.dart';
+import 'pages/cloud_settings_page.dart';
 import 'pages/devices_page.dart';
 import 'pages/maintenance_page.dart';
+import 'pages/mcp_settings_page.dart';
+import 'pages/notification_settings_page.dart';
 import 'pages/playback_page.dart';
 import 'pages/profile_page.dart';
+import 'pages/push_channels_page.dart';
 import 'pages/settings_page.dart';
 
-/// settings 模块路由（全量原生接管 Web 23 个设置与后台板块）。
+/// settings 模块路由（全量原生接管 iOS / Web 全部设置与管理板块）。
 const routeSettings = '/settings';
 
 final List<GoRoute> routes = [
@@ -25,8 +30,20 @@ final List<GoRoute> routes = [
     builder: (context, state) => const DevicesPage(),
   ),
   GoRoute(
+    path: '$routeSettings/notifications',
+    builder: (context, state) => const NotificationSettingsPage(),
+  ),
+  GoRoute(
     path: '$routeSettings/playback',
     builder: (context, state) => const PlaybackPage(),
+  ),
+  GoRoute(
+    path: '$routeSettings/language',
+    builder: (context, state) => const LanguageSettingsPage(),
+  ),
+  GoRoute(
+    path: '$routeSettings/about',
+    builder: (context, state) => const AboutPage(),
   ),
   GoRoute(
     path: '$routeSettings/overview',
@@ -53,8 +70,24 @@ final List<GoRoute> routes = [
     builder: (context, state) => const ScrapeDrivesAdminPage(),
   ),
   GoRoute(
+    path: '$routeSettings/push',
+    builder: (context, state) => const PushChannelsPage(),
+  ),
+  GoRoute(
+    path: '$routeSettings/webhook',
+    builder: (context, state) => const WebhookSettingsPage(),
+  ),
+  GoRoute(
     path: '$routeSettings/ai',
     builder: (context, state) => const AiIntegrationsAdminPage(),
+  ),
+  GoRoute(
+    path: '$routeSettings/mcp',
+    builder: (context, state) => const McpSettingsPage(),
+  ),
+  GoRoute(
+    path: '$routeSettings/cloud',
+    builder: (context, state) => const CloudSettingsPage(),
   ),
   GoRoute(
     path: '$routeSettings/system',

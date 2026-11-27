@@ -16,12 +16,37 @@ const routeLibraryCustomize = '/library/customize';
 const routeLibraryFavorites = '/library/favorites';
 const routeLibraryManage = '/library/manage';
 
-String routeLibraryDetail(int libraryId) => '/library/detail/$libraryId';
+String routeLibraryDetail(
+  int libraryId, {
+  Map<String, String>? query,
+}) {
+  if (query == null || query.isEmpty) return '/library/detail/$libraryId';
+  final qp = Uri(queryParameters: query).query;
+  return '/library/detail/$libraryId?$qp';
+}
+
 String routeLibraryCollection(int collectionId) =>
     '/library/collection/$collectionId';
+
 String routeLibraryPerson(int personId, {String? name}) =>
     '/library/person/$personId${name == null ? '' : '?name=${Uri.encodeComponent(name)}'}';
-String routeLibraryKind(String kind) => '/library/kind/$kind';
+
+String routeLibraryKind(
+  String kind, {
+  String? genre,
+  String? watch,
+  String? sort,
+  String? order,
+}) {
+  final params = <String, String>{
+    if (genre != null && genre.isNotEmpty) 'g': genre,
+    if (watch != null && watch.isNotEmpty) 'w': watch,
+    if (sort != null && sort.isNotEmpty) 'sort': sort,
+    if (order != null && order.isNotEmpty) 'order': order,
+  };
+  if (params.isEmpty) return '/library/kind/$kind';
+  return '/library/kind/$kind?${Uri(queryParameters: params).query}';
+}
 
 final List<GoRoute> routes = [
   GoRoute(
@@ -40,6 +65,7 @@ final List<GoRoute> routes = [
     path: routeLibraryManage,
     builder: (context, state) => LibraryManagePage(
       initialTab: int.tryParse(state.uri.queryParameters['tab'] ?? '') ?? 0,
+      initialItemId: int.tryParse(state.uri.queryParameters['item'] ?? ''),
     ),
   ),
   GoRoute(
@@ -64,7 +90,12 @@ final List<GoRoute> routes = [
   ),
   GoRoute(
     path: '/library/kind/:kind',
-    builder: (context, state) =>
-        KindWallPage(kind: state.pathParameters['kind']!),
+    builder: (context, state) => KindWallPage(
+      kind: state.pathParameters['kind']!,
+      initialGenre: state.uri.queryParameters['g'],
+      initialWatch: state.uri.queryParameters['w'],
+      initialSort: state.uri.queryParameters['sort'],
+      initialOrder: state.uri.queryParameters['order'],
+    ),
   ),
 ];

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mc_flutter/core/designsystem/adaptive.dart';
+import 'package:mc_flutter/core/session/permissions.dart';
 import 'package:mc_flutter/core/session/session_store.dart';
 import 'package:mc_flutter/core/shell/command_palette.dart';
 
@@ -32,7 +33,19 @@ void main() {
 
   group('McCommandPaletteHost (Cmd/Ctrl+K Spotlight)', () {
     setUp(() {
-      appSession.debugSeed(baseUrl: 'https://mc.local', token: 'test-token');
+      appSession.debugSeed(
+        baseUrl: 'https://mc.local',
+        token: 'test-token',
+        permissions: const McPermissions(
+          username: 'admin',
+          role: 'admin',
+          isAdmin: true,
+          allowSubscribe: true,
+          allowSearch: true,
+          allowDirectDownload: true,
+          allowVideoDownload: true,
+        ),
+      );
       McCommandPaletteController.instance.close();
     });
 

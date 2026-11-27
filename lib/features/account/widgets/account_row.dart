@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
+import '../../../core/session/permissions.dart';
 import '../state/account_state.dart';
 
 /// 账号行（对齐 Kotlin AccountRow）：银玻璃圆头像 + 昵称 + @username · 角色 + 当前标记；
@@ -59,9 +60,7 @@ class AccountRow extends StatelessWidget {
                 ),
               ),
               child: Text(
-                displayName.isEmpty
-                    ? '?'
-                    : displayName.characters.first.toUpperCase(),
+                McPermissions.avatarInitials(displayName),
                 style: McText.ui.copyWith(
                   color: McTokens.accentStrong,
                   fontWeight: FontWeight.w600,

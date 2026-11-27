@@ -5,17 +5,18 @@ import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
 import '../state/detail_controller.dart';
 
-/// 详情页轨道与关联标签胶囊行（对齐 iOS `LibraryItemDetailView` 版本/音轨/字幕胶囊）：
-/// 使用克制的 `surfaceInset` 圆角小胶囊展示音轨与字幕，系列与合集展示可点击冷银标签。
+/// 详情页关联系列与合集标签胶囊行（轨道行已由 `MediaTrackSection` 接管；无 files 时兜底展示顶层音轨/字幕）。
 class MetaLinks extends StatelessWidget {
   const MetaLinks({
     super.key,
     required this.entry,
+    this.showLegacyTracks = false,
     this.onSeriesTap,
     this.onCollectionTap,
   });
 
   final DetailEntry entry;
+  final bool showLegacyTracks;
   final ValueChanged<int>? onSeriesTap;
   final ValueChanged<String>? onCollectionTap;
 
@@ -108,10 +109,11 @@ class MetaLinks extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasAny = entry.audioTracks.isNotEmpty ||
-        entry.subtitleTracks.isNotEmpty ||
-        (entry.seriesName != null && entry.seriesCollectionId != null) ||
-        entry.collections.isNotEmpty;
+    final showAudio = showLegacyTracks && entry.audioTracks.isNotEmpty;
+    final showSub = showLegacyTracks && entry.subtitleTracks.isNotEmpty;
+    final hasSeries = entry.seriesName != null && entry.seriesName!.isNotEmpty;
+    final hasAny =
+        showAudio || showSub || hasSeries || entry.collections.isNotEmpty;
     if (!hasAny) return const SizedBox.shrink();
 
     final shownCollections = entry.collections.take(3).toList();
@@ -120,7 +122,7 @@ class MetaLinks extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (entry.audioTracks.isNotEmpty)
+        if (showAudio)
           _groupRow(
             label: '音轨',
             icon: McIcons.equalizer,
@@ -130,7 +132,7 @@ class MetaLinks extends StatelessWidget {
                 _trackPill('+${entry.audioTracks.length - 4}'),
             ],
           ),
-        if (entry.subtitleTracks.isNotEmpty)
+        if (showSub)
           _groupRow(
             label: '字幕',
             icon: McIcons.closedCaptioning,
@@ -140,16 +142,16 @@ class MetaLinks extends StatelessWidget {
                 _trackPill('+${entry.subtitleTracks.length - 4}'),
             ],
           ),
-        if (entry.seriesName != null && entry.seriesCollectionId != null)
+        if (hasSeries)
           _groupRow(
             label: '系列',
             icon: McIcons.film,
             pills: [
               _linkPill(
                 entry.seriesName!,
-                onSeriesTap == null
-                    ? null
-                    : () => onSeriesTap!(entry.seriesCollectionId!),
+                (entry.seriesCollectionId != null && onSeriesTap != null)
+                    ? () => onSeriesTap!(entry.seriesCollectionId!)
+                    : null,
               ),
             ],
           ),
@@ -163,7 +165,11 @@ class MetaLinks extends StatelessWidget {
                   c,
                   onCollectionTap == null ? null : () => onCollectionTap!(c),
                 ),
-              if (extraCollections > 0) _trackPill('+$extraCollections'),
+              if (extraCollections > 0)
+                _linkPill(
+                  '+$extraCollections',
+                  onCollectionTap == null ? null : () => onCollectionTap!(''),
+                ),
             ],
           ),
       ],

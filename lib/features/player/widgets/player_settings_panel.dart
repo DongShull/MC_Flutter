@@ -10,8 +10,8 @@ import '../state/player_controller.dart';
 
 enum _SettingsPage { root, speed, display, quality, subtitleStyle, diagnostics }
 
-/// 播放器的右侧液态毛玻璃抽屉面板：
-/// 倍速 / 画面比例（含 16:9·4:3·21:9） / 串流画质档位 / 字幕字号与时间轴微调 / 实时技术诊断 HUD。
+/// 播放器右侧液态毛玻璃抽屉面板：
+/// 倍速 / 画面比例 / 串流画质 / 字幕字号·位置·半透胶囊底·时间轴偏移 / 实时技术诊断。
 class PlayerSettingsPanel extends StatefulWidget {
   const PlayerSettingsPanel({
     super.key,
@@ -20,11 +20,15 @@ class PlayerSettingsPanel extends StatefulWidget {
     required this.displayMode,
     required this.qualityTier,
     required this.subtitleScale,
+    required this.subtitleBottomMarginPercent,
+    required this.subtitleBackgroundPill,
     required this.subtitleOffsetMs,
     required this.onSelectSpeed,
     required this.onSelectDisplayMode,
     required this.onSelectQuality,
     required this.onSelectSubtitleScale,
+    required this.onSelectSubtitleBottomMargin,
+    required this.onToggleSubtitleBackgroundPill,
     required this.onAdjustSubtitleOffset,
     required this.onLoadDiagnostics,
     required this.onNotice,
@@ -36,11 +40,15 @@ class PlayerSettingsPanel extends StatefulWidget {
   final String displayMode;
   final String qualityTier;
   final double subtitleScale;
+  final double subtitleBottomMarginPercent;
+  final bool subtitleBackgroundPill;
   final int subtitleOffsetMs;
   final ValueChanged<double> onSelectSpeed;
   final ValueChanged<String> onSelectDisplayMode;
   final ValueChanged<String> onSelectQuality;
   final ValueChanged<double> onSelectSubtitleScale;
+  final ValueChanged<double> onSelectSubtitleBottomMargin;
+  final ValueChanged<bool> onToggleSubtitleBackgroundPill;
   final ValueChanged<int> onAdjustSubtitleOffset;
   final Future<Map<String, dynamic>> Function() onLoadDiagnostics;
   final ValueChanged<String> onNotice;
@@ -144,7 +152,7 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
             ),
             McInsetRow(
               icon: McIcons.fontSetting,
-              title: '字幕字号与偏移',
+              title: '字幕外观与偏移',
               valueText: widget.subtitleOffsetMs == 0 ? '同步' : '${offsetSec}s',
               showChevron: true,
               onTap: () => setState(() => _page = _SettingsPage.subtitleStyle),
@@ -240,8 +248,49 @@ class _PlayerSettingsPanelState extends State<PlayerSettingsPanel> {
                   ),
               ],
             ),
-            const SizedBox(height: 18),
-            Text('时间轴同步微调（当前：${offsetSec}s）', style: McText.caption.muted),
+            const SizedBox(height: 16),
+            Text(
+              '距底高度（${widget.subtitleBottomMarginPercent.round()}%）',
+              style: McText.caption.muted,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final (pct, lb) in const [
+                  (4.0, '偏低'),
+                  (8.0, '标准'),
+                  (14.0, '偏高'),
+                  (20.0, '较高'),
+                ])
+                  McChip(
+                    label: lb,
+                    compact: true,
+                    selected: (widget.subtitleBottomMarginPercent - pct).abs() < 1.5,
+                    onTap: () => widget.onSelectSubtitleBottomMargin(pct),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            McInsetGroup(
+              margin: EdgeInsets.zero,
+              children: [
+                McInsetRow(
+                  title: '字幕半透黑底胶囊',
+                  subtitle: '关闭后使用柔和阴影，减少画面遮挡',
+                  trailing: Switch.adaptive(
+                    value: widget.subtitleBackgroundPill,
+                    onChanged: widget.onToggleSubtitleBackgroundPill,
+                  ),
+                  onTap: () => widget.onToggleSubtitleBackgroundPill(
+                    !widget.subtitleBackgroundPill,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text('时间轴微调（当前：${offsetSec}s）', style: McText.caption.muted),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,

@@ -2,17 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/auth/session_watch.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
+import '../../../core/session/permissions.dart';
+import '../../../core/session/session_store.dart';
 import '../state/account_state.dart';
 import '../widgets/account_row.dart';
 
-/// 账号切换页（1:1 对齐 Kotlin AccountSwitcherScreen）：
-/// 本机已登录账号分组展示，点一下即可切换不用再输密码；
-/// 添加账号 -> /onboarding；退出全部账号走两段确认（第二段问是否连本机下载一起删）。
+/// 账号切换页：
+/// 本机已登录账号按服务器分组展示，点一下即可免密秒切；
+/// 添加账号 -> `/onboarding?mode=add`；退出全部账号走两段确认并通过 `PendingRevocations` 注销令牌。
 class AccountPage extends ConsumerStatefulWidget {
   const AccountPage({super.key});
 
@@ -78,7 +81,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
   Future<void> _confirmLogoutAll(AccountUiState ui) async {
     final first = await _askSheet(
       title: '退出全部账号？',
-      message: '本机保存的登录信息会被清除，之后需要重新输入密码。',
+      message: '本机保存的登录信息会被清除并注销设备令牌，之后需要重新输入密码。',
       cancelLabel: '取消',
       confirmLabel: '退出',
     );
@@ -97,9 +100,23 @@ class _AccountPageState extends ConsumerState<AccountPage> {
     context.go('/onboarding');
   }
 
+  bool _isSameAccount(
+    String serverOrigin,
+    String username,
+    AccountUiState ui,
+  ) {
+    final curOrigin = SessionStore.normalizeOrigin(ui.currentOrigin ?? '');
+    final curUser = SessionStore.normalizeUsername(ui.currentUsername ?? '');
+    return curOrigin.isNotEmpty &&
+        curUser.isNotEmpty &&
+        SessionStore.normalizeOrigin(serverOrigin) == curOrigin &&
+        SessionStore.normalizeUsername(username) == curUser;
+  }
+
   @override
   Widget build(BuildContext context) {
     final ui = ref.watch(accountProvider);
+    final perms = ref.watch(mcPermissionsProvider);
     final form = McFormWatch.of(context);
     final windowClass = mcWindowClassOf(form);
     final currentAccount = _currentAccount(ui);
@@ -108,6 +125,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
         ui.me?.username ??
         ui.currentUsername ??
         '未登录';
+    final roleBadge = perms.isAdmin ? '超级管理员' : '成员';
 
     return Scaffold(
       backgroundColor: McTokens.bg,
@@ -172,9 +190,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                               ),
                             ),
                             child: Text(
-                              displayName.isEmpty
-                                  ? '?'
-                                  : displayName.characters.first.toUpperCase(),
+                              McPermissions.avatarInitials(displayName),
                               style: McText.title.copyWith(
                                 color: McTokens.accentStrong,
                               ),
@@ -188,7 +204,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                                 Text(displayName, style: McText.titleSm),
                                 const SizedBox(height: 2),
                                 Text(
-                                  "@${ui.me?.username ?? ui.currentUsername ?? '-'} · ${ui.me?.username == null ? '未连接' : (ui.currentOrigin == null ? '成员' : '已登录')}",
+                                  "@${ui.me?.username ?? ui.currentUsername ?? '-'} · $roleBadge",
                                   style: McText.caption.muted,
                                 ),
                               ],
@@ -216,14 +232,31 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                           child: AccountRow(
                             server: server,
                             account: account,
-                            isCurrent: server.origin == ui.currentOrigin &&
-                                account.username == ui.currentUsername,
+                            isCurrent: _isSameAccount(
+                              server.origin,
+                              account.username,
+                              ui,
+                            ),
                             busy: ui.busy,
-                            onSwitch: () =>
-                                ref.read(accountProvider.notifier).switchTo(
-                                      server.origin,
-                                      account.username,
-                                    ),
+                            onSwitch: () {
+                              if (account.expired) {
+                                context.push(
+                                  Uri(
+                                    path: '/onboarding',
+                                    queryParameters: {
+                                      'mode': 'relogin',
+                                      'server': server.origin,
+                                      'username': account.username,
+                                    },
+                                  ).toString(),
+                                );
+                                return;
+                              }
+                              ref.read(accountProvider.notifier).switchTo(
+                                    server.origin,
+                                    account.username,
+                                  );
+                            },
                             onRemove: () =>
                                 ref.read(accountProvider.notifier).remove(
                                       server.origin,
@@ -241,7 +274,19 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                           icon: McIcons.userAdd,
                           primary: false,
                           expanded: true,
-                          onTap: () => context.go('/onboarding'),
+                          onTap: () {
+                            final origin = ui.currentOrigin;
+                            context.push(
+                              Uri(
+                                path: '/onboarding',
+                                queryParameters: {
+                                  'mode': 'add',
+                                  if (origin != null && origin.isNotEmpty)
+                                    'server': origin,
+                                },
+                              ).toString(),
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -261,7 +306,9 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                     ),
                     const SizedBox(height: 14),
                     Text(
-                      '本机已登录的账号，点击即可切换，不用再输密码。撤销凭证请到设置 → 设备管理。',
+                      perms.isAdmin
+                          ? '本机已登录的账号，点击即可免密秒切。完整成员与设备策略请前往设置中心。'
+                          : '本机已登录的账号，点击即可切换，不用再输密码。管理登录设备请点击右上角设备图标。',
                       style: McText.caption.faint,
                     ),
                   ],
@@ -276,9 +323,10 @@ class _AccountPageState extends ConsumerState<AccountPage> {
 
   SavedAccount? _currentAccount(AccountUiState ui) {
     for (final server in ui.servers) {
-      if (server.origin != ui.currentOrigin) continue;
       for (final account in server.accounts) {
-        if (account.username == ui.currentUsername) return account;
+        if (_isSameAccount(server.origin, account.username, ui)) {
+          return account;
+        }
       }
     }
     return null;

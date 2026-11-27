@@ -9,12 +9,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/root/state/main_tab_bus.dart';
 import '../api/mc_client.dart';
 import '../api/session_providers.dart';
+import '../auth/session_watch.dart';
 import '../designsystem/mc_chrome.dart';
 import '../designsystem/mc_glass.dart';
 import '../designsystem/mc_icons.dart';
 import '../designsystem/theme.dart';
 import '../image/image_urls.dart';
 import '../router.dart';
+import '../session/permissions.dart';
 import '../session/session_store.dart';
 
 /// 全局 `⌘K` / `Ctrl+K` Spotlight 命令与三合一搜索面板控制器。
@@ -98,6 +100,10 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
     setState(() {
       if (McCommandPaletteController.instance.value) {
         _selectedIndex = 0;
+        final perms = ref.read(mcPermissionsProvider);
+        if (_vertical == _PaletteVertical.torrent && !perms.canSearch) {
+          _vertical = _PaletteVertical.library;
+        }
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _inputFocus.requestFocus();
         });
@@ -116,7 +122,13 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
     mcRouter.push(route);
   }
 
-  List<_PaletteItem> _quickCommands(String q) {
+  List<_PaletteVertical> _availableVerticals(McPermissions perms) => [
+        if (perms.canSubscribe) _PaletteVertical.media,
+        if (perms.canSearch) _PaletteVertical.torrent,
+        _PaletteVertical.library,
+      ];
+
+  List<_PaletteItem> _quickCommands(String q, McPermissions perms) {
     final all = <_PaletteItem>[
       _PaletteItem(
         icon: McIcons.mediaLibraryFill,
@@ -125,13 +137,14 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
         badge: '⌘1',
         onActivate: () => _switchMainTab(MainTab.library),
       ),
-      _PaletteItem(
-        icon: McIcons.bookmarkFill,
-        title: '前往 订阅追更',
-        subtitle: '查看追更日历、近期入库与进行中订阅',
-        badge: '⌘2',
-        onActivate: () => _switchMainTab(MainTab.subscriptions),
-      ),
+      if (perms.canSubscribe)
+        _PaletteItem(
+          icon: McIcons.bookmarkFill,
+          title: '前往 订阅追更',
+          subtitle: '查看追更日历、近期入库与进行中订阅',
+          badge: '⌘2',
+          onActivate: () => _switchMainTab(MainTab.subscriptions),
+        ),
       _PaletteItem(
         icon: McIcons.aiSearchFill,
         title: '前往 发现新片',
@@ -139,35 +152,40 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
         badge: '⌘3',
         onActivate: () => _switchMainTab(MainTab.discover),
       ),
-      _PaletteItem(
-        icon: McIcons.waveform,
-        title: '前往 活动与观看统计',
-        subtitle: '实时播放、下载队列、任务进度与热力图',
-        badge: '⌘4',
-        onActivate: () => _switchMainTab(MainTab.activity),
-      ),
-      _PaletteItem(
-        icon: McIcons.aiStarFill,
-        title: '打开 AI 智能助手工作台',
-        subtitle: '自然语言找片、订阅、查任务与排障',
-        onActivate: () => _navigate('/agent'),
-      ),
+      if (perms.isAdmin)
+        _PaletteItem(
+          icon: McIcons.waveform,
+          title: '前往 活动与观看统计',
+          subtitle: '实时播放、下载队列、任务进度与热力图',
+          badge: '⌘4',
+          onActivate: () => _switchMainTab(MainTab.activity),
+        ),
+      if (perms.isAdmin)
+        _PaletteItem(
+          icon: McIcons.aiStarFill,
+          title: '打开 AI 智能助手工作台',
+          subtitle: '自然语言找片、订阅、查任务与排障',
+          onActivate: () => _navigate('/agent'),
+        ),
       _PaletteItem(
         icon: McIcons.search,
-        title: '打开 完整三合一搜索页',
-        subtitle: '影视 · PT 种子资源 · 本地媒体库深度检索',
+        title: '打开 完整搜索页',
+        subtitle: perms.canSearch
+            ? '影视 · PT 种子资源 · 本地媒体库深度检索'
+            : '本地媒体库与影视检索',
         onActivate: () => _navigate('/search'),
       ),
-      _PaletteItem(
-        icon: McIcons.folderSettings,
-        title: '媒体库管理中心',
-        subtitle: '新建/扫描/整理媒体库、回收站、重复文件与分享管理',
-        onActivate: () => _navigate('/library/manage'),
-      ),
+      if (perms.isAdmin)
+        _PaletteItem(
+          icon: McIcons.folderSettings,
+          title: '媒体库管理中心',
+          subtitle: '新建/扫描/整理媒体库、回收站、重复文件与分享管理',
+          onActivate: () => _navigate('/library/manage'),
+        ),
       _PaletteItem(
         icon: McIcons.stack,
-        title: '全部合集管理',
-        subtitle: '查看、新建与编排智能合集和手动片单',
+        title: '全部合集',
+        subtitle: '查看智能合集与手动片单',
         onActivate: () => _navigate('/library/collections'),
       ),
       _PaletteItem(
@@ -182,16 +200,19 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
         subtitle: '沉浸浏览私人片库高光片段',
         onActivate: () => _navigate('/reels'),
       ),
-      _PaletteItem(
-        icon: McIcons.downloadCloudOut,
-        title: '本机离线下载中心',
-        subtitle: '管理离线缓存队列与零网本地播放',
-        onActivate: () => _navigate('/offline'),
-      ),
+      if (perms.canDownloadVideo)
+        _PaletteItem(
+          icon: McIcons.downloadCloudOut,
+          title: '本机离线下载中心',
+          subtitle: '管理离线缓存队列与零网本地播放',
+          onActivate: () => _navigate('/offline'),
+        ),
       _PaletteItem(
         icon: McIcons.setting1,
-        title: '全能设置与服务器管理中心',
-        subtitle: '成员、规则组、PT 站点、下载器、刮削、AI、网络与日志',
+        title: perms.isAdmin ? '全能设置与服务器管理中心' : '个人与播放设置',
+        subtitle: perms.isAdmin
+            ? '成员、规则组、PT 站点、下载器、刮削、AI、网络与日志'
+            : '个人信息、登录设备与播放偏好',
         badge: '⌘,',
         onActivate: () => _navigate('/settings'),
       ),
@@ -222,8 +243,11 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
   }
 
   void _cycleVertical() {
-    final next = _PaletteVertical
-        .values[(_vertical.index + 1) % _PaletteVertical.values.length];
+    final perms = ref.read(mcPermissionsProvider);
+    final allowed = _availableVerticals(perms);
+    if (allowed.isEmpty) return;
+    final curIdx = allowed.indexOf(_vertical);
+    final next = allowed[(curIdx + 1) % allowed.length];
     setState(() {
       _vertical = next;
       _selectedIndex = 0;
@@ -236,9 +260,13 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
     final mySeq = ++_seq;
     setState(() => _loading = true);
     final client = ref.read(mcClientProvider);
+    final perms = ref.read(mcPermissionsProvider);
+    final allowed = _availableVerticals(perms);
+    final effectiveVertical =
+        allowed.contains(_vertical) ? _vertical : allowed.last;
     try {
       final results = <_PaletteItem>[];
-      switch (_vertical) {
+      switch (effectiveVertical) {
         case _PaletteVertical.media:
           final data = await client.unwrap<dynamic>(
             Channel.general,
@@ -348,8 +376,9 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
       return KeyEventResult.handled;
     }
 
+    final perms = ref.read(mcPermissionsProvider);
     if (McCommandPaletteController.instance.value) {
-      final items = _effectiveItems();
+      final items = _effectiveItems(perms);
       if (key == LogicalKeyboardKey.escape) {
         McCommandPaletteController.instance.close();
         return KeyEventResult.handled;
@@ -387,16 +416,17 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
       return KeyEventResult.handled;
     }
     if (primaryMod) {
-      final tabIdx = switch (key) {
-        LogicalKeyboardKey.digit1 => 0,
-        LogicalKeyboardKey.digit2 => 1,
-        LogicalKeyboardKey.digit3 => 2,
-        LogicalKeyboardKey.digit4 => 3,
-        LogicalKeyboardKey.digit5 => 4,
+      final tab = switch (key) {
+        LogicalKeyboardKey.digit1 => MainTab.library,
+        LogicalKeyboardKey.digit2 =>
+          perms.canSubscribe ? MainTab.subscriptions : null,
+        LogicalKeyboardKey.digit3 => MainTab.discover,
+        LogicalKeyboardKey.digit4 => perms.isAdmin ? MainTab.activity : null,
+        LogicalKeyboardKey.digit5 => MainTab.more,
         _ => null,
       };
-      if (tabIdx != null) {
-        MainTabBus.instance.open(MainTab.values[tabIdx]);
+      if (tab != null) {
+        MainTabBus.instance.open(tab);
         mcRouter.go('/home');
         return KeyEventResult.handled;
       }
@@ -404,16 +434,17 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
     return KeyEventResult.ignored;
   }
 
-  List<_PaletteItem> _effectiveItems() {
+  List<_PaletteItem> _effectiveItems(McPermissions perms) {
     final q = _inputCtrl.text.trim();
-    if (q.isEmpty) return _quickCommands('');
-    return [..._remoteItems, ..._quickCommands(q)];
+    if (q.isEmpty) return _quickCommands('', perms);
+    return [..._remoteItems, ..._quickCommands(q, perms)];
   }
 
   @override
   Widget build(BuildContext context) {
+    final perms = ref.watch(mcPermissionsProvider);
     final open = McCommandPaletteController.instance.value;
-    final items = open ? _effectiveItems() : const <_PaletteItem>[];
+    final items = open ? _effectiveItems(perms) : const <_PaletteItem>[];
 
     return Focus(
       autofocus: false,
@@ -441,7 +472,7 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
                           ),
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: _buildPaletteCard(items),
+                            child: _buildPaletteCard(items, perms),
                           ),
                         ),
                       ),
@@ -455,7 +486,11 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
     );
   }
 
-  Widget _buildPaletteCard(List<_PaletteItem> items) {
+  Widget _buildPaletteCard(List<_PaletteItem> items, McPermissions perms) {
+    final allowed = _availableVerticals(perms);
+    final effectiveVertical =
+        allowed.contains(_vertical) ? _vertical : allowed.last;
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(22),
       child: BackdropFilter(
@@ -496,7 +531,7 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
                           style: McText.body,
                           onChanged: _onQueryChanged,
                           decoration: const InputDecoration(
-                            hintText: '搜索全网影视、PT 种子、本地媒体库或输入跳转命令…',
+                            hintText: '搜索影视、本地媒体库或输入跳转命令…',
                             border: InputBorder.none,
                             enabledBorder: InputBorder.none,
                             focusedBorder: InputBorder.none,
@@ -529,37 +564,45 @@ class _McCommandPaletteHostState extends ConsumerState<McCommandPaletteHost> {
                     spacing: 8,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      McChip(
-                        label: '影视 (TMDB/豆瓣)',
-                        compact: true,
-                        selected: _vertical == _PaletteVertical.media,
-                        onTap: () {
-                          setState(() => _vertical = _PaletteVertical.media);
-                          final q = _inputCtrl.text.trim();
-                          if (q.isNotEmpty) _fetch(q);
-                        },
-                      ),
-                      McChip(
-                        label: '种子资源 (PT)',
-                        compact: true,
-                        selected: _vertical == _PaletteVertical.torrent,
-                        onTap: () {
-                          setState(() => _vertical = _PaletteVertical.torrent);
-                          final q = _inputCtrl.text.trim();
-                          if (q.isNotEmpty) _fetch(q);
-                        },
-                      ),
+                      if (allowed.contains(_PaletteVertical.media))
+                        McChip(
+                          label: '影视 (TMDB/豆瓣)',
+                          compact: true,
+                          selected: effectiveVertical == _PaletteVertical.media,
+                          onTap: () {
+                            setState(() => _vertical = _PaletteVertical.media);
+                            final q = _inputCtrl.text.trim();
+                            if (q.isNotEmpty) _fetch(q);
+                          },
+                        ),
+                      if (allowed.contains(_PaletteVertical.torrent))
+                        McChip(
+                          label: '种子资源 (PT)',
+                          compact: true,
+                          selected:
+                              effectiveVertical == _PaletteVertical.torrent,
+                          onTap: () {
+                            setState(
+                              () => _vertical = _PaletteVertical.torrent,
+                            );
+                            final q = _inputCtrl.text.trim();
+                            if (q.isNotEmpty) _fetch(q);
+                          },
+                        ),
                       McChip(
                         label: '本地媒体库',
                         compact: true,
-                        selected: _vertical == _PaletteVertical.library,
+                        selected: effectiveVertical == _PaletteVertical.library,
                         onTap: () {
                           setState(() => _vertical = _PaletteVertical.library);
                           final q = _inputCtrl.text.trim();
                           if (q.isNotEmpty) _fetch(q);
                         },
                       ),
-                      Text('Tab 切换域 · ↑↓ 选择 · Enter 打开', style: McText.micro.faint),
+                      Text(
+                        'Tab 切换域 · ↑↓ 选择 · Enter 打开',
+                        style: McText.micro.faint,
+                      ),
                     ],
                   ),
                 ),

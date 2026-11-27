@@ -10,7 +10,7 @@ import '../../../core/designsystem/theme.dart';
 import '../../../core/session/session_store.dart';
 import 'onboarding_page.dart';
 
-/// 启动欢迎页：在深空行星弧光舞台上展示 A9 极光标志、身份与冷银脉冲点，预热后切入主界面。
+/// 启动欢迎页：显式跳转时快速过渡进入主界面（<= 120ms，消除冷启动阻塞）。
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
 
@@ -30,7 +30,7 @@ class _SplashPageState extends State<SplashPage>
       vsync: this,
       duration: const Duration(milliseconds: 900),
     )..repeat();
-    _navTimer = Timer(const Duration(milliseconds: 1350), () {
+    _navTimer = Timer(const Duration(milliseconds: 120), () {
       if (mounted) context.go('/home');
     });
   }

@@ -1,7 +1,10 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
+import '../../../core/image/image_urls.dart';
+import '../../../core/network/server_routes.dart';
 import 'models.dart';
 
 class ReelsApi {
@@ -12,15 +15,14 @@ class ReelsApi {
 
   Map<String, dynamic> _filterQuery(ReelFilter f) => {
         if (f.kind != null) 'kind': f.kind,
-        if (f.genres != null) 'g': f.genres,
-        if (f.countries != null) 'c': f.countries,
-        if (f.decades != null) 'd': f.decades,
+        if (f.genresQuery != null) 'g': f.genresQuery,
+        if (f.countriesQuery != null) 'c': f.countriesQuery,
+        if (f.decadesQuery != null) 'd': f.decadesQuery,
         if (f.ratingGte != null) 'rating_gte': f.ratingGte,
-        if (f.runtimes != null) 'rt': f.runtimes,
+        if (f.runtimesQuery != null) 'rt': f.runtimesQuery,
         if (f.watch != null) 'w': f.watch,
       };
 
-  /// 取一页片段。第一页不带 seed，服务端生成后随响应返回；翻页时原样带回。
   Future<ReelFeedView> feed({
     int? seed,
     required int offset,
@@ -39,10 +41,11 @@ class ReelsApi {
         ..._filterQuery(filter),
       },
     );
-    return ReelFeedView.fromJson((data as Map<String, dynamic>?) ?? const {});
+    return ReelFeedView.fromJson(
+      (data as Map?)?.cast<String, dynamic>() ?? const {},
+    );
   }
 
-  /// 刷片筛选菜单的候选值与计数（与 /reels 同一组参数；为 0 的档 UI 置灰）
   Future<ReelFacetsView> facets({ReelFilter filter = const ReelFilter()}) async {
     final data = await _client.unwrap<dynamic>(
       Channel.general,
@@ -50,11 +53,13 @@ class ReelsApi {
       '$_prefix/reels/facets',
       query: _filterQuery(filter),
     );
-    return ReelFacetsView.fromJson((data as Map<String, dynamic>?) ?? const {});
+    return ReelFacetsView.fromJson(
+      (data as Map?)?.cast<String, dynamic>() ?? const {},
+    );
   }
 
-  /// 刷片事件批量上报（只落 reel_event 表；失败即丢）
   Future<void> reportEvents(List<ReelEventView> events) async {
+    if (events.isEmpty) return;
     await _client.unwrap<dynamic>(
       Channel.general,
       'POST',
@@ -63,8 +68,6 @@ class ReelsApi {
     );
   }
 
-  /// 标记已看 / 收藏（与详情页同一套 marks 接口）。
-  /// 收藏落在整部；已看剧集记这一集、电影记整部。只传要改的那一项。
   Future<void> setMarks({
     required int mediaItemId,
     int? seasonNumber,
@@ -84,6 +87,47 @@ class ReelsApi {
         if (favorite != null) 'favorite': favorite,
       },
     );
+  }
+
+  /// 创建真实访客分享链接：`POST /api/v1/libraries/{libraryId}/items/{id}/share`
+  Future<ReelShareResult> createShareLink({
+    required int libraryId,
+    required int mediaItemId,
+    int expiresInDays = 7,
+  }) async {
+    final data = await _client.unwrap<dynamic>(
+      Channel.general,
+      'POST',
+      '$_prefix/libraries/$libraryId/items/$mediaItemId/share',
+      body: {'expires_in_days': expiresInDays},
+    );
+    return ReelShareResult.fromJson(
+      (data as Map?)?.cast<String, dynamic>() ?? const {},
+    );
+  }
+
+  /// 拉取片段外挂字幕文本（支持相对路径自动拼接当前路由地址）。
+  Future<String?> fetchSnippetSubtitles(String rawUrl) async {
+    var full = rawUrl.trim();
+    if (full.isEmpty) return null;
+    if (full.startsWith('/')) {
+      final origin = ServerRoutes.instance.currentOrigin(_client.baseUrl);
+      if (origin.isNotEmpty) full = '$origin$full';
+    }
+    try {
+      final resp = await Dio().get<String>(
+        full,
+        options: Options(
+          headers: mcImageHeaders(),
+          responseType: ResponseType.plain,
+          receiveTimeout: const Duration(seconds: 20),
+        ),
+      );
+      if ((resp.statusCode ?? 0) >= 200 && (resp.statusCode ?? 0) < 300) {
+        return resp.data;
+      }
+    } catch (_) {}
+    return null;
   }
 }
 

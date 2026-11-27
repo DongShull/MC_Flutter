@@ -3,8 +3,10 @@ import 'package:dio/dio.dart';
 import '../../../core/api/api_exception.dart';
 import 'models.dart';
 
-/// 访客分享 API：在内存中维护 `POST /share/{slug}/unlock` 返回的 `Set-Cookie`，
-/// 确保加密分享解锁后拉取条目、季集与发起播放均携带有效访客凭证。
+/// 访客分享 API（对齐 iOS `ShareLinkKit.swift`）：
+/// - 在内存中维护 `POST /share/{slug}/unlock` 返回的 `Set-Cookie`；
+/// - 支持合集分享点开单部影片时携带 `?item=<mediaItemId>` 查询参数；
+/// - 正确处理 401/403/404 响应体，保留后端中文错误文案。
 class GuestShareApi {
   GuestShareApi(this.origin)
       : _dio = Dio(
@@ -20,6 +22,8 @@ class GuestShareApi {
   final Map<String, String> _cookies = {};
 
   static const _prefix = '/api/v1';
+
+  String get _normalizedOrigin => origin.trim().replaceAll(RegExp(r'/+$'), '');
 
   String? get cookieHeader => _cookies.isEmpty
       ? null
@@ -44,8 +48,8 @@ class GuestShareApi {
     Map<String, dynamic>? query,
   }) async {
     final ck = cookieHeader;
-    final res = await _dio.request<Map<String, dynamic>>(
-      '$origin$_prefix$path',
+    final res = await _dio.request<dynamic>(
+      '$_normalizedOrigin$_prefix$path',
       data: body,
       queryParameters: query,
       options: Options(
@@ -54,21 +58,39 @@ class GuestShareApi {
       ),
     );
     _captureCookies(res.headers);
-    final data = res.data;
-    if (data == null) {
+    final raw = res.data;
+    if (raw == null) {
       throw ApiException(
         'network.empty',
         '服务器返回为空',
         httpStatus: res.statusCode,
       );
     }
-    return _unwrap(data);
+    if (raw is Map<String, dynamic>) {
+      return _unwrap(raw, statusCode: res.statusCode);
+    }
+    throw ApiException(
+      'http.${res.statusCode ?? 0}',
+      '请求失败（HTTP ${res.statusCode ?? 0}）',
+      httpStatus: res.statusCode,
+    );
   }
 
-  Map<String, dynamic> _unwrap(Map<String, dynamic> body) {
-    final data = unwrapEnvelope<dynamic>(body);
-    if (data is Map) return data.cast<String, dynamic>();
-    return <String, dynamic>{};
+  Map<String, dynamic> _unwrap(
+    Map<String, dynamic> body, {
+    int? statusCode,
+  }) {
+    try {
+      final data = unwrapEnvelope<dynamic>(body);
+      if (data is Map) return data.cast<String, dynamic>();
+      return <String, dynamic>{};
+    } on ApiException catch (e) {
+      throw ApiException(
+        e.code,
+        e.message,
+        httpStatus: e.httpStatus ?? statusCode,
+      );
+    }
   }
 
   Future<SharePublic> sharePublic(String slug) async =>
@@ -76,27 +98,59 @@ class GuestShareApi {
 
   Future<SharePublic> shareUnlock(String slug, String password) async =>
       SharePublic.fromJson(
-        await _send('POST', '/share/$slug/unlock', body: {'password': password}),
+        await _send(
+          'POST',
+          '/share/$slug/unlock',
+          body: {'password': password},
+        ),
       );
 
-  Future<SharedItem> shareItem(String slug) async =>
-      SharedItem.fromJson(await _send('GET', '/share/$slug/item'));
+  /// 获取分享条目详情；合集分享点开某一部时必须带 `?item=<itemId>`。
+  Future<SharedItem> shareItem(String slug, {int? itemId}) async =>
+      SharedItem.fromJson(
+        await _send(
+          'GET',
+          '/share/$slug/item',
+          query: {if (itemId != null) 'item': itemId},
+        ),
+      );
 
   Future<SharedCollection> shareCollection(String slug) async =>
       SharedCollection.fromJson(await _send('GET', '/share/$slug/collection'));
 
-  Future<SeasonEpisodesView> shareEpisodes(String slug, int season) async =>
+  /// 获取分享剧集某季的分集列表；合集分享点开某部剧时带 `?item=<itemId>`。
+  Future<SeasonEpisodesView> shareEpisodes(
+    String slug, {
+    required int seasonNumber,
+    int? itemId,
+  }) async =>
       SeasonEpisodesView.fromJson(
         await _send(
           'GET',
           '/share/$slug/episodes',
-          query: {'season_number': season, 'season': season},
+          query: {
+            'season_number': seasonNumber,
+            if (itemId != null) 'item': itemId,
+          },
         ),
       );
 
-  String? imageUrl(String? path) {
+  String? imageUrl(String? path, {int? widthPx}) {
     if (path == null || path.isEmpty) return null;
-    if (path.startsWith('http')) return path;
-    return '$origin$_prefix$path';
+    final p = path.trim();
+    String url;
+    if (p.startsWith('http://') || p.startsWith('https://')) {
+      url = '$_normalizedOrigin$_prefix/images/proxy?url=${Uri.encodeQueryComponent(p)}';
+    } else if (p.startsWith('/api/')) {
+      url = '$_normalizedOrigin$p';
+    } else if (p.startsWith('/')) {
+      url = '$_normalizedOrigin$_prefix$p';
+    } else {
+      url = '$_normalizedOrigin$_prefix/$p';
+    }
+    if (widthPx != null) {
+      url += '${url.contains('?') ? '&' : '?'}w=$widthPx';
+    }
+    return url;
   }
 }

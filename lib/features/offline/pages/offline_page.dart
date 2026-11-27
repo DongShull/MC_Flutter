@@ -7,13 +7,14 @@ import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
+import '../../../core/models/format.dart';
 import '../../../core/player/player_page_args.dart';
 import '../embed.dart';
-import '../state/models.dart';
 import '../widgets/downloading_row.dart';
 
 /// 离线下载管理专页：
-/// 下载中（拖拽调整优先级 + Wi-Fi 守卫）→ 已看完一键清理建议 → 已下载（点击直接离线播放）→ 其他账号缓存 → 存储空间。
+/// 下载中（严格串行队列 + 拖拽调整顺序即时抢占 + Wi-Fi 守卫 + 503 转码排队提示）
+/// → 已看完一键清理建议 → 已下载（真实本地海报 + 点击直接离线播放）→ 其他账号缓存 → 存储空间。
 class OfflinePage extends ConsumerStatefulWidget {
   const OfflinePage({super.key});
 
@@ -63,8 +64,17 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
       '/player',
       extra: PlayerPageArgs(
         url: uri,
+        mediaItemId: unit.mediaItemId,
+        fileId: unit.fileId,
         title: unit.title,
-        subtitle: unit.seasonEpisode ?? '本机离线播放',
+        subtitle: unit.displaySeasonEpisode ?? '本机离线播放',
+        seasonNumber: unit.isMovie ? null : unit.seasonNumber,
+        episodeNumber: unit.isMovie ? null : unit.episodeNumber,
+        isEpisode: !unit.isMovie,
+        isOffline: true,
+        offlineItemId: unit.mediaItemId?.toString(),
+        offlineFileId: unit.fileId,
+        artworkUrl: unit.posterUrl ?? unit.backdropUrl,
       ),
     );
   }
@@ -88,6 +98,17 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
             title: '离线下载',
             titleVisible: true,
             trailing: [
+              if (done.isNotEmpty) ...[
+                McFocusRing(
+                  borderRadius: 24,
+                  child: McGlassIconButton(
+                    icon: McIcons.mediaLibraryFill,
+                    tooltip: '离线媒体库',
+                    onTap: () => context.push('/offline/library'),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
               McFocusRing(
                 borderRadius: 24,
                 child: McGlassIconButton(
@@ -167,6 +188,10 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                             key: ValueKey(unit.id),
                             child: DownloadingRow(
                               unit: unit,
+                              queueAhead: offline.queueAheadOf(unit.id),
+                              waitingForWifi: !offline.allowCellular &&
+                                  unit.status == OfflineUnitStatus.waitingWifi,
+                              canPrioritize: offline.canPrioritize(unit.id),
                               onPauseResume: () => controller.toggle(unit),
                               onCancel: () => controller.cancel(unit),
                               onPrioritize: () => controller.prioritize(unit),
@@ -176,7 +201,20 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                       ),
                     ],
                     const WatchedCard(),
-                    _sectionHeader('已下载'),
+                    Row(
+                      children: [
+                        Expanded(child: _sectionHeader('已下载')),
+                        if (done.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: McChip(
+                              label: '进入离线媒体库',
+                              compact: true,
+                              onTap: () => context.push('/offline/library'),
+                            ),
+                          ),
+                      ],
+                    ),
                     if (done.isEmpty)
                       Text(
                         '还没有已下载的内容。在影片详情页点击「⋯ → 离线缓存到本地」，无网环境也能随时播放。',
@@ -188,13 +226,28 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                         children: [
                           for (final unit in done)
                             McInsetRow(
-                              icon: McIcons.play2Fill,
-                              iconColor: McTokens.accentStrong,
+                              leading: ClipRRect(
+                                borderRadius:
+                                    BorderRadius.circular(McTokens.radiusXs),
+                                child: SizedBox(
+                                  width: 38,
+                                  height: 56,
+                                  child: OfflineArtworkImage(
+                                    rawUrl: unit.posterUrl ?? unit.backdropUrl,
+                                    widthPx: 160,
+                                    placeholderIcon: unit.kind == 'tv'
+                                        ? McIcons.tv
+                                        : McIcons.movie,
+                                  ),
+                                ),
+                              ),
                               title: unit.title,
                               subtitle: [
-                                if (unit.seasonEpisode != null)
-                                  unit.seasonEpisode!,
+                                if (unit.displaySeasonEpisode != null)
+                                  unit.displaySeasonEpisode!,
                                 unit.profileLabel,
+                                if (unit.receivedBytes > 0)
+                                  mcFormatBytes(unit.receivedBytes),
                                 if (unit.watched) '已看完',
                               ].join(' · '),
                               trailing: Row(
@@ -231,7 +284,8 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                         padding: const EdgeInsets.only(top: 10),
                         child: Text(
                           offline.error!,
-                          style: McText.caption.copyWith(color: McTokens.danger),
+                          style:
+                              McText.caption.copyWith(color: McTokens.danger),
                         ),
                       ),
                   ],
@@ -276,7 +330,9 @@ class _OfflinePageState extends ConsumerState<OfflinePage> {
                     expanded: true,
                     onTap: () {
                       Navigator.of(ctx).pop();
-                      ref.read(offlineProvider.notifier).deleteDownloaded(unit);
+                      ref
+                          .read(offlineProvider.notifier)
+                          .deleteDownloaded(unit);
                     },
                   ),
                 ),

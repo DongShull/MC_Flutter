@@ -3,25 +3,40 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mc_flutter/core/session/permissions.dart';
 import 'package:mc_flutter/core/session/session_store.dart';
 import 'package:mc_flutter/features/agent/state/agent_state.dart';
 import 'package:mc_flutter/features/agent/state/models.dart';
 import 'package:mc_flutter/features/agent/widgets/bubble.dart';
 import 'package:mc_flutter/features/search/pages/search_page.dart';
 import 'package:mc_flutter/features/settings/pages/settings_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
-    appSession.debugSeed(baseUrl: 'https://mc.local', token: 'tok');
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    appSession.debugSeed(
+      baseUrl: 'https://mc.local',
+      token: 'tok',
+      permissions: const McPermissions(
+        username: 'admin',
+        role: 'admin',
+        isAdmin: true,
+        allowSubscribe: true,
+        allowSearch: true,
+        allowDirectDownload: true,
+        allowVideoDownload: true,
+      ),
+    );
   });
 
   tearDown(() {
     appSession.logoutForTest();
   });
 
-  testWidgets('SearchPage exposes all 3 search verticals (媒体库 / 影视发现 / 种子资源 PT)',
+  testWidgets('SearchPage exposes all 3 search verticals (影视 / 站点资源 / 媒体库)',
       (tester) async {
     await tester.pumpWidget(
       const ProviderScope(
@@ -29,14 +44,15 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 200));
-
-    expect(find.text('本地媒体库'), findsOneWidget);
-    expect(find.text('影视发现'), findsOneWidget);
-    expect(find.text('种子资源 PT'), findsOneWidget);
-
-    await tester.tap(find.text('种子资源 PT'));
     await tester.pump(const Duration(milliseconds: 200));
-    expect(find.textContaining('搜索 PT 站点种子关键词'), findsOneWidget);
+
+    expect(find.text('影视'), findsWidgets);
+    expect(find.text('站点资源'), findsWidgets);
+    expect(find.text('媒体库'), findsWidgets);
+
+    await tester.tap(find.text('站点资源').first);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.textContaining('搜索 PT 站点资源'), findsWidgets);
   });
 
   testWidgets('SettingsPage renders full native admin catalog on wide desktop viewport',
@@ -55,6 +71,39 @@ void main() {
     expect(find.text('设置与控制中心'), findsWidgets);
     expect(find.text('自动化流水线巡检'), findsWidgets);
     expect(find.text('PT 索引站点与插件同步'), findsWidgets);
+    final scrollable = find.byType(Scrollable).first;
+    await tester.scrollUntilVisible(
+      find.text('MovieClaw Cloud'),
+      240,
+      scrollable: scrollable,
+    );
+    expect(find.text('MovieClaw Cloud'), findsWidgets);
+    expect(find.text('MCP 服务'), findsWidgets);
+  });
+
+  testWidgets('SettingsPage hides admin sections for non-admin member',
+      (tester) async {
+    appSession.debugSeed(
+      baseUrl: 'https://mc.local',
+      token: 'member-tok',
+      permissions: const McPermissions(
+        username: 'alice',
+        role: 'member',
+        isAdmin: false,
+      ),
+    );
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(home: SettingsPage()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.text('通知偏好'), findsWidgets);
+    expect(find.text('语言设置'), findsWidgets);
+    expect(find.text('关于 MovieClaw'), findsWidgets);
+    expect(find.text('自动化流水线巡检'), findsNothing);
+    expect(find.text('MCP 服务'), findsNothing);
   });
 
   testWidgets('Agent BubbleView renders structured Markdown & show_media_cards_v1',

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/agent/agent_ai_consent.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
@@ -33,6 +34,7 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(sessionsProvider.notifier).load();
+      ref.read(chatProvider.notifier).checkLlmProviders();
     });
   }
 
@@ -44,7 +46,14 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
     }
   }
 
-  void _startNewSession({required bool splitView}) {
+  Future<void> _startNewSession({required bool splitView}) async {
+    final chat = ref.read(chatProvider);
+    final agreed = await ensureAgentAiConsent(
+      context,
+      ref,
+      providerNames: chat.providerNames,
+    );
+    if (!agreed || !mounted) return;
     if (splitView) {
       setState(() => _selectedSessionId = null);
       ref.read(chatProvider.notifier).resetNewSession();
@@ -59,7 +68,9 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
       setState(() => _selectedSessionId = session.id);
       ref.read(chatProvider.notifier).openSession(session.id);
     } else {
-      context.push('$routeAgentLocal/session/${session.id}');
+      context.push(
+        '$routeAgentLocal/session/${Uri.encodeComponent(session.id)}',
+      );
     }
   }
 
@@ -133,7 +144,9 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
               setState(() => _selectedSessionId = newId);
               await ref.read(chatProvider.notifier).openSession(newId);
             } else {
-              context.push('$routeAgentLocal/session/$newId');
+              context.push(
+                '$routeAgentLocal/session/${Uri.encodeComponent(newId)}',
+              );
             }
           },
         ),
@@ -157,6 +170,8 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
   Widget build(BuildContext context) {
     final sessions = ref.watch(sessionsProvider);
     final activeChatId = ref.watch(chatProvider.select((s) => s.sessionId));
+    final llmBlocked =
+        ref.watch(chatProvider.select((s) => s.llmConfigured == false));
     final width = MediaQuery.sizeOf(context).width;
     final splitView = width >= 860;
     final form = McFormWatch.of(context);
@@ -322,7 +337,7 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          if (sessions.isEmpty)
+          if (sessions.isEmpty && !llmBlocked)
             McEmptyView(
               icon: McIcons.aiStar,
               title: '还没有 AI 会话',
@@ -331,64 +346,132 @@ class _SessionsPageState extends ConsumerState<SessionsPage> {
               onRetry: () => _startNewSession(splitView: false),
             )
           else
-            Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: wide ? 760 : double.infinity,
-                ),
-                child: ListView(
-                  padding: EdgeInsets.fromLTRB(0, topPad + 64, 0, 48),
-                  children: [
-                    McInsetGroup(
-                      header: '全部会话',
-                      children: [
-                        for (final session in sessions)
-                          Dismissible(
-                            key: ValueKey(session.id),
-                            direction: DismissDirection.endToStart,
-                            background: Container(
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.only(right: 20),
-                              color: McTokens.danger,
-                              child: const Icon(
-                                McIcons.trash2,
-                                color: Colors.white,
-                                size: 20,
+            RefreshIndicator(
+              color: McTokens.accentStrong,
+              backgroundColor: McTokens.surfaceSolid,
+              onRefresh: () async {
+                await Future.wait([
+                  ref.read(sessionsProvider.notifier).load(),
+                  ref.read(chatProvider.notifier).checkLlmProviders(),
+                ]);
+              },
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: wide ? 760 : double.infinity,
+                  ),
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: EdgeInsets.fromLTRB(0, topPad + 64, 0, 48),
+                    children: [
+                      if (llmBlocked)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                          child: Container(
+                            padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+                            decoration: BoxDecoration(
+                              color: McTokens.surfaceInset,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: McTokens.warn.withValues(alpha: 0.45),
                               ),
                             ),
-                            onDismissed: (_) => ref
-                                .read(sessionsProvider.notifier)
-                                .remove(session.id),
-                            child: GestureDetector(
-                              onSecondaryTapUp: (d) => _showSessionMenu(
-                                session,
-                                globalPos: d.globalPosition,
-                                splitView: false,
-                              ),
-                              onLongPress: () => _showSessionMenu(
-                                session,
-                                splitView: false,
-                              ),
-                              child: McInsetRow(
-                                icon: session.running
-                                    ? McIcons.aiStarFill
-                                    : McIcons.chat,
-                                iconColor: session.running
-                                    ? McTokens.info
-                                    : McTokens.textMuted,
-                                title: session.displayTitle,
-                                subtitle:
-                                    '${session.entryCount} 条消息'
-                                    "${session.updatedAt == null ? '' : ' · ${session.updatedAt!}'}",
-                                showChevron: true,
-                                onTap: () =>
-                                    _openSession(session, splitView: false),
-                              ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  McIcons.aiStar,
+                                  size: 18,
+                                  color: McTokens.warn,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '尚未接入 AI 模型服务商',
+                                        style: McText.sub.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '请前往「设置 → AI 模型」添加服务商后使用',
+                                        style: McText.micro.muted,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                McActionPill(
+                                  label: '去配置',
+                                  primary: true,
+                                  height: 32,
+                                  onTap: () async {
+                                    await context.push('/settings/ai');
+                                    if (!mounted) return;
+                                    await ref
+                                        .read(chatProvider.notifier)
+                                        .checkLlmProviders();
+                                  },
+                                ),
+                              ],
                             ),
                           ),
-                      ],
-                    ),
-                  ],
+                        ),
+                      if (sessions.isNotEmpty)
+                        McInsetGroup(
+                          header: '全部会话',
+                          children: [
+                            for (final session in sessions)
+                              Dismissible(
+                                key: ValueKey(session.id),
+                                direction: DismissDirection.endToStart,
+                                background: Container(
+                                  alignment: Alignment.centerRight,
+                                  padding: const EdgeInsets.only(right: 20),
+                                  color: McTokens.danger,
+                                  child: const Icon(
+                                    McIcons.trash2,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                ),
+                                onDismissed: (_) => ref
+                                    .read(sessionsProvider.notifier)
+                                    .remove(session.id),
+                                child: GestureDetector(
+                                  onSecondaryTapUp: (d) => _showSessionMenu(
+                                    session,
+                                    globalPos: d.globalPosition,
+                                    splitView: false,
+                                  ),
+                                  onLongPress: () => _showSessionMenu(
+                                    session,
+                                    splitView: false,
+                                  ),
+                                  child: McInsetRow(
+                                    icon: session.running
+                                        ? McIcons.aiStarFill
+                                        : McIcons.chat,
+                                    iconColor: session.running
+                                        ? McTokens.info
+                                        : McTokens.textMuted,
+                                    title: session.displayTitle,
+                                    subtitle:
+                                        '${session.entryCount} 条消息'
+                                        "${session.updatedAt == null ? '' : ' · ${session.updatedAt!}'}",
+                                    showChevron: true,
+                                    onTap: () =>
+                                        _openSession(session, splitView: false),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),

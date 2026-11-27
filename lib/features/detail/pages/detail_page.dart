@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -11,30 +13,45 @@ import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/subscribe_sheet.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/player/player_page_args.dart';
-// offline 域下载能力（任务明确授权的跨 feature import：只调公开 API，不改 offline 内部）。
-import '../../offline/pages/profile_sheet.dart';
-import '../../offline/state/models.dart';
+import '../../../core/session/permissions.dart';
+import '../../offline/embed.dart';
 import '../state/detail_controller.dart';
 import '../widgets/air_schedule.dart';
 import '../widgets/cast_row.dart';
+import '../widgets/chapter_strip_section.dart';
 import '../widgets/detail_admin_sheets.dart';
 import '../widgets/detail_header.dart';
 import '../widgets/episode_list.dart';
 import '../widgets/episode_ranges.dart';
 import '../widgets/item_actions_menu.dart';
+import '../widgets/library_file_section.dart';
+import '../widgets/media_track_section.dart';
 import '../widgets/meta_links.dart';
 import '../widgets/similar_row.dart';
+import '../widgets/transfer_item_sheet.dart';
 
-/// 媒体详情页（1:1 对齐 iOS `LibraryItemDetailView` & 参考图 `scene-1.jpg`）：
-/// - 全出血剧照 + `McAmbientColor.bottomEdge` 底边动态取色铺满上半页并向纯黑底平滑过渡；
-/// - 顶部无实色栏，浮左 `<` 与右 `⋯` 两颗液态玻璃圆钮，滚过标题后片名与黑雾淡入；
-/// - 黄金操作区：通栏亮银白胶囊主按钮 + 续播细进度线 + 等宽「已收藏 / 标为已看」双液态玻璃胶囊；
-/// - 轨道胶囊行 → 简介 → 季选 `McChip` 与 16:9 分集卡 → 圆形演职员 → 同系列与相似推荐。
+/// 媒体详情页（100% 对齐 iOS `LibraryItemDetailView`）：
+/// - 全出血剧照 + ClearLogo + 底边氛围取色 + 浮动玻璃顶栏；
+/// - 离线下载状态环（`OfflineDownloadControl`）+ 三态播放键（播放 / 继续 / 重看第 N 次）+ 宽屏「从头播放」；
+/// - 多版本切换与交互式轨道（`MediaTrackSection` + `TrackListSheet` + 字幕预览与音频对齐校准 + 5 阶段 AI 字幕）；
+/// - 剧集季选 + 交互式播出日历弹层（含单集补缺）+ >50 集分段胶囊与 5 列宫格选集；
+/// - 章节横排（`ChapterStripSection` + 灯箱缩放跳播 + 后台生成自动轮询）；
+/// - 演职员（TMDB 影人页 / 本地 NFO 演员同库筛选 `?actor=`）；
+/// - 相似推荐 + 作品系列（含未入库 `MissingPartCell` 一键订阅）；
+/// - 物理媒体文件区（本机副本行 / 展开规格 / 回收站恢复与彻底清理 / 单文件删除 / 重复文件跳转）+ 外部词条（TMDB / IMDb / 豆瓣 App）。
 class DetailPage extends ConsumerStatefulWidget {
-  const DetailPage({super.key, this.libraryId = -1, this.itemId = -1});
+  const DetailPage({
+    super.key,
+    this.libraryId = -1,
+    this.itemId = -1,
+    this.initialSeason,
+    this.initialEpisode,
+  });
 
   final int libraryId;
   final int itemId;
+  final int? initialSeason;
+  final int? initialEpisode;
 
   @override
   ConsumerState<DetailPage> createState() => _DetailPageState();
@@ -45,12 +62,16 @@ class _DetailPageState extends ConsumerState<DetailPage> {
   double _scrollOffset = 0;
   Color? _edgeColor;
   String? _sampledUrl;
+  int? _activeRangeIndex;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(detailControllerProvider(_key).notifier).load();
+      ref.read(detailControllerProvider(_key).notifier).load(
+            initialSeason: widget.initialSeason,
+            initialEpisode: widget.initialEpisode,
+          );
     });
   }
 
@@ -65,55 +86,56 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     });
   }
 
-  void _playEpisode(EpisodeEntry e) {
+  void _playEpisode(EpisodeEntry e, {Duration? overrideStart}) {
     if (!e.owned || e.fileIds.isEmpty) {
       McToast.error('第 ${e.episodeNumber} 集缺失文件，无法播放');
       return;
     }
+    final state = ref.read(detailControllerProvider(_key));
+    final activeFile = state.activeTrackFile;
+    final fileId = (state.selectedEpisodeNumber == e.episodeNumber &&
+            activeFile != null &&
+            e.fileIds.contains(activeFile.id))
+        ? activeFile.id
+        : e.fileIds.first;
     _pushPlayer(
-      fileId: e.fileIds.first,
-      title: '第 ${e.seasonNumber} 季第 ${e.episodeNumber} 集',
+      fileId: fileId,
+      title: e.seasonNumber == 0
+          ? '特别篇第 ${e.episodeNumber} 集'
+          : '第 ${e.seasonNumber} 季第 ${e.episodeNumber} 集',
       subtitle: e.name,
-      startPosition: e.resumeMs > 0 ? Duration(milliseconds: e.resumeMs) : null,
+      startPosition: overrideStart ??
+          (e.resumeMs > 0 ? Duration(milliseconds: e.resumeMs) : null),
       resumeSeason: e.seasonNumber,
       resumeEpisode: e.episodeNumber,
     );
   }
 
-  void _play() {
+  void _play({Duration? overrideStart}) {
     final state = ref.read(detailControllerProvider(_key));
     final entry = state.entry;
     if (entry == null) return;
     if (entry.isTv) {
-      final resume = state.resume;
-      final season = resume?.season ?? state.selectedSeason;
-      final episode = resume?.episode ?? entry.resumeEpisode;
-      final list = state.episodes[season] ?? const <EpisodeEntry>[];
-      EpisodeEntry? target;
-      for (final e in list) {
-        if (e.episodeNumber == episode) {
-          target = e;
-          break;
-        }
-      }
-      target ??= list.isEmpty ? null : list.first;
+      final target = state.selectedEpisode;
       if (target == null || !target.owned || target.fileIds.isEmpty) {
         McToast.error('该集暂无在位文件，无法播放');
         return;
       }
-      _pushPlayer(
-        fileId: target.fileIds.first,
-        title: '第 ${target.seasonNumber} 季第 ${target.episodeNumber} 集',
-        subtitle: target.name,
-        startPosition: (resume?.positionMs ?? target.resumeMs) > 0
-            ? Duration(milliseconds: resume?.positionMs ?? target.resumeMs)
-            : null,
-        resumeSeason: target.seasonNumber,
-        resumeEpisode: target.episodeNumber,
+      final resumePos = state.resume?.positionMs ?? target.resumeMs;
+      _playEpisode(
+        target,
+        overrideStart: overrideStart ??
+            (resumePos > 0 ? Duration(milliseconds: resumePos) : null),
       );
       return;
     }
-    _pushPlayer();
+    final active = state.activeTrackFile;
+    final resumePos = state.resume?.positionMs ?? 0;
+    _pushPlayer(
+      fileId: active?.id ?? (entry.fileIds.isEmpty ? null : entry.fileIds.first),
+      startPosition: overrideStart ??
+          (resumePos > 0 ? Duration(milliseconds: resumePos) : null),
+    );
   }
 
   void _pushPlayer({
@@ -155,32 +177,62 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     );
   }
 
-  void _showActionMenu(DetailController controller) async {
-    final action = await showItemActionsMenu(context);
+  Future<void> _showActionMenu(DetailController controller) async {
+    final state = ref.read(detailControllerProvider(_key));
+    final entry = state.entry;
+    if (entry == null) return;
+    final perms = ref.read(permissionsProvider);
+    final isVideoOrPhoto = entry.kind == 'video' || entry.kind == 'photo';
+
+    final action = await showItemActionsMenu(
+      context,
+      isAdmin: perms.isAdmin,
+      canManageLibraries: perms.canManageLibraries,
+      canSubscribe: perms.canSubscribe,
+      canDownload: perms.canDownloadVideo && state.availableUnitFiles.isNotEmpty,
+      isScraped: state.libraryMeta?.scraped ?? entry.isScraped,
+      hasTmdbId: (entry.tmdbId ?? 0) > 0,
+      isVideoOrPhoto: isVideoOrPhoto,
+      showChapterRegen: state.libraryMeta?.extractChapterImages ?? true,
+      chaptersPending: entry.chaptersPending,
+      scraping: entry.scraping,
+    );
     if (action == null || !mounted) return;
-    final entry = ref.read(detailControllerProvider(_key)).entry;
     switch (action) {
       case ItemAction.subscribe:
-        _subscribe();
+        await _subscribe();
+      case ItemAction.upgrade:
+        await _upgrade(controller);
       case ItemAction.download:
         _download();
       case ItemAction.addToCollection:
-        showAddToCollectionSheet(context: context, controller: controller);
-      case ItemAction.share:
-        showConfigurableShareSheet(
+        await showAddToCollectionSheet(
           context: context,
           controller: controller,
-          itemTitle: entry?.title ?? '影片',
+        );
+      case ItemAction.share:
+        await showConfigurableShareSheet(
+          context: context,
+          controller: controller,
+          itemTitle: entry.title,
         );
       case ItemAction.subtitleGen:
-        showSubtitleGenSheet(context: context, controller: controller);
-      case ItemAction.artwork:
-        showArtworkPickerSheet(context: context, controller: controller);
-      case ItemAction.reidentify:
-        showReidentifySheet(
+        await showSubtitleGenSheet(
           context: context,
           controller: controller,
-          initialTitle: entry?.title ?? '',
+          fileId: state.activeTrackFile?.id,
+          file: state.activeTrackFile,
+        );
+      case ItemAction.artwork:
+        await showArtworkPickerSheet(
+          context: context,
+          controller: controller,
+        );
+      case ItemAction.reidentify:
+        await showReidentifySheet(
+          context: context,
+          controller: controller,
+          initialTitle: entry.title,
         );
       case ItemAction.refreshMetadata:
         final err = await controller.refreshMetadata();
@@ -190,108 +242,275 @@ class _DetailPageState extends ConsumerState<DetailPage> {
         } else {
           McToast.success('已提交刷新元数据任务');
         }
+      case ItemAction.reloadNfo:
+        final err = await controller.reloadNfo();
+        if (!mounted) return;
+        if (err != null) {
+          McToast.error(err);
+        } else {
+          McToast.success('已提交重读本地 NFO 任务');
+        }
+      case ItemAction.regenerateChapters:
+        final err = await controller.regenerateChapters();
+        if (!mounted) return;
+        if (err != null) {
+          McToast.error(err);
+        } else {
+          McToast.success('已开始重新生成章节缩略图');
+        }
+      case ItemAction.transfer:
+        await showTransferItemSheet(
+          context: context,
+          controller: controller,
+          title: entry.title,
+          onDone: () => controller.load(silent: true),
+        );
       case ItemAction.delete:
-        _delete(controller);
+        await _deleteItem(controller);
     }
   }
 
-  Future<void> _subscribe() async {
+  Future<void> _subscribe({String? overrideTitleRef}) async {
     final entry = ref.read(detailControllerProvider(_key)).entry;
-    final tmdbId = entry?.tmdbId;
-    if (tmdbId == null) {
-      McToast.info('该条目没有 TMDB 标识，暂不能订阅');
-      return;
+    String? refStr = overrideTitleRef;
+    if (refStr == null) {
+      final tmdbId = entry?.tmdbId;
+      if (tmdbId == null || tmdbId <= 0) {
+        McToast.info('该条目没有 TMDB 标识，暂不能订阅');
+        return;
+      }
+      refStr = 'tmdb:${entry!.isTv ? 'tv' : 'movie'}:$tmdbId';
     }
-    final refStr = 'tmdb:${entry!.isTv ? 'tv' : 'movie'}:$tmdbId';
     final outcome = await showSubscribeSheet(context, ref, titleRef: refStr);
     if (!mounted || outcome == null) return;
     switch (outcome) {
       case SubscribeSheetOutcome.created:
         McToast.success('已加入追更订阅');
+        unawaited(ref.read(detailControllerProvider(_key).notifier).load(silent: true));
       case SubscribeSheetOutcome.managed:
         context.push('/subscriptions');
     }
+  }
+
+  Future<void> _upgrade(DetailController controller) async {
+    final existingId = await controller.findExistingSubscriptionId();
+    if (!mounted) return;
+    if (existingId != null && existingId > 0) {
+      context.push('/subscriptions/detail/$existingId?upgrade-run=1');
+      return;
+    }
+    await _subscribe();
   }
 
   void _download({int? specificFileId, String? episodeSubtitle}) {
     final state = ref.read(detailControllerProvider(_key));
     final entry = state.entry;
     if (entry == null) return;
-    final fileId = specificFileId ??
-        ref.read(detailControllerProvider(_key).notifier).leadFileId;
-    if (fileId == null) {
-      McToast.error('没有在位文件，无法缓存');
-      return;
-    }
-    final seasonList = state.episodes[state.selectedSeason] ?? const <EpisodeEntry>[];
-    final seasonFileIds = [
-      for (final e in seasonList)
-        if (e.playFileId != null) e.playFileId.toString(),
-    ];
-    const profiles = [
-      DownloadProfile(id: 'original', label: '原画', isOriginal: true),
-      DownloadProfile(
-        id: '1080p',
-        label: '1080P',
-        isOriginal: false,
-        transcode: true,
-      ),
-      DownloadProfile(
-        id: '720p',
-        label: '720P',
-        isOriginal: false,
-        transcode: true,
-      ),
-      DownloadProfile(
-        id: '480p',
-        label: '480P',
-        isOriginal: false,
-        transcode: true,
-      ),
-    ];
-    showDownloadProfileSheet(
-      context,
-      candidate: DownloadCandidate(
-        fileId: fileId.toString(),
+    final offline = ref.read(offlineProvider);
+
+    if (specificFileId != null) {
+      showOfflineDownloadSheet(
+        context,
         title: episodeSubtitle != null
             ? '${entry.title} · $episodeSubtitle'
             : entry.title,
-        scopes: entry.isTv && specificFileId == null && seasonFileIds.length > 1
-            ? const ['当前集', '本季全部']
-            : const ['本片'],
-        profiles: profiles,
-        seasonFileIds: seasonFileIds,
-      ),
+        fileId: specificFileId,
+      );
+      return;
+    }
+
+    if (!entry.isTv) {
+      final leadId = state.activeTrackFile?.id ??
+          ref.read(detailControllerProvider(_key).notifier).leadFileId;
+      if (leadId == null) {
+        McToast.error('没有在位文件，无法缓存');
+        return;
+      }
+      showOfflineDownloadSheet(
+        context,
+        title: entry.title,
+        fileId: leadId,
+      );
+      return;
+    }
+
+    final seasonNum = state.selectedSeason;
+    final seasonList = state.currentSeasonEpisodes;
+    final choiceEps = <OfflineChoiceEpisode>[
+      for (final e in seasonList)
+        if (e.owned && e.playFileId != null)
+          OfflineChoiceEpisode(
+            season: e.seasonNumber,
+            episode: e.episodeNumber,
+            fileId: e.playFileId,
+            played: e.played,
+            local: _localStateFor(offline, e.playFileId!),
+          ),
+    ];
+    if (choiceEps.isEmpty) {
+      McToast.error('本季暂无可下载的在位文件');
+      return;
+    }
+    final sel = state.selectedEpisode;
+    final choices = OfflineDownloadChoices.make(
+      episodes: choiceEps,
+      selected: sel != null
+          ? (season: sel.seasonNumber, episode: sel.episodeNumber)
+          : null,
+      selectedFile: state.activeTrackFile?.id ?? sel?.playFileId,
+      multiSeason: entry.seasons.length > 1,
+      season: seasonNum,
+    );
+    showOfflineDownloadSheet(
+      context,
+      title: entry.title,
+      choices: choices,
     );
   }
 
-  Future<void> _delete(DetailController controller) async {
+  OfflineChoiceLocalState? _localStateFor(dynamic offlineState, int fileId) {
+    final unit = offlineState.unitForFile(fileId) as DownloadUnit?;
+    if (unit == null) return null;
+    return unit.playable
+        ? OfflineChoiceLocalState.done
+        : OfflineChoiceLocalState.active;
+  }
+
+  Future<void> _deleteItem(DetailController controller) async {
     final entry = ref.read(detailControllerProvider(_key)).entry;
-    final ok = await showDeletePreviewSheet(
+    final deleted = await showDeletePreviewSheet(
       context: context,
       controller: controller,
       title: entry?.title ?? '',
     );
-    if (ok != true || !mounted) return;
-    final err = await controller.deleteItem();
+    if (deleted != true || !mounted) return;
+    McToast.success('条目已删除');
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/home');
+    }
+  }
+
+  Future<void> _deleteSingleFile(
+    DetailController controller,
+    DetailFileInfo file,
+  ) async {
+    final entry = ref.read(detailControllerProvider(_key)).entry;
+    final res = await showDeleteFileSheet(
+      context: context,
+      controller: controller,
+      title: entry?.title ?? '',
+      file: file,
+    );
+    if (res == null || !res.deleted || !mounted) return;
+    if (res.wholeItemDeleted) {
+      McToast.success('最后一个文件已删除，条目已移除');
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/home');
+      }
+    } else {
+      McToast.success('文件已删除');
+      await controller.load(silent: true);
+    }
+  }
+
+  Future<void> _restoreFile(
+    DetailController controller,
+    DetailFileInfo file,
+  ) async {
+    final err = await controller.restoreFile(file.id);
     if (!mounted) return;
     if (err != null) {
       McToast.error(err);
-      return;
+    } else {
+      McToast.success('已恢复 ${file.fileName}');
     }
-    McToast.success('条目已删除');
-    if (context.canPop()) context.pop();
   }
 
+  Future<void> _purgeFile(
+    DetailController controller,
+    DetailFileInfo file,
+  ) async {
+    final confirmed = await showMcSheet<bool>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('立即彻底清理「${file.fileName}」？', style: McText.titleSm),
+            const SizedBox(height: 8),
+            Text(
+              file.purgeAfter == null
+                  ? '将从磁盘永久删除该待回收文件，不可恢复。'
+                  : '将提前永久清除回收站中的该文件并释放磁盘空间，不可恢复。',
+              style: McText.sub.muted,
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: '取消',
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: '彻底删除',
+                    icon: McIcons.trash2,
+                    primary: false,
+                    tone: McGlassTone.danger,
+                    expanded: true,
+                    onTap: () => Navigator.of(ctx).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final err = await controller.purgeFile(file.id);
+    if (!mounted) return;
+    if (err != null) {
+      McToast.error(err);
+    } else {
+      McToast.success('已彻底清理 ${file.fileName}');
+    }
+  }
+
+  /// 演职员点击路由（对齐 iOS `CastLink.resolve`）：
+  /// - 有 TMDB personId -> `/library/person/$id?name=...`
+  /// - 本地 / NFO 库无 personId 的演员 -> `/library/detail/${entry.libraryId}?actor=...`
   void _openPerson(CastMember member) {
     final id = member.personId;
-    if (id == null || id <= 0) {
-      McToast.info('暂无「${member.name}」的人物档案');
+    if (id != null && id > 0) {
+      context.push(
+        '/library/person/$id?name=${Uri.encodeComponent(member.name)}',
+      );
       return;
     }
-    context.push(
-      '/library/person/$id?name=${Uri.encodeComponent(member.name)}',
-    );
+    final entry = ref.read(detailControllerProvider(_key)).entry;
+    final trimmed = member.name.trim();
+    if (entry != null &&
+        entry.libraryId > 0 &&
+        member.isActor &&
+        trimmed.isNotEmpty) {
+      context.push(
+        '/library/detail/${entry.libraryId}?actor=${Uri.encodeComponent(trimmed)}',
+      );
+      return;
+    }
+    McToast.info('暂无「${member.name}」的关联作品');
   }
 
   void _back() {
@@ -302,10 +521,53 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     }
   }
 
-  Widget _buildActionZone(DetailState state, DetailController controller) {
+  Widget _buildStatusBanners(DetailEntry entry) {
+    if (!entry.scraping) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: McTokens.info.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: McTokens.info.withValues(alpha: 0.28)),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: McTokens.info,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '正在刷新元数据'
+                '${entry.scrapingPhase != null ? ' · ${entry.scrapingPhase}' : ''}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: McText.caption.copyWith(color: McTokens.info),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionZone(
+    DetailState state,
+    DetailController controller, {
+    required bool wide,
+  }) {
+    final entry = state.entry!;
     final resume = state.resume;
     final hasProgress =
         resume != null && resume.positionMs > 0 && resume.durationMs > 0;
+    final resumable = resume != null && resume.positionMs > 0;
     final progressRatio = hasProgress
         ? (resume.positionMs / resume.durationMs).clamp(0.02, 1.0)
         : 0.0;
@@ -313,23 +575,52 @@ class _DetailPageState extends ConsumerState<DetailPage> {
         ? ((resume.durationMs - resume.positionMs) / 60000).ceil().clamp(1, 9999)
         : 0;
     final isFav = state.marks.isFavorite;
-    final isPlayed = state.marks.played;
+    final isPlayed = (resume?.played ?? false) || state.marks.played;
+    final playCount = resume?.playCount ?? 0;
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 420),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          McFocusRing(
-            borderRadius: McTokens.pillRadius,
-            child: McActionPill(
-              label: playButtonLabel(state),
-              icon: McIcons.play2Fill,
-              primary: true,
-              expanded: true,
-              height: 44,
-              onTap: _play,
+          if (!entry.isTv)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: OfflineDownloadControl(
+                mediaItemId: entry.id,
+                title: entry.title,
+                fileId: state.activeTrackFile?.id,
+              ),
             ),
+          Row(
+            children: [
+              Expanded(
+                child: McFocusRing(
+                  borderRadius: McTokens.pillRadius,
+                  child: McActionPill(
+                    label: playButtonLabel(state),
+                    icon: McIcons.play2Fill,
+                    primary: true,
+                    expanded: true,
+                    height: 44,
+                    onTap: () => _play(),
+                  ),
+                ),
+              ),
+              if (wide && resumable) ...[
+                const SizedBox(width: 10),
+                McFocusRing(
+                  borderRadius: McTokens.pillRadius,
+                  child: McActionPill(
+                    label: '从头播放',
+                    icon: McIcons.replay2,
+                    primary: false,
+                    height: 44,
+                    onTap: () => _play(overrideStart: Duration.zero),
+                  ),
+                ),
+              ],
+            ],
           ),
           if (hasProgress) ...[
             const SizedBox(height: 10),
@@ -359,6 +650,13 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                       .tabular,
                 ),
               ],
+            ),
+          ] else if (isPlayed && !resumable && playCount > 1) ...[
+            const SizedBox(height: 6),
+            Text(
+              '已累计观看 $playCount 次',
+              textAlign: wide ? TextAlign.start : TextAlign.center,
+              style: McText.micro.faint.tabular,
             ),
           ],
           const SizedBox(height: 10),
@@ -397,9 +695,19 @@ class _DetailPageState extends ConsumerState<DetailPage> {
               ),
             ],
           ),
+          _buildStatusBanners(entry),
         ],
       ),
     );
+  }
+
+  String _seasonLabel(DetailEntry entry, int seasonNum) {
+    for (final s in entry.seasons) {
+      if (s.number == seasonNum && s.name != null && s.name!.isNotEmpty) {
+        return s.name!;
+      }
+    }
+    return seasonNum == 0 ? '特别篇' : '第 $seasonNum 季';
   }
 
   Widget _buildTvSeasons(
@@ -408,12 +716,70 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     DetailController controller,
     List<EpisodeEntry> episodes,
   ) {
+    final perms = ref.watch(permissionsProvider);
+    final schedule = state.currentAirSchedule;
+    final ranges = EpisodeRangesHelper.buildRanges(episodes);
+    final anchor = state.currentAnchorEpisode;
+    final seasonNum = state.selectedSeason ?? 1;
+    final seasonTitle = _seasonLabel(entry, seasonNum);
+
+    int currentRangeIndex = _activeRangeIndex ?? 0;
+    if (ranges.isNotEmpty) {
+      final exists = ranges.any((r) => r.index == currentRangeIndex);
+      if (!exists) {
+        final seed = state.selectedEpisodeNumber ?? anchor;
+        final matched = seed != null
+            ? EpisodeRangesHelper.rangeContaining(seed, ranges)
+            : null;
+        currentRangeIndex = matched?.index ?? ranges.first.index;
+      }
+    }
+
+    void openAirSheet() {
+      if (schedule == null) return;
+      showAirScheduleSheet(
+        context: context,
+        title: entry.title,
+        seasonLabel: seasonTitle,
+        episodes: episodes,
+        schedule: schedule,
+        canSubscribe: perms.canSubscribe,
+        controller: controller,
+        onSubscribe: perms.canSubscribe && (entry.tmdbId ?? 0) > 0
+            ? () => _subscribe()
+            : null,
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 20),
-        if (state.airSchedule != null) AirSchedule(schedule: state.airSchedule!),
-        const McSectionHeader(title: '剧集'),
+        McSectionHeader(
+          title: '剧集',
+          countLabel: episodes.isNotEmpty
+              ? '${episodes.where((e) => e.owned).length}/${episodes.length}'
+              : null,
+          trailingText: ranges.isNotEmpty
+              ? '全部 ${episodes.length} 集'
+              : (schedule != null ? '播出日历' : null),
+          onTap: ranges.isNotEmpty
+              ? () async {
+                  final picked = await showEpisodeGridSheet(
+                    context: context,
+                    episodes: episodes,
+                    ranges: ranges,
+                    anchorEpisode: anchor,
+                    selectedEpisode: state.selectedEpisodeNumber,
+                  );
+                  if (picked == null || !mounted) return;
+                  setState(
+                    () => _activeRangeIndex = EpisodeRangesHelper.indexOf(picked),
+                  );
+                  await controller.selectEpisode(seasonNum, picked);
+                }
+              : (schedule != null ? openAirSheet : null),
+        ),
         if (entry.seasons.length > 1) ...[
           const SizedBox(height: 10),
           SizedBox(
@@ -432,51 +798,201 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                 return McChip(
                   label: label,
                   selected: state.selectedSeason == s.number,
-                  onTap: () => controller.loadSeason(s.number),
+                  onTap: () {
+                    setState(() => _activeRangeIndex = null);
+                    controller.loadSeason(s.number);
+                  },
                 );
               },
             ),
           ),
         ],
-        const SizedBox(height: 6),
-        EpisodeRanges(episodes: episodes),
-        EpisodeList(
-          episodes: episodes,
-          onEpisodeTap: _playEpisode,
-          onTogglePlayed: (ep) async {
-            final err = await controller.toggleEpisodePlayed(ep);
-            if (!mounted) return;
-            if (err != null) {
-              McToast.error(err);
+        const SizedBox(height: 8),
+        if (schedule != null || state.airSchedule != null)
+          AirSchedule(
+            schedule: schedule,
+            legacyBanner: state.airSchedule,
+            episodes: episodes,
+            onOpenSheet: schedule != null ? openAirSheet : null,
+          ),
+        if (ranges.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          EpisodeRangeChips(
+            ranges: ranges,
+            currentIndex: currentRangeIndex,
+            anchorEpisode: anchor,
+            onSelect: (r) {
+              setState(() => _activeRangeIndex = r.index);
+              final targetEp = EpisodeRangesHelper.entryOf(r, anchor: anchor);
+              controller.selectEpisode(seasonNum, targetEp);
+            },
+          ),
+          const SizedBox(height: 6),
+        ] else if (schedule == null)
+          EpisodeRanges(episodes: episodes),
+        if (state.episodesLoading && episodes.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator(color: McTokens.accent)),
+          )
+        else
+          EpisodeList(
+            mediaItemId: entry.id,
+            episodes: episodes,
+            selectedEpisodeNumber: state.selectedEpisodeNumber,
+            anchorEpisode: anchor,
+            airSchedule: schedule,
+            activeRangeIndex: ranges.isNotEmpty ? currentRangeIndex : null,
+            onRangeChanged: (r) {
+              setState(() => _activeRangeIndex = r.index);
+              final targetEp = EpisodeRangesHelper.entryOf(r, anchor: anchor);
+              controller.selectEpisode(seasonNum, targetEp);
+            },
+            onEpisodeSelect: (ep) =>
+                controller.selectEpisode(ep.seasonNumber, ep.episodeNumber),
+            onEpisodeTap: _playEpisode,
+            onTogglePlayed: (ep) async {
+              final err = await controller.toggleEpisodePlayed(ep);
+              if (!mounted) return;
+              if (err != null) {
+                McToast.error(err);
+              } else {
+                McToast.success(ep.played ? '已标为未看' : '已标为看完');
+              }
+            },
+            onDownloadEpisode: (ep) {
+              if (ep.playFileId == null) {
+                McToast.error('该集无在位文件');
+                return;
+              }
+              _download(
+                specificFileId: ep.playFileId,
+                episodeSubtitle:
+                    'S${ep.seasonNumber.toString().padLeft(2, '0')}E${ep.episodeNumber.toString().padLeft(2, '0')}',
+              );
+            },
+            onSubtitleEpisode: (ep) {
+              if (ep.playFileId == null) {
+                McToast.error('该集无在位文件');
+                return;
+              }
+              DetailFileInfo? epFile;
+              for (final f in entry.files) {
+                if (f.id == ep.playFileId) {
+                  epFile = f;
+                  break;
+                }
+              }
+              showSubtitleGenSheet(
+                context: context,
+                controller: controller,
+                fileId: ep.playFileId,
+                file: epFile,
+                label:
+                    'S${ep.seasonNumber.toString().padLeft(2, '0')}E${ep.episodeNumber.toString().padLeft(2, '0')}',
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildRelatedAndFiles(
+    DetailEntry entry,
+    DetailState state,
+    DetailController controller,
+  ) {
+    final perms = ref.watch(permissionsProvider);
+    final unitFiles = state.currentUnitFiles;
+    final ep = state.selectedEpisode;
+    final localTitle = entry.isTv && ep != null
+        ? '${entry.title} S${ep.seasonNumber.toString().padLeft(2, '0')}E${ep.episodeNumber.toString().padLeft(2, '0')}'
+        : entry.title;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (state.activeChapters.isNotEmpty || entry.chaptersPending)
+          ChapterStripSection(
+            chapters: state.activeChapters,
+            pending: entry.chaptersPending,
+            resumeMs: state.resume?.positionMs,
+            onPlayFrom: (pos) => _play(overrideStart: pos),
+          ),
+        CastRow(
+          cast: entry.cast,
+          onPersonTap: _openPerson,
+        ),
+        SimilarRow(
+          title: '相似推荐',
+          entries: state.related.similar,
+          onTap: (e) => context.push(
+            '/detail/${e.libraryId > 0 ? e.libraryId : entry.libraryId}/${e.id}',
+          ),
+        ),
+        if (state.related.series != null &&
+            state.related.series!.parts.length > 1)
+          SeriesSectionRow(
+            series: state.related.series!,
+            currentItemId: entry.id,
+            onOwnedTap: (id) => context.push('/detail/${entry.libraryId}/$id'),
+            onMissingTap: (part) => _subscribe(
+              overrideTitleRef: 'tmdb:movie:${part.tmdbId}',
+            ),
+          )
+        else if (state.related.seriesParts.length > 1)
+          SimilarRow(
+            title: '系列 · ${state.related.seriesName ?? ''}',
+            entries: state.related.seriesParts,
+            onTap: (e) => context.push('/detail/${entry.libraryId}/${e.id}'),
+          ),
+        LibraryFileSection(
+          entry: entry,
+          files: unitFiles,
+          localTitle: localTitle,
+          canManage: perms.canManageLibraries,
+          onManageDuplicates: () =>
+              context.push('/library/manage?tab=duplicates&item=${entry.id}'),
+          onDeleteFile: (f) => _deleteSingleFile(controller, f),
+          onRestoreFile: (f) => _restoreFile(controller, f),
+          onPurgeFile: (f) => _purgeFile(controller, f),
+        ),
+        ExternalLinksBar(entry: entry),
+      ],
+    );
+  }
+
+  Widget _buildMetaAndTracks(
+    DetailEntry entry,
+    DetailState state,
+    DetailController controller,
+  ) {
+    final unitFiles = state.currentUnitFiles;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        MetaLinks(
+          entry: entry,
+          showLegacyTracks: unitFiles.isEmpty,
+          onSeriesTap: (id) => context.push('/library/collection/$id'),
+          onCollectionTap: (name) {
+            final cid = entry.collectionIds[name];
+            if (cid != null) {
+              context.push('/library/collection/$cid');
             } else {
-              McToast.success(ep.played ? '已标为未看' : '已标为看完');
+              context.push('/library/collections');
             }
-          },
-          onDownloadEpisode: (ep) {
-            if (ep.playFileId == null) {
-              McToast.error('该集无在位文件');
-              return;
-            }
-            _download(
-              specificFileId: ep.playFileId,
-              episodeSubtitle:
-                  'S${ep.seasonNumber.toString().padLeft(2, '0')}E${ep.episodeNumber.toString().padLeft(2, '0')}',
-            );
-          },
-          onSubtitleEpisode: (ep) {
-            if (ep.playFileId == null) {
-              McToast.error('该集无在位文件');
-              return;
-            }
-            showSubtitleGenSheet(
-              context: context,
-              controller: controller,
-              fileId: ep.playFileId,
-              label:
-                  'S${ep.seasonNumber.toString().padLeft(2, '0')}E${ep.episodeNumber.toString().padLeft(2, '0')}',
-            );
           },
         ),
+        if (unitFiles.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          MediaTrackSection(
+            files: unitFiles,
+            selectedFileId: state.selectedFileId,
+            onSelectFile: controller.selectTrackFile,
+            controller: controller,
+          ),
+        ],
       ],
     );
   }
@@ -507,8 +1023,12 @@ class _DetailPageState extends ConsumerState<DetailPage> {
           children: [
             McErrorView(
               text: state.error!,
-              onRetry: () =>
-                  ref.read(detailControllerProvider(_key).notifier).load(),
+              onRetry: () => ref
+                  .read(detailControllerProvider(_key).notifier)
+                  .load(
+                    initialSeason: widget.initialSeason,
+                    initialEpisode: widget.initialEpisode,
+                  ),
             ),
             Positioned(
               top: 0,
@@ -531,18 +1051,22 @@ class _DetailPageState extends ConsumerState<DetailPage> {
     _ensureEdgeColor(entry);
     final ambient = _edgeColor ?? McTokens.bg;
     final controller = ref.read(detailControllerProvider(_key).notifier);
-    final episodes =
-        state.episodes[state.selectedSeason] ?? const <EpisodeEntry>[];
+    final episodes = state.currentSeasonEpisodes;
     final form = McFormWatch.of(context);
     final wide = form != McDeviceForm.phone;
+    final plot = entry.isTv
+        ? (state.selectedEpisode?.overview ?? entry.overview)
+        : entry.overview;
 
     final Widget scrollBody = wide
         ? ListView(
-            padding: const EdgeInsets.only(bottom: 48),
+            padding: const EdgeInsets.only(bottom: 52),
             physics: const AlwaysScrollableScrollPhysics(),
             children: [
               DetailHeader(
                 entry: entry,
+                selectedEpisode: state.selectedEpisode,
+                activeFile: state.activeTrackFile,
                 ambientColor: ambient,
                 scrollOffset: _scrollOffset,
               ),
@@ -557,25 +1081,13 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SizedBox(
-                      width: 320,
+                      width: 340,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _buildActionZone(state, controller),
+                          _buildActionZone(state, controller, wide: true),
                           const SizedBox(height: 16),
-                          MetaLinks(
-                            entry: entry,
-                            onSeriesTap: (id) =>
-                                context.push('/library/collection/$id'),
-                            onCollectionTap: (name) {
-                              final cid = entry.collectionIds[name];
-                              if (cid != null) {
-                                context.push('/library/collection/$cid');
-                              } else {
-                                context.push('/library/collections');
-                              }
-                            },
-                          ),
+                          _buildMetaAndTracks(entry, state, controller),
                         ],
                       ),
                     ),
@@ -584,34 +1096,15 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (entry.overview != null &&
-                              entry.overview!.isNotEmpty)
+                          if (plot != null && plot.isNotEmpty)
                             _Overview(
-                              text: entry.overview!,
+                              text: plot,
                               expanded: state.overviewExpanded,
                               onToggle: controller.toggleOverview,
                             ),
-                          CastRow(
-                            cast: entry.cast,
-                            onPersonTap: _openPerson,
-                          ),
                           if (entry.isTv)
                             _buildTvSeasons(entry, state, controller, episodes),
-                          if (state.related.seriesParts.length > 1)
-                            SimilarRow(
-                              title: '系列 · ${state.related.seriesName ?? ''}',
-                              entries: state.related.seriesParts,
-                              onTap: (e) => context.push(
-                                '/detail/${entry.libraryId}/${e.id}',
-                              ),
-                            ),
-                          SimilarRow(
-                            title: '相似推荐',
-                            entries: state.related.similar,
-                            onTap: (e) => context.push(
-                              '/detail/${entry.libraryId}/${e.id}',
-                            ),
-                          ),
+                          _buildRelatedAndFiles(entry, state, controller),
                         ],
                       ),
                     ),
@@ -621,11 +1114,13 @@ class _DetailPageState extends ConsumerState<DetailPage> {
             ],
           )
         : ListView(
-            padding: const EdgeInsets.only(bottom: 48),
+            padding: const EdgeInsets.only(bottom: 52),
             physics: const AlwaysScrollableScrollPhysics(),
             children: [
               DetailHeader(
                 entry: entry,
+                selectedEpisode: state.selectedEpisode,
+                activeFile: state.activeTrackFile,
                 ambientColor: ambient,
                 scrollOffset: _scrollOffset,
               ),
@@ -636,7 +1131,9 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                   McTokens.pagePadding,
                   0,
                 ),
-                child: Center(child: _buildActionZone(state, controller)),
+                child: Center(
+                  child: _buildActionZone(state, controller, wide: false),
+                ),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(
@@ -645,20 +1142,9 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                   McTokens.pagePadding,
                   0,
                 ),
-                child: MetaLinks(
-                  entry: entry,
-                  onSeriesTap: (id) => context.push('/library/collection/$id'),
-                  onCollectionTap: (name) {
-                    final cid = entry.collectionIds[name];
-                    if (cid != null) {
-                      context.push('/library/collection/$cid');
-                    } else {
-                      context.push('/library/collections');
-                    }
-                  },
-                ),
+                child: _buildMetaAndTracks(entry, state, controller),
               ),
-              if (entry.overview != null && entry.overview!.isNotEmpty)
+              if (plot != null && plot.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     McTokens.pagePadding,
@@ -667,30 +1153,14 @@ class _DetailPageState extends ConsumerState<DetailPage> {
                     0,
                   ),
                   child: _Overview(
-                    text: entry.overview!,
+                    text: plot,
                     expanded: state.overviewExpanded,
                     onToggle: controller.toggleOverview,
                   ),
                 ),
               if (entry.isTv)
                 _buildTvSeasons(entry, state, controller, episodes),
-              CastRow(
-                cast: entry.cast,
-                onPersonTap: _openPerson,
-              ),
-              if (state.related.seriesParts.length > 1)
-                SimilarRow(
-                  title: '系列 · ${state.related.seriesName ?? ''}',
-                  entries: state.related.seriesParts,
-                  onTap: (e) =>
-                      context.push('/detail/${entry.libraryId}/${e.id}'),
-                ),
-              SimilarRow(
-                title: '相似推荐',
-                entries: state.related.similar,
-                onTap: (e) =>
-                    context.push('/detail/${entry.libraryId}/${e.id}'),
-              ),
+              _buildRelatedAndFiles(entry, state, controller),
             ],
           );
 
@@ -710,7 +1180,7 @@ class _DetailPageState extends ConsumerState<DetailPage> {
               edgeOffset: MediaQuery.paddingOf(context).top + 54,
               color: McTokens.accentStrong,
               backgroundColor: McTokens.surfaceSolid,
-              onRefresh: controller.load,
+              onRefresh: () => controller.load(),
               child: scrollBody,
             ),
           ),
@@ -723,10 +1193,28 @@ class _DetailPageState extends ConsumerState<DetailPage> {
               title: entry.title,
               titleVisible: _scrollOffset > 220,
               trailing: [
-                McGlassIconButton(
-                  icon: McIcons.more,
-                  tooltip: '更多操作',
-                  onTap: () => _showActionMenu(controller),
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    McGlassIconButton(
+                      icon: McIcons.more,
+                      tooltip: '更多操作',
+                      onTap: () => _showActionMenu(controller),
+                    ),
+                    if (entry.scraping)
+                      Positioned(
+                        right: 4,
+                        top: 4,
+                        child: Container(
+                          width: 7,
+                          height: 7,
+                          decoration: const BoxDecoration(
+                            color: McTokens.info,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ],
             ),

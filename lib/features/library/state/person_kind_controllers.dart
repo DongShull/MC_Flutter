@@ -1,46 +1,38 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/api/api_exception.dart';
+import 'collection_detail_controller.dart';
 import 'mc_api.dart';
 import 'models.dart';
 
-/// 人物下钻状态（对齐 Kotlin LibraryPersonScreen.kt：GET /search/library?person_id 游标分页）。
+/* ────────────────────── 影人详情（GET /api/v1/people/{tmdbPersonId}） ────────────────────── */
+
 class PersonState {
   const PersonState({
     this.loading = false,
-    this.loadingMore = false,
     this.error,
-    this.items = const [],
-    this.nextCursor,
-    this.indexPending = false,
-    this.endReached = false,
+    this.notFound = false,
+    this.person,
   });
 
   final bool loading;
-  final bool loadingMore;
   final String? error;
-  final List<LibrarySearchHit> items;
-  final String? nextCursor;
-  final bool indexPending;
-  final bool endReached;
+  final bool notFound;
+  final PersonView? person;
 
   PersonState copyWith({
     bool? loading,
-    bool? loadingMore,
     String? error,
-    List<LibrarySearchHit>? items,
-    String? nextCursor,
-    bool clearCursor = false,
-    bool? indexPending,
-    bool? endReached,
+    bool clearError = false,
+    bool? notFound,
+    PersonView? person,
   }) =>
       PersonState(
         loading: loading ?? this.loading,
-        loadingMore: loadingMore ?? this.loadingMore,
-        error: error,
-        items: items ?? this.items,
-        nextCursor: clearCursor ? null : (nextCursor ?? this.nextCursor),
-        indexPending: indexPending ?? this.indexPending,
-        endReached: endReached ?? this.endReached,
+        error: clearError ? null : (error ?? this.error),
+        notFound: notFound ?? this.notFound,
+        person: person ?? this.person,
       );
 }
 
@@ -52,64 +44,46 @@ class PersonArg {
 
   @override
   bool operator ==(Object other) =>
-      other is PersonArg && other.personId == personId && other.personName == personName;
+      other is PersonArg &&
+      other.personId == personId &&
+      other.personName == personName;
 
   @override
   int get hashCode => Object.hash(personId, personName);
 }
 
-class PersonController extends AutoDisposeFamilyNotifier<PersonState, PersonArg> {
+class PersonController
+    extends AutoDisposeFamilyNotifier<PersonState, PersonArg> {
   @override
   PersonState build(PersonArg arg) {
-    Future.microtask(() => load());
-    return const PersonState();
+    Future.microtask(load);
+    return const PersonState(loading: true);
   }
 
   LibraryApi get _api => ref.read(libraryApiProvider);
 
   Future<void> load() async {
-    state = state.copyWith(loading: true, error: null);
+    state = state.copyWith(loading: true, clearError: true, notFound: false);
     try {
-      final view = await _api.searchLibraryByPerson(arg.personId, limit: 60);
-      state = state.copyWith(
-        loading: false,
-        items: view.items,
-        nextCursor: view.nextCursor,
-        indexPending: view.indexPending,
-        endReached: view.nextCursor == null,
-      );
-    } catch (e) {
-      state = state.copyWith(loading: false, error: '加载失败，请下拉重试');
-    }
-  }
-
-  Future<void> loadMore() async {
-    if (state.loading || state.loadingMore || state.nextCursor == null) return;
-    state = state.copyWith(loadingMore: true);
-    try {
-      final view = await _api.searchLibraryByPerson(
-        arg.personId,
-        limit: 60,
-        cursor: state.nextCursor,
-      );
-      state = state.copyWith(
-        loadingMore: false,
-        items: [...state.items, ...view.items],
-        nextCursor: view.nextCursor,
-        indexPending: view.indexPending,
-        endReached: view.nextCursor == null,
-      );
+      final person = await _api.personDetail(arg.personId);
+      state = state.copyWith(loading: false, person: person);
+    } on ApiException catch (e) {
+      if (e.httpStatus == 404) {
+        state = state.copyWith(loading: false, notFound: true);
+      } else {
+        state = state.copyWith(loading: false, error: '加载失败：${e.message}');
+      }
     } catch (_) {
-      state = state.copyWith(loadingMore: false);
+      state = state.copyWith(loading: false, error: '加载失败，请下拉重试');
     }
   }
 }
 
-final personProvider =
-    NotifierProvider.autoDispose.family<PersonController, PersonState, PersonArg>(
-        PersonController.new);
+final personProvider = NotifierProvider.autoDispose
+    .family<PersonController, PersonState, PersonArg>(PersonController.new);
 
-/// 类型墙状态（对齐 Kotlin KindWallScreen.kt：跨库 kind + genres 筛选的墙）。
+/* ────────────────────── 跨库类型墙（movie / tv / video） ────────────────────── */
+
 class KindWallState {
   const KindWallState({
     this.loading = false,
@@ -120,7 +94,7 @@ class KindWallState {
     this.items = const [],
     this.genre,
     this.sort = 'added_at',
-    this.order,
+    this.reversed = false,
     this.watch,
     this.endReached = false,
   });
@@ -128,30 +102,29 @@ class KindWallState {
   final bool loading;
   final bool loadingMore;
   final String? error;
-
-  /// 跨库部数（计数单源：/libraries/kinds/{kind}）。
   final LibraryKindSummaryView? summary;
-
-  /// 可选的类型筛选（来自 /libraries/kinds/{kind}/genres 的 TMDB 类型块）。
-  final List<Map<String, dynamic>> genres;
+  final List<LibraryKindGenreView> genres;
   final String? genre;
   final String sort;
-  final String? order;
-  final String? watch;
+  final bool reversed;
+  final String? watch; // null | unwatched | unfinished | seen
   final List<LibraryItemView> items;
   final bool endReached;
+
+  String? get orderParam =>
+      wallSortMetaOf(sort).orderParam(reversed: reversed);
 
   KindWallState copyWith({
     bool? loading,
     bool? loadingMore,
     String? error,
+    bool clearError = false,
     LibraryKindSummaryView? summary,
-    List<Map<String, dynamic>>? genres,
+    List<LibraryKindGenreView>? genres,
     String? genre,
     bool clearGenre = false,
     String? sort,
-    String? order,
-    bool clearOrder = false,
+    bool? reversed,
     String? watch,
     bool clearWatch = false,
     List<LibraryItemView>? items,
@@ -160,12 +133,12 @@ class KindWallState {
       KindWallState(
         loading: loading ?? this.loading,
         loadingMore: loadingMore ?? this.loadingMore,
-        error: error,
+        error: clearError ? null : (error ?? this.error),
         summary: summary ?? this.summary,
         genres: genres ?? this.genres,
         genre: clearGenre ? null : (genre ?? this.genre),
         sort: sort ?? this.sort,
-        order: clearOrder ? null : (order ?? this.order),
+        reversed: reversed ?? this.reversed,
         watch: clearWatch ? null : (watch ?? this.watch),
         items: items ?? this.items,
         endReached: endReached ?? this.endReached,
@@ -173,55 +146,139 @@ class KindWallState {
 }
 
 class KindWallArg {
-  const KindWallArg({required this.kind});
+  const KindWallArg({
+    required this.kind,
+    this.initialGenre,
+    this.initialWatch,
+    this.initialSort,
+    this.initialOrder,
+  });
 
-  /// movie / tv
-  final String kind;
+  final String kind; // movie | tv | video
+  final String? initialGenre;
+  final String? initialWatch;
+  final String? initialSort;
+  final String? initialOrder;
 
   @override
-  bool operator ==(Object other) => other is KindWallArg && other.kind == kind;
+  bool operator ==(Object other) =>
+      other is KindWallArg &&
+      other.kind == kind &&
+      other.initialGenre == initialGenre &&
+      other.initialWatch == initialWatch &&
+      other.initialSort == initialSort &&
+      other.initialOrder == initialOrder;
 
   @override
-  int get hashCode => kind.hashCode;
+  int get hashCode =>
+      Object.hash(kind, initialGenre, initialWatch, initialSort, initialOrder);
 }
 
-class KindWallController extends AutoDisposeFamilyNotifier<KindWallState, KindWallArg> {
+class KindWallController
+    extends AutoDisposeFamilyNotifier<KindWallState, KindWallArg> {
+  String get _sortPrefKey => 'movieclaw.library.kind-wall-sort.${arg.kind}';
+
+  static List<WallSortMeta> sortOptionsFor(String kind) {
+    const base = [
+      'added_at',
+      'title',
+      'release_date',
+      'rating',
+      'runtime',
+      'size',
+      'last_played',
+    ];
+    final keys = kind == 'video'
+        ? base.where((k) => k != 'rating' && k != 'release_date')
+        : base;
+    return keys.map(wallSortMetaOf).toList();
+  }
+
   @override
   KindWallState build(KindWallArg arg) {
-    Future.microtask(() => load());
-    return const KindWallState();
+    final initSort =
+        (arg.initialSort != null && arg.initialSort!.isNotEmpty)
+            ? arg.initialSort!
+            : 'added_at';
+    final initRev = arg.initialOrder != null
+        ? (wallSortMetaOf(initSort).naturalAsc
+            ? arg.initialOrder == 'desc'
+            : arg.initialOrder == 'asc')
+        : false;
+    Future.microtask(load);
+    return KindWallState(
+      loading: true,
+      genre: arg.initialGenre,
+      watch: arg.initialWatch,
+      sort: initSort,
+      reversed: initRev,
+    );
   }
 
   LibraryApi get _api => ref.read(libraryApiProvider);
 
+  Future<void> _hydrateSortIfNoExplicit() async {
+    if (arg.initialSort != null && arg.initialSort!.isNotEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_sortPrefKey);
+      if (raw == null || raw.isEmpty) return;
+      final rev = raw.endsWith(':rev');
+      final base = rev ? raw.substring(0, raw.length - 4) : raw;
+      final allowed = sortOptionsFor(arg.kind).map((e) => e.value).toSet();
+      if (allowed.contains(base)) {
+        state = state.copyWith(sort: base, reversed: rev);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _persistSort(String sort, bool reversed) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_sortPrefKey, reversed ? '$sort:rev' : sort);
+    } catch (_) {}
+  }
+
   Future<void> load() async {
-    state = state.copyWith(loading: true, error: null);
-    try {
-      final summary = await _api.libraryKindSummary(arg.kind);
-      state = state.copyWith(loading: false, summary: summary);
-    } catch (_) {}
-    try {
-      state = state.copyWith(genres: await _api.libraryKindGenres(arg.kind));
-    } catch (_) {}
+    await _hydrateSortIfNoExplicit();
+    if (arg.kind != 'video') {
+      _api.libraryKindGenresTyped(arg.kind).then((list) {
+        state = state.copyWith(genres: list);
+      }).catchError((_) {});
+    }
     await reload();
   }
 
   Future<void> reload() async {
-    state = state.copyWith(loading: true, endReached: false);
+    state = state.copyWith(loading: true, endReached: false, clearError: true);
     try {
-      final items = await _api.libraryKindItems(
-        arg.kind,
-        sort: state.sort,
-        order: state.order,
-        watch: state.watch,
-        genres: state.genre,
-      );
+      final results = await Future.wait([
+        _api
+            .libraryKindSummary(
+              arg.kind,
+              genres: state.genre,
+              watch: state.watch,
+            )
+            .catchError((_) => const LibraryKindSummaryView()),
+        _api.libraryKindItems(
+          arg.kind,
+          limit: 60,
+          offset: 0,
+          sort: state.sort,
+          order: state.orderParam,
+          watch: state.watch,
+          genres: state.genre,
+        ),
+      ]);
+      final summary = results[0] as LibraryKindSummaryView;
+      final items = results[1] as List<LibraryItemView>;
       state = state.copyWith(
         loading: false,
+        summary: summary,
         items: items,
         endReached: items.length < 60,
       );
-    } catch (e) {
+    } catch (_) {
       state = state.copyWith(loading: false, error: '加载失败，请下拉重试');
     }
   }
@@ -232,9 +289,10 @@ class KindWallController extends AutoDisposeFamilyNotifier<KindWallState, KindWa
     try {
       final more = await _api.libraryKindItems(
         arg.kind,
+        limit: 60,
         offset: state.items.length,
         sort: state.sort,
-        order: state.order,
+        order: state.orderParam,
         watch: state.watch,
         genres: state.genre,
       );
@@ -248,22 +306,31 @@ class KindWallController extends AutoDisposeFamilyNotifier<KindWallState, KindWa
     }
   }
 
-  void setGenre(String? genre) {
+  Future<void> setGenre(String? genre) async {
     state = state.copyWith(genre: genre, clearGenre: genre == null);
-    reload();
+    await reload();
   }
 
-  void setSort(String sort, String? order) {
-    state = state.copyWith(sort: sort, order: order, clearOrder: order == null);
-    reload();
+  Future<void> setSort(String sort, {bool reversed = false}) async {
+    state = state.copyWith(sort: sort, reversed: reversed);
+    await _persistSort(sort, reversed);
+    await reload();
   }
 
-  void setWatch(String? watch) {
+  Future<void> toggleDirection() async {
+    final nextRev = !state.reversed;
+    state = state.copyWith(reversed: nextRev);
+    await _persistSort(state.sort, nextRev);
+    await reload();
+  }
+
+  Future<void> setWatch(String? watch) async {
     state = state.copyWith(watch: watch, clearWatch: watch == null);
-    reload();
+    await reload();
   }
 }
 
-final kindWallProvider =
-    NotifierProvider.autoDispose.family<KindWallController, KindWallState, KindWallArg>(
-        KindWallController.new);
+final kindWallProvider = NotifierProvider.autoDispose
+    .family<KindWallController, KindWallState, KindWallArg>(
+  KindWallController.new,
+);

@@ -3,56 +3,82 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/session_watch.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/image/image_urls.dart';
+import '../../../core/session/permissions.dart';
 import '../../../core/session/session_store.dart';
 import '../../../core/shell/command_palette.dart';
 import '../../../core/shell/tab_collapse.dart';
+import '../state/main_tab_bus.dart';
 import '../state/shell_badges.dart';
 
 /// 主壳 Chrome（1:1 对齐 iOS 26 `MainTabView` + Web `glass-tab-bar.tsx`）：
-/// - 手机：5 格纯图标悬浮液态玻璃胶囊（媒体库 / 订阅 / 发现 / 活动 / 头像）
-///   + 阻尼弹簧滑动选中药丸 + 左右按住拖动擦选 + 下滑左收圆钮 + 底栏上方「接着看」浮条槽位
-/// - 平板 / 桌面 / TV：左侧半透银玻璃侧边栏（`McAdaptiveScaffold`）
+/// - 手机：按权限动态裁剪的纯图标悬浮液态玻璃胶囊（媒体库 / [订阅] / 发现 / [活动] / 头像）
+///   + 阻尼弹簧滑动选中药丸 + 左右按住拖动擦选 + 头像长按切换/双击秒切上一个账号 + 首次手势气泡提示
+/// - 平板 / 桌面 / TV：左侧半透银玻璃侧边栏（移除重复的「我的」行，账号统一落在底部 `_SidebarAccountFooter`，
+///   并支持动态挂载「我的收藏 / 媒体库列表 / 首页合集」侧边栏扩展段）。
 class RootShell extends ConsumerWidget {
   const RootShell({
     super.key,
-    required this.index,
+    required this.tabs,
+    required this.activeTab,
     required this.pages,
-    required this.onSelect,
+    required this.onSelectTab,
     this.bottomAccessory,
     this.onAvatarLongPress,
+    this.onAvatarDoubleTap,
+    this.sidebarExtra,
+    this.accountGestureTip,
   });
 
-  final int index;
+  final List<MainTab> tabs;
+  final MainTab activeTab;
   final List<Widget> pages;
-  final ValueChanged<int> onSelect;
+  final ValueChanged<MainTab> onSelectTab;
   final Widget? bottomAccessory;
   final VoidCallback? onAvatarLongPress;
+  final VoidCallback? onAvatarDoubleTap;
+  final Widget? sidebarExtra;
+  final Widget? accountGestureTip;
 
-  static const _labels = ['媒体库', '订阅', '发现', '活动', '我的'];
-  static const _icons = [
-    McIcons.mediaLibraryFill,
-    McIcons.bookmark,
-    McIcons.aiSearch,
-    McIcons.waveform,
-    McIcons.accountCircle,
-  ];
-  static const _filledIcons = [
-    McIcons.mediaLibraryFill,
-    McIcons.bookmarkFill,
-    McIcons.aiSearchFill,
-    McIcons.waveform,
-    McIcons.accountCircleFill,
-  ];
+  static String labelOf(MainTab tab) => switch (tab) {
+        MainTab.library => '媒体库',
+        MainTab.subscriptions => '订阅',
+        MainTab.discover => '发现',
+        MainTab.activity => '活动',
+        MainTab.more => '我的',
+      };
+
+  static IconData iconOf(MainTab tab, {required bool selected}) => switch (tab) {
+        MainTab.library => McIcons.mediaLibraryFill,
+        MainTab.subscriptions =>
+          selected ? McIcons.bookmarkFill : McIcons.bookmark,
+        MainTab.discover => selected ? McIcons.aiSearchFill : McIcons.aiSearch,
+        MainTab.activity => McIcons.waveform,
+        MainTab.more =>
+          selected ? McIcons.accountCircleFill : McIcons.accountCircle,
+      };
+
+  static Color? dotColorOf(MainTab tab, ShellBadges badges) {
+    if (tab == MainTab.activity) {
+      if (badges.attentionTotal > 0) return McTokens.danger;
+      if (badges.livePlayback > 0) return McTokens.ok;
+      if (badges.activeTotal > 0) return McTokens.info;
+    } else if (tab == MainTab.more && badges.pendingUpdate) {
+      return McTokens.info;
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final badges = ref.watch(shellBadgesProvider);
     final form = ref.watch(mcFormProvider);
+    final activeIndex = tabs.indexOf(activeTab).clamp(0, pages.length - 1);
 
     final body = AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
@@ -62,7 +88,7 @@ class RootShell extends ConsumerWidget {
         systemNavigationBarColor: Colors.transparent,
         systemNavigationBarIconBrightness: Brightness.light,
       ),
-      child: IndexedStack(index: index, children: pages),
+      child: IndexedStack(index: activeIndex, children: pages),
     );
 
     if (form == McDeviceForm.phone) {
@@ -73,7 +99,6 @@ class RootShell extends ConsumerWidget {
         body: Stack(
           children: [
             Positioned.fill(child: body),
-            // 底部柔和滚动压暗雾带（对齐 Web `.glass-tabbar-edge`），避免亮白海报把底栏冲花
             const Positioned(
               left: 0,
               right: 0,
@@ -101,12 +126,15 @@ class RootShell extends ConsumerWidget {
               right: 0,
               bottom: 0,
               child: _PhoneBottomDock(
-                index: index,
+                tabs: tabs,
+                activeTab: activeTab,
                 collapsed: collapsed,
                 badges: badges,
-                onSelect: onSelect,
+                onSelectTab: onSelectTab,
                 bottomAccessory: bottomAccessory,
                 onAvatarLongPress: onAvatarLongPress,
+                onAvatarDoubleTap: onAvatarDoubleTap,
+                accountGestureTip: accountGestureTip,
               ),
             ),
           ],
@@ -114,64 +142,69 @@ class RootShell extends ConsumerWidget {
       );
     }
 
+    // 侧边栏：移除重复的「我的」导航项（底部 `_SidebarAccountFooter` 即为专属账号/我的入口）。
+    final sidebarTabs = tabs.where((t) => t != MainTab.more).toList();
+    final sidebarIndex =
+        activeTab == MainTab.more ? -1 : sidebarTabs.indexOf(activeTab);
+
     return McFormWatch(
       form: form,
       child: McAdaptiveScaffold(
         destinations: [
-          for (var i = 0; i < _labels.length; i++)
+          for (final t in sidebarTabs)
             McAdaptiveDestination(
-              icon: _icons[i],
-              selectedIcon: _filledIcons[i],
-              label: _labels[i],
-              dotColor: _dotColor(i, badges),
+              icon: iconOf(t, selected: false),
+              selectedIcon: iconOf(t, selected: true),
+              label: labelOf(t),
+              dotColor: dotColorOf(t, badges),
             ),
         ],
-        currentIndex: index,
-        onSelect: onSelect,
+        currentIndex: sidebarIndex,
+        onSelect: (i) {
+          if (i >= 0 && i < sidebarTabs.length) {
+            onSelectTab(sidebarTabs[i]);
+          }
+        },
         onOpenCommandPalette: McCommandPaletteController.instance.open,
         body: body,
+        railTrailing: sidebarExtra,
         footerAccount: _SidebarAccountFooter(
-          selected: index == 4,
-          onTap: () => onSelect(4),
+          selected: activeTab == MainTab.more,
+          hasUpdateDot: badges.pendingUpdate,
+          onTap: () => onSelectTab(MainTab.more),
           onLongPress: onAvatarLongPress,
         ),
       ),
     );
   }
-
-  static Color? _dotColor(int i, ShellBadges badges) {
-    if (i == 3) {
-      if (badges.attentionTotal > 0) return McTokens.danger;
-      if (badges.livePlayback > 0) return McTokens.ok;
-      if (badges.activeTotal > 0) return McTokens.info;
-    } else if (i == 4 && badges.pendingUpdate) {
-      return McTokens.info;
-    }
-    return null;
-  }
 }
 
 class _PhoneBottomDock extends StatelessWidget {
   const _PhoneBottomDock({
-    required this.index,
+    required this.tabs,
+    required this.activeTab,
     required this.collapsed,
     required this.badges,
-    required this.onSelect,
+    required this.onSelectTab,
     this.bottomAccessory,
     this.onAvatarLongPress,
+    this.onAvatarDoubleTap,
+    this.accountGestureTip,
   });
 
-  final int index;
+  final List<MainTab> tabs;
+  final MainTab activeTab;
   final bool collapsed;
   final ShellBadges badges;
-  final ValueChanged<int> onSelect;
+  final ValueChanged<MainTab> onSelectTab;
   final Widget? bottomAccessory;
   final VoidCallback? onAvatarLongPress;
+  final VoidCallback? onAvatarDoubleTap;
+  final Widget? accountGestureTip;
 
   @override
   Widget build(BuildContext context) {
     final safeBottom = MediaQuery.paddingOf(context).bottom;
-    // 对齐 Web `--tabbar-bottom: max(16px, calc(var(--safe-bottom) - 12px))`
     final bottomMargin =
         safeBottom > 12 ? (safeBottom - 10).clamp(12.0, 28.0) : 16.0;
 
@@ -183,6 +216,13 @@ class _PhoneBottomDock extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (!collapsed && accountGestureTip != null) ...[
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: accountGestureTip!,
+                ),
+                const SizedBox(height: 8),
+              ],
               if (!collapsed && bottomAccessory != null) ...[
                 bottomAccessory!,
                 const SizedBox(height: 8),
@@ -205,11 +245,14 @@ class _PhoneBottomDock extends StatelessWidget {
                               radius: 28,
                               blurSigma: 24,
                               child: Center(
-                                child: index == 4
+                                child: activeTab == MainTab.more
                                     ? const _TabAvatarBadge(size: 26)
                                     : Icon(
-                                        RootShell._filledIcons[index],
-                                        size: 22,
+                                        RootShell.iconOf(
+                                          activeTab,
+                                          selected: true,
+                                        ),
+                                        size: 23,
                                         color: McTokens.text,
                                       ),
                               ),
@@ -219,10 +262,12 @@ class _PhoneBottomDock extends StatelessWidget {
                       )
                     : _LiquidCapsuleBar(
                         key: const ValueKey('expanded'),
-                        index: index,
+                        tabs: tabs,
+                        activeTab: activeTab,
                         badges: badges,
-                        onSelect: onSelect,
+                        onSelectTab: onSelectTab,
                         onAvatarLongPress: onAvatarLongPress,
+                        onAvatarDoubleTap: onAvatarDoubleTap,
                       ),
               ),
             ],
@@ -236,34 +281,39 @@ class _PhoneBottomDock extends StatelessWidget {
 class _LiquidCapsuleBar extends StatelessWidget {
   const _LiquidCapsuleBar({
     super.key,
-    required this.index,
+    required this.tabs,
+    required this.activeTab,
     required this.badges,
-    required this.onSelect,
+    required this.onSelectTab,
     this.onAvatarLongPress,
+    this.onAvatarDoubleTap,
   });
 
-  final int index;
+  final List<MainTab> tabs;
+  final MainTab activeTab;
   final ShellBadges badges;
-  final ValueChanged<int> onSelect;
+  final ValueChanged<MainTab> onSelectTab;
   final VoidCallback? onAvatarLongPress;
+  final VoidCallback? onAvatarDoubleTap;
 
   void _scrubAt(BuildContext context, Offset localPos) {
     final box = context.findRenderObject() as RenderBox?;
-    if (box == null || box.size.width <= 0) return;
-    final slot = ((localPos.dx / box.size.width) * RootShell._labels.length)
+    if (box == null || box.size.width <= 0 || tabs.isEmpty) return;
+    final slot = ((localPos.dx / box.size.width) * tabs.length)
         .floor()
-        .clamp(0, RootShell._labels.length - 1);
-    if (slot != index) {
+        .clamp(0, tabs.length - 1);
+    final target = tabs[slot];
+    if (target != activeTab) {
       HapticFeedback.selectionClick();
-      onSelect(slot);
+      onSelectTab(target);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final count = RootShell._labels.length;
-    // Alignment.x 从 -1.0 到 +1.0 线性映射 5 个槽位
-    final alignX = count <= 1 ? 0.0 : -1.0 + (2.0 * index / (count - 1));
+    final count = tabs.length;
+    final activeIdx = tabs.indexOf(activeTab).clamp(0, count - 1);
+    final alignX = count <= 1 ? 0.0 : -1.0 + (2.0 * activeIdx / (count - 1));
 
     return GestureDetector(
       onHorizontalDragUpdate: (d) => _scrubAt(context, d.localPosition),
@@ -275,7 +325,6 @@ class _LiquidCapsuleBar extends StatelessWidget {
           padding: const EdgeInsets.all(5),
           child: Stack(
             children: [
-              // 弹簧滑动选中药丸（避免玻璃叠玻璃：内部只用半透冷白填充 + 极细亮沿）
               AnimatedAlign(
                 alignment: Alignment(alignX, 0),
                 duration: const Duration(milliseconds: 340),
@@ -297,17 +346,20 @@ class _LiquidCapsuleBar extends StatelessWidget {
               ),
               Row(
                 children: [
-                  for (var i = 0; i < count; i++)
+                  for (final tab in tabs)
                     Expanded(
                       child: _TabSlotItem(
-                        slot: i,
-                        selected: i == index,
-                        dotColor: RootShell._dotColor(i, badges),
+                        tab: tab,
+                        selected: tab == activeTab,
+                        dotColor: RootShell.dotColorOf(tab, badges),
                         onTap: () {
                           HapticFeedback.selectionClick();
-                          onSelect(i);
+                          onSelectTab(tab);
                         },
-                        onLongPress: i == count - 1 ? onAvatarLongPress : null,
+                        onLongPress:
+                            tab == MainTab.more ? onAvatarLongPress : null,
+                        onDoubleTap:
+                            tab == MainTab.more ? onAvatarDoubleTap : null,
                       ),
                     ),
                 ],
@@ -322,35 +374,45 @@ class _LiquidCapsuleBar extends StatelessWidget {
 
 class _TabSlotItem extends StatelessWidget {
   const _TabSlotItem({
-    required this.slot,
+    required this.tab,
     required this.selected,
     required this.dotColor,
     required this.onTap,
     this.onLongPress,
+    this.onDoubleTap,
   });
 
-  final int slot;
+  final MainTab tab;
   final bool selected;
   final Color? dotColor;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
+  final VoidCallback? onDoubleTap;
 
   @override
   Widget build(BuildContext context) {
-    final isAvatar = slot == RootShell._labels.length - 1;
-    final iconWidget = isAvatar
-        ? _TabAvatarBadge(size: 26, selected: selected)
-        : Icon(
-            selected ? RootShell._filledIcons[slot] : RootShell._icons[slot],
-            size: 22,
-            color: selected ? McTokens.text : McTokens.textMuted,
-          );
+    final isAvatar = tab == MainTab.more;
+    // 统一所有页签图标落在 26×26 正方形内，与头像页签视觉尺寸一致（对齐 iOS TabIcon.side = 26）。
+    final iconWidget = SizedBox(
+      width: 26,
+      height: 26,
+      child: Center(
+        child: isAvatar
+            ? _TabAvatarBadge(size: 26, selected: selected)
+            : Icon(
+                RootShell.iconOf(tab, selected: selected),
+                size: 23,
+                color: selected ? McTokens.text : McTokens.textMuted,
+              ),
+      ),
+    );
 
     return Tooltip(
-      message: RootShell._labels[slot],
+      message: RootShell.labelOf(tab),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
+        onDoubleTap: onDoubleTap,
         onLongPress: onLongPress == null
             ? null
             : () {
@@ -370,8 +432,8 @@ class _TabSlotItem extends StatelessWidget {
               ),
               if (dotColor != null)
                 Positioned(
-                  right: -5,
-                  top: -4,
+                  right: -4,
+                  top: -3,
                   child: Container(
                     width: 7,
                     height: 7,
@@ -393,19 +455,26 @@ class _TabSlotItem extends StatelessWidget {
   }
 }
 
-class _TabAvatarBadge extends StatelessWidget {
+class _TabAvatarBadge extends ConsumerWidget {
   const _TabAvatarBadge({required this.size, this.selected = false});
 
   final double size;
   final bool selected;
 
   @override
-  Widget build(BuildContext context) {
-    final nickname = appSession.username;
-    final initial = nickname.isEmpty
-        ? 'M'
-        : String.fromCharCode(nickname.runes.first).toUpperCase();
-    final avatar = appSession.avatarUrl;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final perms = ref.watch(mcPermissionsProvider);
+    final displayName =
+        perms.displayName.isNotEmpty ? perms.displayName : appSession.username;
+    final initials = McPermissions.avatarInitials(displayName);
+    final avatar =
+        perms.avatarUrl.isNotEmpty ? perms.avatarUrl : appSession.avatarUrl;
+    final resolved = avatar.isNotEmpty
+        ? McImageUrls.resolve(
+            McImageUrls.tagAccount(avatar, appSession.accountUsername),
+            widthPx: 96,
+          )
+        : '';
 
     return Container(
       width: size,
@@ -427,18 +496,18 @@ class _TabAvatarBadge extends StatelessWidget {
         alignment: Alignment.center,
         children: [
           Text(
-            initial,
+            initials,
             style: McText.micro.copyWith(
-              fontSize: size * 0.46,
+              fontSize: initials.length > 1 ? size * 0.36 : size * 0.44,
               fontWeight: FontWeight.w700,
               color: Colors.white,
             ),
           ),
-          if (avatar.isNotEmpty)
+          if (resolved.isNotEmpty)
             Positioned.fill(
               child: ClipOval(
                 child: CachedNetworkImage(
-                  imageUrl: McImageUrls.resolve(avatar, widthPx: 96),
+                  imageUrl: resolved,
                   httpHeaders: mcImageHeaders(),
                   fit: BoxFit.cover,
                   errorWidget: (_, __, ___) => const SizedBox.shrink(),
@@ -451,21 +520,27 @@ class _TabAvatarBadge extends StatelessWidget {
   }
 }
 
-class _SidebarAccountFooter extends StatelessWidget {
+class _SidebarAccountFooter extends ConsumerWidget {
   const _SidebarAccountFooter({
     required this.selected,
+    required this.hasUpdateDot,
     required this.onTap,
     this.onLongPress,
   });
 
   final bool selected;
+  final bool hasUpdateDot;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
   @override
-  Widget build(BuildContext context) {
-    final username = appSession.username.isEmpty ? '当前账号' : appSession.username;
-    final wide = MediaQuery.widthOf(context) >= 900;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final perms = ref.watch(mcPermissionsProvider);
+    final collapsed = ref.watch(mcSidebarCollapsedProvider);
+    final username = perms.displayName.isNotEmpty
+        ? perms.displayName
+        : (appSession.username.isEmpty ? '当前账号' : appSession.username);
+    final wide = MediaQuery.widthOf(context) >= 900 && !collapsed;
     return McPressable(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -477,13 +552,38 @@ class _SidebarAccountFooter extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? McTokens.glassFillActive : McTokens.glassFill,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: McTokens.line, width: 1),
+          border: Border.all(
+            color: selected ? McTokens.lineStrong : McTokens.line,
+            width: 1,
+          ),
         ),
         child: Row(
           mainAxisAlignment:
               wide ? MainAxisAlignment.start : MainAxisAlignment.center,
           children: [
-            _TabAvatarBadge(size: 30, selected: selected),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                _TabAvatarBadge(size: 30, selected: selected),
+                if (hasUpdateDot)
+                  Positioned(
+                    right: -2,
+                    top: -2,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: McTokens.info,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: const Color(0xCC0E1016),
+                          width: 1.2,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             if (wide) ...[
               const SizedBox(width: 10),
               Expanded(
@@ -501,11 +601,13 @@ class _SidebarAccountFooter extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '长按切换账号',
+                      hasUpdateDot ? '有可用更新 · 长按切账号' : '长按切换账号',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: McText.micro.copyWith(
-                        color: McTokens.textFaint,
+                        color: hasUpdateDot
+                            ? McTokens.info
+                            : McTokens.textFaint,
                         fontWeight: FontWeight.w400,
                       ),
                     ),

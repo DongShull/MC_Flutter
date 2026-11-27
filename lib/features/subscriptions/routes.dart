@@ -23,6 +23,8 @@ final List<GoRoute> routes = [
     path: '$routeSubscriptions/detail/:id',
     builder: (context, state) => SubscriptionDetailPage(
       id: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+      openUpgradeRun: state.uri.queryParameters['upgrade-run'] == '1' ||
+          state.uri.queryParameters['upgrade'] == '1',
     ),
   ),
 ];

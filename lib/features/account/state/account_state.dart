@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/api/mc_client.dart';
 import '../../../core/api/session_providers.dart';
 import '../../../core/platform/download_channel.dart';
+import '../../../core/session/pending_revocations.dart';
 import '../../../core/session/session_store.dart';
 
 /// 与 OfflineController._tasksKey 保持一致（删除本机下载副本用）。
@@ -49,7 +50,7 @@ class SavedServer {
   const SavedServer({required this.origin, required this.accounts});
 
   factory SavedServer.fromJson(Map<String, dynamic> json) => SavedServer(
-        origin: (json['origin'] ?? '').toString(),
+        origin: SessionStore.normalizeOrigin((json['origin'] ?? '').toString()),
         accounts: ((json['accounts'] ?? const []) as List<dynamic>)
             .whereType<Map<String, dynamic>>()
             .map(SavedAccount.fromJson)
@@ -85,7 +86,7 @@ class MeView {
   final String? role;
 }
 
-/// 一台已登录设备（GET /auth/devices 的条目；对齐 Kotlin 设备管理段）。
+/// 一台已登录设备（GET /auth/devices 的条目）。
 class DeviceView {
   const DeviceView({
     required this.id,
@@ -152,13 +153,16 @@ class AccountUiState {
       );
 }
 
-/// 账户控制器（对齐 Kotlin AccountSwitcherViewModel）：
-/// 本机多账号快照的切换 / 移除 / 全部退出，在线时拉用户信息与设备清单。
+/// 账户控制器：
+/// 本机多账号快照的切换 / 移除 / 全部退出（统一走 `SessionStore` 与 `PendingRevocations` 注销服务端令牌）。
 class AccountController extends Notifier<AccountUiState> {
   static const _serversKey = 'mc_servers';
 
   FlutterSecureStorage get _storage => const FlutterSecureStorage(
         aOptions: AndroidOptions(encryptedSharedPreferences: true),
+        iOptions: IOSOptions(
+          accessibility: KeychainAccessibility.first_unlock_this_device,
+        ),
       );
 
   @override
@@ -179,25 +183,29 @@ class AccountController extends Notifier<AccountUiState> {
             .whereType<Map<String, dynamic>>()) {
           servers.add(SavedServer.fromJson(item));
         }
-      } catch (_) {
-        // 快照损坏当作空（不认识的版本跳过不崩溃）。
-      }
+      } catch (_) {}
     }
+    final activeOrigin = _session.baseUrl != null
+        ? SessionStore.normalizeOrigin(_session.baseUrl!)
+        : null;
+    final activeUser = _session.accountUsername.isNotEmpty
+        ? _session.accountUsername
+        : (activeOrigin == null ? null : _guessUsername(servers, activeOrigin));
     state = state.copyWith(
       servers: servers,
-      currentOrigin: _session.baseUrl,
-      currentUsername: _session.baseUrl == null
-          ? null
-          : _guessUsername(servers, _session.baseUrl!),
+      currentOrigin: activeOrigin,
+      currentUsername: activeUser,
     );
     loadMe();
     loadDevices();
   }
 
   String? _guessUsername(List<SavedServer> servers, String origin) {
+    final norm = SessionStore.normalizeOrigin(origin);
     for (final server in servers) {
-      for (final account in server.accounts) {
-        if (server.origin == origin) return account.username;
+      if (SessionStore.normalizeOrigin(server.origin) == norm &&
+          server.accounts.isNotEmpty) {
+        return server.accounts.first.username;
       }
     }
     return null;
@@ -210,7 +218,12 @@ class AccountController extends Notifier<AccountUiState> {
       final body = await ref
           .read(accountClientProvider)
           .unwrap<Map<String, dynamic>>(Channel.general, 'GET', '/api/v1/auth/me');
-      state = state.copyWith(me: MeView.fromJson(body), clearError: true);
+      await _session.updateFromMeJson(body);
+      state = state.copyWith(
+        me: MeView.fromJson(body),
+        currentUsername: _session.accountUsername,
+        clearError: true,
+      );
     } catch (e) {
       state = state.copyWith(error: e.toString());
     }
@@ -229,9 +242,7 @@ class AccountController extends Notifier<AccountUiState> {
             .map(DeviceView.fromJson)
             .toList(),
       );
-    } catch (_) {
-      // 设备清单拉不到不打断账号切换主流程。
-    }
+    } catch (_) {}
   }
 
   /// PATCH /auth/devices/{id}：重命名设备。
@@ -249,7 +260,7 @@ class AccountController extends Notifier<AccountUiState> {
     }
   }
 
-  /// DELETE /auth/devices/{id}：吊销一台设备。
+  /// DELETE /auth/devices/{id}：吊销单台设备。
   Future<void> revokeDevice(String id) async {
     try {
       await ref.read(accountClientProvider).unwrap<Map<String, dynamic>?>(
@@ -263,105 +274,62 @@ class AccountController extends Notifier<AccountUiState> {
     }
   }
 
-  /// POST /auth/devices/cleanup：清理其他所有设备。
-  Future<void> cleanupDevices() async {
-    try {
-      await ref.read(accountClientProvider).unwrap<Map<String, dynamic>>(
-            Channel.general,
-            'POST',
-            '/api/v1/auth/devices/cleanup',
-            body: {'inactive_days': 0, 'dry_run': false},
-          );
-      await loadDevices();
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
-    }
-  }
-
-  void _persist(List<SavedServer> servers) {
-    _storage.write(
-      key: _serversKey,
-      value: jsonEncode(servers.map((s) => s.toJson()).toList()),
-    );
-  }
-
-  int? _indexOfServer(List<SavedServer> servers, String origin) {
-    for (final i in servers.indexed) {
-      if (i.$2.origin == origin) return i.$1;
-    }
-    return null;
-  }
-
-  /// 切换账号（对齐 switchTo）：快照当前令牌 → 恢复目标账号令牌并刷新 me。
+  /// 切换账号：快照当前令牌 → 恢复目标账号令牌并刷新 me。
   Future<void> switchTo(String origin, String username) async {
     if (state.busy) return;
     state = state.copyWith(busy: true);
-    // 先把当前会话令牌快照回 mc_token:<origin>:<user>，再取目标账号令牌。
     final curOrigin = _session.baseUrl;
-    final curUser = state.currentUsername;
-    if (curOrigin != null && curUser != null && curUser.isNotEmpty) {
+    final curUser = _session.accountUsername;
+    if (curOrigin != null && curUser.isNotEmpty) {
       await _session.snapshotAccountToken(origin: curOrigin, username: curUser);
     }
     final ok = await _session.switchAccount(origin: origin, username: username);
     if (!ok) {
-      // 目标账号没有本机令牌（从未在这台设备登录过）：退回重开会话的旧行为。
       await _session.restore();
     }
     state = state.copyWith(
       busy: false,
-      currentOrigin: origin,
-      currentUsername: username,
+      currentOrigin: _session.baseUrl != null
+          ? SessionStore.normalizeOrigin(_session.baseUrl!)
+          : origin,
+      currentUsername: _session.accountUsername.isNotEmpty
+          ? _session.accountUsername
+          : username,
     );
-    loadMe();
+    await loadMe();
+    await loadDevices();
   }
 
-  /// 从本机移除一个账号（不动服务器端；对齐 remove）。
+  /// 从本机移除一个账号并经 `PendingRevocations` 注销其服务端设备令牌。
   Future<void> remove(String origin, String username) async {
-    final servers = [...state.servers];
-    final index = _indexOfServer(servers, origin);
-    if (index == null) return;
-    final server = servers[index];
-    final accounts =
-        server.accounts.where((a) => a.username != username).toList();
-    final next = [...servers];
-    if (accounts.isEmpty) {
-      next.removeAt(index);
-    } else {
-      next[index] = SavedServer(origin: server.origin, accounts: accounts);
+    final token = _session.tokenFor(origin: origin, username: username);
+    if (token != null && token.isNotEmpty) {
+      await PendingRevocations.instance.enqueueAndRevoke(origin, token);
     }
-    state = state.copyWith(servers: next);
-    _persist(next);
-    // 本机快照删了，对应令牌也一并清（不动服务器端）。
-    await _session.deleteAccountToken(origin: origin, username: username);
+    await _session.removeAccount(origin: origin, username: username);
+    await restore();
   }
 
-  /// 退出全部账号：清 sessionStore 令牌 + 清本机快照；界面随后跳 /onboarding。
+  /// 退出全部账号：经 `PendingRevocations` 注销全部服务端令牌 + 可选删除本机离线副本。
   Future<void> logoutAll({bool wipeOffline = false}) async {
     if (wipeOffline) {
-      // 删除本机已下载文件：经 mc/native/download 的 delete(path) 删真实文件
-      // （原生未实现时 Dart 侧降级 dart:io 直接删除）。
-      // 任一文件删除失败只继续清理，不阻断登出。
       try {
         final prefs = await SharedPreferences.getInstance();
         final raw = prefs.getString(_offlineTasksKey);
         if (raw != null && raw.isNotEmpty) {
           final tasks = jsonDecode(raw) as List<dynamic>;
           for (final t in tasks) {
-            final path =
-                (t as Map<String, dynamic>)['savePath']?.toString();
+            final path = (t as Map<String, dynamic>)['savePath']?.toString();
             if (path != null && path.isNotEmpty) {
               await McDownloadChannel.delete(path);
             }
           }
           await prefs.remove(_offlineTasksKey);
         }
-      } catch (_) {
-        // 清理失败仅清状态，不阻断登出。
-      }
+      } catch (_) {}
     }
-    await _session.logout();
+    await _session.logoutAll();
     state = const AccountUiState(servers: <SavedServer>[]);
-    _persist(const <SavedServer>[]);
   }
 }
 

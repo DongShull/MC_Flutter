@@ -6,13 +6,16 @@ import '../../../core/session/session_store.dart';
 import 'models.dart';
 
 /// 设置域 API 单例。
-final settingsApiProvider =
-    Provider<SettingsApi>((ref) => SettingsApi(ref.watch(sessionStoreProvider)));
+final settingsApiProvider = Provider<SettingsApi>(
+  (ref) => SettingsApi(
+    ref.watch(sessionStoreProvider),
+    client: ref.watch(mcClientProvider),
+  ),
+);
 
-/// 设置域的 API 封装：统一走 McClient（Channel.general），对应 Kotlin McApi.kt
-/// 的 auth / playback-policy / app-maintenance 段。
+/// 设置域 API 封装（统一走 McClient / Channel.general，严格对齐 iOS Endpoints.swift）。
 class SettingsApi {
-  SettingsApi(this._session);
+  SettingsApi(this._session, {McClient? client}) : _client = client;
 
   final SessionStore _session;
   McClient? _client;
@@ -23,80 +26,119 @@ class SettingsApi {
 
   // ---- 账号 ----
 
-  /// GET /auth/me → SessionView。
-  Future<McSession> me() async {
+  /// GET /api/v1/auth/me → SessionView（同时返回原始 JSON 供同步权限快照）。
+  Future<({McSession session, Map<String, dynamic> raw})> meWithRaw() async {
     final body = await client.unwrap<Map<String, dynamic>>(
-      Channel.general, 'GET', '$_prefix/auth/me',
+      Channel.general,
+      'GET',
+      '$_prefix/auth/me',
     );
-    return McSession.fromJson(body);
+    return (session: McSession.fromJson(body), raw: body);
   }
 
-  /// PUT /auth/profile：改昵称。
-  Future<void> updateProfile(String nickname) =>
+  Future<McSession> me() async => (await meWithRaw()).session;
+
+  /// PUT /api/v1/auth/profile：改昵称。
+  Future<Map<String, dynamic>> updateProfile(String nickname) =>
       client.unwrap<Map<String, dynamic>>(
-        Channel.general, 'PUT', '$_prefix/auth/profile',
+        Channel.general,
+        'PUT',
+        '$_prefix/auth/profile',
         body: {'nickname': nickname},
       );
 
-  /// PUT /auth/password：改密码（signOutPaired 固定 false，同安卓）。
-  Future<void> changePassword(
-          {required String oldPassword, required String newPassword}) =>
+  /// PUT /api/v1/auth/password：改密码（支持同时注销配对设备）。
+  Future<Map<String, dynamic>> changePassword({
+    required String oldPassword,
+    required String newPassword,
+    bool signOutPaired = false,
+  }) =>
       client.unwrap<Map<String, dynamic>>(
-        Channel.general, 'PUT', '$_prefix/auth/password',
+        Channel.general,
+        'PUT',
+        '$_prefix/auth/password',
         body: {
-          'oldPassword': oldPassword,
           'old_password': oldPassword,
-          'newPassword': newPassword,
           'new_password': newPassword,
-          'signOutPaired': false,
-          'sign_out_paired': false,
+          'sign_out_paired': signOutPaired,
         },
       );
 
-  /// POST /auth/avatar（multipart，对齐 Kotlin McApi.uploadAvatar）。
-  Future<void> uploadAvatar(String filePath) async {
-    await client.postMultipart<dynamic>(
-      Channel.general, '$_prefix/auth/avatar',
-      fileField: 'file', filePath: filePath,
+  /// POST /api/v1/auth/avatar（multipart）。
+  Future<Map<String, dynamic>> uploadAvatar(String filePath) async {
+    final res = await client.postMultipart<dynamic>(
+      Channel.general,
+      '$_prefix/auth/avatar',
+      fileField: 'file',
+      filePath: filePath,
     );
+    return res is Map
+        ? Map<String, dynamic>.from(res)
+        : const <String, dynamic>{};
+  }
+
+  /// DELETE /api/v1/playback/history?scope=all：清空当前账号播放记录。
+  Future<String?> clearPlaybackHistory() async {
+    final res = await client.raw<Map<String, dynamic>>(
+      Channel.general,
+      'DELETE',
+      '$_prefix/playback/history',
+      query: const {'scope': 'all'},
+    );
+    final msg = res['message']?.toString().trim();
+    return (msg != null && msg.isNotEmpty) ? msg : null;
   }
 
   // ---- 设备 ----
 
-  /// GET /auth/devices?all=…；all=true 时连其他用户的播放器一起看（超管）。
+  /// GET /api/v1/auth/devices?all=…
   Future<List<LoginDevice>> devices({bool all = false}) async {
-    final body = await client.unwrap<List<dynamic>>(
-      Channel.general, 'GET', '$_prefix/auth/devices',
+    final body = await client.unwrap<dynamic>(
+      Channel.general,
+      'GET',
+      '$_prefix/auth/devices',
       query: {'all': all},
     );
-    return (body as List<dynamic>? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(LoginDevice.fromJson)
+    final list = body is List
+        ? body
+        : (body is Map
+            ? (body['items'] ?? body['devices'] ?? const []) as List<dynamic>
+            : const <dynamic>[]);
+    return list
+        .whereType<Map>()
+        .map((e) => LoginDevice.fromJson(Map<String, dynamic>.from(e)))
         .toList();
   }
 
-  /// PATCH /auth/devices/{id}：改名。
+  /// PATCH /api/v1/auth/devices/{id}：改名。
   Future<void> renameDevice(String id, String name) =>
-      client.unwrap<Map<String, dynamic>>(
-        Channel.general, 'PATCH', '$_prefix/auth/devices/$id',
+      client.unwrap<dynamic>(
+        Channel.general,
+        'PATCH',
+        '$_prefix/auth/devices/${Uri.encodeComponent(id)}',
         body: {'name': name},
       );
 
-  /// DELETE /auth/devices/{id}：注销。
-  Future<void> revokeDevice(String id) => client.unwrap<Map<String, dynamic>>(
-        Channel.general, 'DELETE', '$_prefix/auth/devices/$id',
+  /// DELETE /api/v1/auth/devices/{id}：注销。
+  Future<void> revokeDevice(String id) => client.unwrap<dynamic>(
+        Channel.general,
+        'DELETE',
+        '$_prefix/auth/devices/${Uri.encodeComponent(id)}',
       );
 
-  /// POST /auth/devices/cleanup；dryRun=true 只返回「将注销 N 台」预览。
-  Future<DeviceCleanupView> cleanupDevices(
-      {required int inactiveDays, bool dryRun = false}) async {
+  /// POST /api/v1/auth/devices/cleanup；dryRun=true 只返回「将注销 N 台」预览。
+  Future<DeviceCleanupView> cleanupDevices({
+    required int inactiveDays,
+    bool all = false,
+    bool dryRun = false,
+  }) async {
     final body = await client.unwrap<Map<String, dynamic>>(
-      Channel.general, 'POST', '$_prefix/auth/devices/cleanup',
+      Channel.general,
+      'POST',
+      '$_prefix/auth/devices/cleanup',
       body: {
-        'inactiveDays': inactiveDays,
         'inactive_days': inactiveDays,
-        'all': false,
-        'dryRun': dryRun,
+        'all': all,
         'dry_run': dryRun,
       },
     );
@@ -105,56 +147,185 @@ class SettingsApi {
 
   // ---- 播放策略 ----
 
-  /// GET /playback/policy。
+  /// GET /api/v1/playback/policy。
   Future<PlaybackPolicy> playbackPolicy() async {
     final body = await client.unwrap<Map<String, dynamic>>(
-      Channel.general, 'GET', '$_prefix/playback/policy',
+      Channel.general,
+      'GET',
+      '$_prefix/playback/policy',
     );
     return PlaybackPolicy.fromJson(body);
   }
 
-  /// PUT /playback/policy（意愿开关全量补丁）。
-  Future<void> updatePlaybackPolicy(Map<String, dynamic> patch) =>
-      client.unwrap<Map<String, dynamic>>(
-        Channel.general, 'PUT', '$_prefix/playback/policy',
-        body: patch,
-      );
-
-  // ---- 维护 ----
-
-  /// GET /app/update/pending → 无更新时信封 data 为 null。
-  Future<PendingUpdate?> pendingUpdate() async {
+  /// PUT /api/v1/playback/policy。
+  Future<PlaybackPolicy> updatePlaybackPolicy(
+    Map<String, dynamic> patch,
+  ) async {
     final body = await client.unwrap<Map<String, dynamic>>(
-      Channel.general, 'GET', '$_prefix/app/update/pending',
+      Channel.general,
+      'PUT',
+      '$_prefix/playback/policy',
+      body: patch,
     );
-    return body.isEmpty ? null : PendingUpdate.fromJson(body);
+    return PlaybackPolicy.fromJson(body);
   }
 
-  /// GET /app/update/status。
+  // ---- 维护 / 更新 / 存储 ----
+
+  /// GET /api/v1/app/update/pending → 无更新时信封 data 为 null/空。
+  Future<PendingUpdate?> pendingUpdate() async {
+    final raw = await client.unwrap<dynamic>(
+      Channel.general,
+      'GET',
+      '$_prefix/app/update/pending',
+    );
+    if (raw is! Map) return null;
+    final map = Map<String, dynamic>.from(raw);
+    if (map.isEmpty) return null;
+    final parsed = PendingUpdate.fromJson(map);
+    return parsed.hasUpdate ? parsed : null;
+  }
+
+  /// GET /api/v1/app/update/status。
   Future<UpdateStatus> updateStatus() async {
     final body = await client.unwrap<Map<String, dynamic>>(
-      Channel.general, 'GET', '$_prefix/app/update/status',
+      Channel.general,
+      'GET',
+      '$_prefix/app/update/status',
     );
     return UpdateStatus.fromJson(body);
   }
 
-  /// POST /app/restart：重启服务端。
-  Future<void> restartApp() => client.unwrap<Map<String, dynamic>>(
-        Channel.general, 'POST', '$_prefix/app/restart',
+  /// POST /api/v1/app/update/check。
+  Future<UpdateCheckView> checkUpdate() async {
+    final body = await client.unwrap<Map<String, dynamic>>(
+      Channel.general,
+      'POST',
+      '$_prefix/app/update/check',
+    );
+    return UpdateCheckView.fromJson(body);
+  }
+
+  /// POST /api/v1/app/update/apply。
+  Future<UpdateProgressView> applyUpdate() async {
+    final body = await client.unwrap<Map<String, dynamic>>(
+      Channel.general,
+      'POST',
+      '$_prefix/app/update/apply',
+    );
+    return UpdateProgressView.fromJson(body);
+  }
+
+  /// GET /api/v1/app/update/progress。
+  Future<UpdateProgressView> updateProgress() async {
+    final body = await client.unwrap<Map<String, dynamic>>(
+      Channel.general,
+      'GET',
+      '$_prefix/app/update/progress',
+    );
+    return UpdateProgressView.fromJson(body);
+  }
+
+  /// POST /api/v1/app/update/model/check。
+  Future<ModelUpdateCheckView> checkModelUpdate() async {
+    final body = await client.unwrap<Map<String, dynamic>>(
+      Channel.general,
+      'POST',
+      '$_prefix/app/update/model/check',
+    );
+    return ModelUpdateCheckView.fromJson(body);
+  }
+
+  /// POST /api/v1/app/update/model/apply。
+  Future<UpdateProgressView> applyModelUpdate() async {
+    final body = await client.unwrap<Map<String, dynamic>>(
+      Channel.general,
+      'POST',
+      '$_prefix/app/update/model/apply',
+    );
+    return UpdateProgressView.fromJson(body);
+  }
+
+  /// GET /api/v1/app/update/rollback/options。
+  Future<RollbackOptionsView> rollbackOptions() async {
+    final body = await client.unwrap<Map<String, dynamic>>(
+      Channel.general,
+      'GET',
+      '$_prefix/app/update/rollback/options',
+    );
+    return RollbackOptionsView.fromJson(body);
+  }
+
+  /// PUT /api/v1/app/update/retention。
+  Future<void> setUpdateRetention(int keepVersions) => client.unwrap<dynamic>(
+        Channel.general,
+        'PUT',
+        '$_prefix/app/update/retention',
+        body: {'keep_versions': keepVersions},
       );
 
-  /// GET /app/storage → 存储用量 + 可清理目录。
-  Future<StorageState> storage() async {
+  /// POST /api/v1/app/update/rollback。
+  Future<void> rollbackVersion({
+    required String target,
+    required bool restoreBackup,
+  }) =>
+      client.unwrap<dynamic>(
+        Channel.general,
+        'POST',
+        '$_prefix/app/update/rollback',
+        body: {
+          'target': target,
+          'restore_backup': restoreBackup,
+        },
+      );
+
+  /// POST /api/v1/app/update/last-exit/dismiss。
+  Future<void> dismissLastExit() => client.unwrap<dynamic>(
+        Channel.general,
+        'POST',
+        '$_prefix/app/update/last-exit/dismiss',
+      );
+
+  /// GET /api/v1/health（重启恢复探测）。
+  Future<bool> probeHealth() async {
+    try {
+      await client.raw<dynamic>(
+        Channel.live,
+        'GET',
+        '$_prefix/health',
+        timeout: const Duration(seconds: 3),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// POST /api/v1/app/restart：重启服务端。
+  Future<void> restartApp() => client.unwrap<dynamic>(
+        Channel.general,
+        'POST',
+        '$_prefix/app/restart',
+      );
+
+  /// GET /api/v1/app/storage?refresh=… → 存储用量 + 可清理目录。
+  Future<StorageState> storage({bool refresh = false}) async {
     final body = await client.unwrap<Map<String, dynamic>>(
-      Channel.general, 'GET', '$_prefix/app/storage',
+      Channel.general,
+      'GET',
+      '$_prefix/app/storage',
+      query: refresh ? const {'refresh': true} : null,
     );
     return StorageState.fromJson(body);
   }
 
-  /// POST /app/storage/{key}/clean：清理一个登记目录。
-  Future<CleanResult> cleanStorage(String key) async {
+  /// POST /api/v1/app/storage/{key}/clean：清理一个登记目录（mode: orphans | all）。
+  Future<CleanResult> cleanStorage(String key, {String mode = 'all'}) async {
     final body = await client.unwrap<Map<String, dynamic>>(
-      Channel.general, 'POST', '$_prefix/app/storage/$key/clean',
+      Channel.general,
+      'POST',
+      '$_prefix/app/storage/${Uri.encodeComponent(key)}/clean',
+      body: {'mode': mode},
     );
     return CleanResult.fromJson(body);
   }

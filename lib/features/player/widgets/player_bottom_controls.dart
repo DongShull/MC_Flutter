@@ -7,9 +7,9 @@ import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/player/session/playback_session_api.dart';
 
-/// 播放器底部液态玻璃控制胶囊行（对齐 `player.jpg` 实机控制层）：
-/// - 左侧连体液态玻璃胶囊 `[ 音轨 | 字幕 ]`；
-/// - 右侧液态玻璃胶囊：下一集 / 选集 / 投屏 / 等宽倍速。
+/// 播放器底部液态玻璃控制胶囊行：
+/// - 左侧连体胶囊 `[ 音轨 | 字幕 ]`（字幕菜单带 AI 徽章、不可用原因置灰、PGS 烧录提示）；
+/// - 右侧：下一集 / 选集 / 投屏(AirPlay/DLNA) / 横竖屏旋转 / 等宽倍速。
 class PlayerBottomControls extends StatelessWidget {
   const PlayerBottomControls({
     super.key,
@@ -27,6 +27,10 @@ class PlayerBottomControls extends StatelessWidget {
     this.selectedSubtitleTrack,
     required this.onPickAudio,
     required this.onPickSubtitle,
+    this.showOrientationToggle = false,
+    this.isLandscape = true,
+    this.onToggleOrientation,
+    this.onAirPlay,
   });
 
   final bool isEpisode;
@@ -45,26 +49,12 @@ class PlayerBottomControls extends StatelessWidget {
   final ValueChanged<String> onPickAudio;
   final ValueChanged<String> onPickSubtitle;
 
-  List<(String, String, String)> _trackEntries({required bool subtitle}) {
-    if (subtitle) {
-      return [for (final t in subtitles) (t.trackRef, t.label, t.detail)];
-    }
-    return [
-      for (final t in audioTracks)
-        (
-          t.ref,
-          t.label,
-          [
-            if (t.codec != null && t.codec!.isNotEmpty) t.codec!,
-            if (t.channels != null) '${t.channels} 声道',
-          ].join(' · '),
-        ),
-    ];
-  }
+  final bool showOrientationToggle;
+  final bool isLandscape;
+  final VoidCallback? onToggleOrientation;
+  final VoidCallback? onAirPlay;
 
-  void _showTrackMenu(BuildContext context, {required bool subtitle}) {
-    final entries = _trackEntries(subtitle: subtitle);
-    final selected = subtitle ? selectedSubtitleTrack : selectedAudioTrack;
+  void _showAudioMenu(BuildContext context) {
     showMcSheet<void>(
       context: context,
       builder: (ctx) => Padding(
@@ -73,18 +63,15 @@ class PlayerBottomControls extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(6, 4, 6, 12),
-              child: Text(
-                subtitle ? '选择字幕' : '选择音轨',
-                style: McText.titleSm,
-              ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(6, 4, 6, 12),
+              child: Text('选择音轨', style: McText.titleSm),
             ),
-            if (entries.isEmpty)
+            if (audioTracks.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Center(
-                  child: Text('当前会话未提供可切换轨道', style: McText.caption.muted),
+                  child: Text('当前会话未提供可切换音轨', style: McText.caption.muted),
                 ),
               )
             else
@@ -94,40 +81,138 @@ class PlayerBottomControls extends StatelessWidget {
                   child: McInsetGroup(
                     margin: EdgeInsets.zero,
                     children: [
-                      if (subtitle)
-                        McInsetRow(
-                          title: '关闭字幕',
-                          trailing: (selected ?? '').isEmpty
-                              ? const Icon(
-                                  McIcons.check,
-                                  size: 18,
-                                  color: McTokens.accentStrong,
-                                )
-                              : null,
-                          onTap: () {
-                            onPickSubtitle('off');
-                            Navigator.of(ctx).pop();
-                          },
+                      for (final t in audioTracks)
+                        Opacity(
+                          opacity: (t.unavailableReason == null ||
+                                  t.unavailableReason!.isEmpty)
+                              ? 1.0
+                              : 0.45,
+                          child: McInsetRow(
+                            title: t.label,
+                            subtitle: t.unavailableReason != null &&
+                                    t.unavailableReason!.isNotEmpty
+                                ? t.unavailableReason
+                                : (t.isDefault ? '默认音轨' : null),
+                            trailing: t.ref == selectedAudioTrack
+                                ? const Icon(
+                                    McIcons.check,
+                                    size: 18,
+                                    color: McTokens.accentStrong,
+                                  )
+                                : null,
+                            onTap: (t.unavailableReason != null &&
+                                    t.unavailableReason!.isNotEmpty)
+                                ? null
+                                : () {
+                                    onPickAudio(t.ref);
+                                    Navigator.of(ctx).pop();
+                                  },
+                          ),
                         ),
-                      for (final (ref, label, detail) in entries)
-                        McInsetRow(
-                          title: label,
-                          subtitle: detail.isEmpty ? null : detail,
-                          trailing: ref == selected
-                              ? const Icon(
-                                  McIcons.check,
-                                  size: 18,
-                                  color: McTokens.accentStrong,
-                                )
-                              : null,
-                          onTap: () {
-                            if (subtitle) {
-                              onPickSubtitle(ref);
-                            } else {
-                              onPickAudio(ref);
-                            }
-                            Navigator.of(ctx).pop();
-                          },
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSubtitleMenu(BuildContext context) {
+    showMcSheet<void>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(6, 4, 6, 12),
+              child: Text('选择字幕', style: McText.titleSm),
+            ),
+            if (subtitles.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Center(
+                  child: Text('当前片源暂无字幕轨', style: McText.caption.muted),
+                ),
+              )
+            else
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 320),
+                child: SingleChildScrollView(
+                  child: McInsetGroup(
+                    margin: EdgeInsets.zero,
+                    children: [
+                      McInsetRow(
+                        title: '关闭字幕',
+                        trailing: (selectedSubtitleTrack ?? '').isEmpty
+                            ? const Icon(
+                                McIcons.check,
+                                size: 18,
+                                color: McTokens.accentStrong,
+                              )
+                            : null,
+                        onTap: () {
+                          onPickSubtitle('off');
+                          Navigator.of(ctx).pop();
+                        },
+                      ),
+                      for (final t in subtitles)
+                        Opacity(
+                          opacity: t.isAvailable ? 1.0 : 0.42,
+                          child: McInsetRow(
+                            title: t.label,
+                            subtitle: t.isBitmap
+                                ? '${t.detail} · 需服务端压制（会短暂重载）'
+                                : (t.detail.isEmpty ? null : t.detail),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (t.isAi)
+                                  Container(
+                                    margin: const EdgeInsets.only(right: 6),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: McTokens.accentStrong
+                                          .withValues(alpha: 0.2),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: McTokens.accentStrong
+                                            .withValues(alpha: 0.6),
+                                        width: 0.7,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      'AI',
+                                      style: McText.micro.copyWith(
+                                        color: McTokens.accentStrong,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                if (t.trackRef == selectedSubtitleTrack)
+                                  const Icon(
+                                    McIcons.check,
+                                    size: 18,
+                                    color: McTokens.accentStrong,
+                                  ),
+                              ],
+                            ),
+                            onTap: !t.isAvailable
+                                ? () => onNotice(
+                                      t.unavailableReason ?? '该字幕轨当前不可用',
+                                    )
+                                : () {
+                                    onPickSubtitle(t.trackRef);
+                                    Navigator.of(ctx).pop();
+                                  },
+                          ),
                         ),
                     ],
                   ),
@@ -190,7 +275,7 @@ class PlayerBottomControls extends StatelessWidget {
         onTap: onTap,
         haptic: true,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -218,7 +303,6 @@ class PlayerBottomControls extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
-          // 左侧连体液态玻璃胶囊：[ 音轨 | 字幕 ]
           McLiquidGlass(
             radius: McTokens.pillRadius,
             withShadow: false,
@@ -228,13 +312,13 @@ class PlayerBottomControls extends StatelessWidget {
                 _segmentTap(
                   icon: McIcons.equalizer,
                   label: '音轨',
-                  onTap: () => _showTrackMenu(context, subtitle: false),
+                  onTap: () => _showAudioMenu(context),
                 ),
                 Container(width: 1, height: 16, color: McTokens.lineStrong),
                 _segmentTap(
                   icon: McIcons.closedCaptioning,
                   label: '字幕',
-                  onTap: () => _showTrackMenu(context, subtitle: true),
+                  onTap: () => _showSubtitleMenu(context),
                 ),
               ],
             ),
@@ -263,15 +347,39 @@ class PlayerBottomControls extends StatelessWidget {
             ),
             const SizedBox(width: 8),
           ],
+          if (onAirPlay != null) ...[
+            McFocusRing(
+              borderRadius: 20,
+              child: McGlassIconButton(
+                icon: McIcons.dlna,
+                tooltip: '隔空播放 AirPlay',
+                onTap: onAirPlay!,
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
           McFocusRing(
             borderRadius: 20,
             child: McGlassIconButton(
               icon: McIcons.cast,
-              tooltip: '投屏',
+              tooltip: 'DLNA 投屏',
               onTap: onCast,
             ),
           ),
           const SizedBox(width: 8),
+          if (showOrientationToggle && onToggleOrientation != null) ...[
+            McFocusRing(
+              borderRadius: 20,
+              child: McGlassIconButton(
+                icon: isLandscape
+                    ? McIcons.screenVertical
+                    : McIcons.screenHorizontal,
+                tooltip: isLandscape ? '切换竖屏' : '切换横屏',
+                onTap: onToggleOrientation!,
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
           McLiquidGlass(
             radius: McTokens.pillRadius,
             withShadow: false,
@@ -282,7 +390,7 @@ class PlayerBottomControls extends StatelessWidget {
                 haptic: true,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
+                    horizontal: 13,
                     vertical: 8,
                   ),
                   child: Text(

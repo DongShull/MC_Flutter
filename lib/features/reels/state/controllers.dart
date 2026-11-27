@@ -1,11 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'models.dart';
-import 'reels_api.dart';
 import '../../../core/api/api_exception.dart';
+import 'models.dart';
+import 'network_tier.dart';
+import 'reels_api.dart';
 
-/// 刷片页状态（对应 Android ReelsViewModel.UiState 的 Flutter 侧裁剪：
-/// 播放引擎部分由 player 域负责，这里只管信息流 / 标记 / 事件）。
+/// 刷片页状态（信息流、收藏/已看、筛选、四象限画质、事件攒批）。
 class ReelsState {
   const ReelsState({
     this.loading = false,
@@ -16,20 +18,22 @@ class ReelsState {
     this.filter = const ReelFilter(),
     this.error,
     this.serverOutdated = false,
+    this.qualityMaxHeight,
+    this.qualityLoaded = false,
   });
 
   final bool loading;
   final List<ReelItemView> items;
-
-  /// 片段 id -> 本人是否收藏 / 已看（乐观更新，失败回滚）
   final Map<String, bool> favorites;
   final Map<String, bool> playeds;
   final ReelFacetsView? facets;
   final ReelFilter filter;
   final String? error;
-
-  /// 服务器版本比 App 旧（/reels 404）：提示升级服务器，不报「加载失败」
   final bool serverOutdated;
+
+  /// 当前网络象限生效的画质上限（`null` = 原画，1080/720/480 = 转码上限）。
+  final int? qualityMaxHeight;
+  final bool qualityLoaded;
 
   ReelsState copyWith({
     bool? loading,
@@ -42,6 +46,9 @@ class ReelsState {
     String? error,
     bool clearError = false,
     bool? serverOutdated,
+    int? qualityMaxHeight,
+    bool setQualityOriginal = false,
+    bool? qualityLoaded,
   }) {
     return ReelsState(
       loading: loading ?? this.loading,
@@ -52,15 +59,14 @@ class ReelsState {
       filter: filter ?? this.filter,
       error: clearError ? null : (error ?? this.error),
       serverOutdated: serverOutdated ?? this.serverOutdated,
+      qualityMaxHeight: setQualityOriginal
+          ? null
+          : (qualityMaxHeight ?? this.qualityMaxHeight),
+      qualityLoaded: qualityLoaded ?? this.qualityLoaded,
     );
   }
 }
 
-/// 刷片信息流控制器：
-/// - 首页 limit=5、翻页 limit=10（Android 首页 5 同款）；
-/// - 同一种子顺序固定、服务端无状态：滑到末尾前 3 条时预取下一页；
-/// - 事件攒批，满 10 条 flush（失败即丢）；
-/// - 收藏 / 已看走 playback/marks，乐观更新失败回滚。
 class ReelsController extends Notifier<ReelsState> {
   static const _firstPageSize = 5;
   static const _pageSize = 10;
@@ -74,14 +80,36 @@ class ReelsController extends Notifier<ReelsState> {
   @override
   ReelsState build() {
     ref.onDispose(flushEvents);
+    unawaited(loadQuality());
     return const ReelsState();
   }
 
   ReelsApi get _api => ref.read(reelsApiProvider);
 
+  Future<void> loadQuality() async {
+    final q = await ReelsQuality.current();
+    state = state.copyWith(
+      qualityMaxHeight: q,
+      setQualityOriginal: q == null,
+      qualityLoaded: true,
+    );
+  }
+
+  Future<void> selectQuality(int? maxHeight) async {
+    await ReelsQuality.remember(maxHeight);
+    state = state.copyWith(
+      qualityMaxHeight: maxHeight,
+      setQualityOriginal: maxHeight == null,
+      qualityLoaded: true,
+    );
+  }
+
   /* ---------------- 信息流 ---------------- */
 
   Future<void> loadFirstPage() async {
+    if (!state.qualityLoaded) {
+      await loadQuality();
+    }
     state = state.copyWith(
       loading: true,
       clearError: true,
@@ -110,10 +138,9 @@ class ReelsController extends Notifier<ReelsState> {
         error: outdated ? null : _messageOf(e),
       );
     }
-    loadFacets();
+    unawaited(loadFacets());
   }
 
-  /// 滑到末尾前几条时取下一页（同一种子顺序固定，服务端无状态）
   Future<void> loadMoreIfNeeded(int currentIndex) async {
     if (_loadingMore || !_hasMore || state.loading) return;
     if (currentIndex < state.items.length - 3) return;
@@ -134,7 +161,6 @@ class ReelsController extends Notifier<ReelsState> {
       ];
       state = state.copyWith(items: merged);
     } catch (_) {
-      // 下一页拉不到就停在这儿；用户滑回来会再试
     } finally {
       _loadingMore = false;
     }
@@ -144,9 +170,7 @@ class ReelsController extends Notifier<ReelsState> {
       e is ApiException ? e.friendlyMessage : e.toString();
 
   bool _isNotFound(Object e) {
-    if (e is ApiException) {
-      return e.httpStatus == 404;
-    }
+    if (e is ApiException) return e.httpStatus == 404;
     final m = e.toString();
     return m.contains('404') ||
         m.toLowerCase().contains('not found') ||
@@ -157,19 +181,30 @@ class ReelsController extends Notifier<ReelsState> {
     try {
       final facets = await _api.facets(filter: state.filter);
       state = state.copyWith(facets: facets);
-    } catch (_) {
-      // 候选值拉不到就沿用上一份
-    }
+    } catch (_) {}
   }
 
-  /// 换筛选：整个信息流重来（新种子、从头抽）
   void applyFilter(ReelFilter filter) {
     state = state.copyWith(filter: filter, items: const [], loading: true);
     loadFirstPage();
   }
 
-  /// 清掉全部条件（空态里的「看全部」）
   void clearFilter() => applyFilter(const ReelFilter());
+
+  /* ---------------- 真实访客分享链接 ---------------- */
+
+  Future<ReelShareResult?> createGuestShareLink(ReelItemView item) async {
+    final t = item.title;
+    if (t.libraryId <= 0 || t.mediaItemId <= 0) return null;
+    try {
+      return await _api.createShareLink(
+        libraryId: t.libraryId,
+        mediaItemId: t.mediaItemId,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 
   /* ---------------- 事件 ---------------- */
 
@@ -179,20 +214,24 @@ class ReelsController extends Notifier<ReelsState> {
     int? positionMs,
     int? watchedMs,
     int? waitMs,
-    String? detail,
+    Map<String, dynamic>? detail,
   }) {
-    _pendingEvents.add(ReelEventView(
-      reelId: item.id,
-      kind: kind,
-      mode: item.play.mode,
-      mediaItemId: item.title.mediaItemId > 0 ? item.title.mediaItemId : null,
-      fileId: item.segment.fileId > 0 ? item.segment.fileId : null,
-      positionMs: positionMs,
-      watchedMs: watchedMs,
-      waitMs: waitMs,
-      detail: detail,
-    ));
-    if (_pendingEvents.length >= 10) flushEvents();
+    _pendingEvents.add(
+      ReelEventView(
+        reelId: item.id,
+        kind: kind,
+        mode: item.play.mode,
+        mediaItemId: item.title.mediaItemId > 0 ? item.title.mediaItemId : null,
+        fileId: item.segment.fileId > 0 ? item.segment.fileId : null,
+        positionMs: positionMs,
+        watchedMs: watchedMs,
+        waitMs: waitMs,
+        detail: detail,
+      ),
+    );
+    if (_pendingEvents.length >= 10) {
+      unawaited(flushEvents());
+    }
   }
 
   Future<void> flushEvents() async {
@@ -201,12 +240,10 @@ class ReelsController extends Notifier<ReelsState> {
     _pendingEvents.clear();
     try {
       await _api.reportEvents(batch);
-    } catch (_) {
-      // 失败即丢（同 Android）
-    }
+    } catch (_) {}
   }
 
-  /* ---------------- 收藏 / 已看（playback/marks，乐观更新失败回滚） ---------------- */
+  /* ---------------- 收藏 / 已看 ---------------- */
 
   bool isFavorite(ReelItemView item) =>
       state.favorites[item.id] ?? item.title.favorite;
@@ -217,29 +254,21 @@ class ReelsController extends Notifier<ReelsState> {
   Future<void> toggleFavorite(ReelItemView item) async {
     final t = item.title;
     final next = !(state.favorites[item.id] ?? t.favorite);
-    state = state.copyWith(
-      favorites: {...state.favorites, item.id: next},
-    );
+    state = state.copyWith(favorites: {...state.favorites, item.id: next});
     try {
-      // 收藏落在整部（电影 / 整剧）
       await _api.setMarks(mediaItemId: t.mediaItemId, favorite: next);
     } catch (_) {
-      state = state.copyWith(
-        favorites: {...state.favorites, item.id: !next}, // 失败改回去
-      );
+      state = state.copyWith(favorites: {...state.favorites, item.id: !next});
     }
   }
 
   Future<void> togglePlayed(ReelItemView item) async {
     final t = item.title;
     final next = !(state.playeds[item.id] ?? t.played);
-    state = state.copyWith(
-      playeds: {...state.playeds, item.id: next},
-    );
+    state = state.copyWith(playeds: {...state.playeds, item.id: next});
     final season = t.episode?.season;
     final episode = t.episode?.episode;
     try {
-      // 剧集记这一集，电影记整部
       await _api.setMarks(
         mediaItemId: t.mediaItemId,
         seasonNumber: (season == null || season <= 0) ? null : season,
@@ -247,30 +276,41 @@ class ReelsController extends Notifier<ReelsState> {
         played: next,
       );
     } catch (_) {
-      state = state.copyWith(
-        playeds: {...state.playeds, item.id: !next}, // 失败改回去
-      );
+      state = state.copyWith(playeds: {...state.playeds, item.id: !next});
     }
   }
 }
 
-/// 顶栏筛选键的文字：没条件「全部」、一个条件写它的值、多个写「已筛选 N 项」
+/// 顶栏筛选键摘要：没条件「全部」、单维写值（多选用「剧情等 2 个」）、多维写「已筛选 N 项」。
 String filterLabel(ReelFilter filter, ReelFacetsView? facets) {
   if (filter.activeCount == 0) return '全部';
-  FacetValue pick(List<FacetValue> list, String value) =>
-      list.firstWhere((e) => e.value == value,
-          orElse: () => FacetValue(label: value));
+
+  String pickLabel(List<FacetValue> list, String value) {
+    for (final e in list) {
+      if (e.value == value) return e.label;
+    }
+    return value;
+  }
+
+  String summarizeSet(Set<String> values, List<FacetValue> list) {
+    final sorted = values.toList()..sort();
+    final first = pickLabel(list, sorted.first);
+    return sorted.length == 1 ? first : '$first等 ${sorted.length} 项';
+  }
+
   final labels = <String>[
-    if (filter.kind != null) pick(facets?.kinds ?? const [], filter.kind!).label,
+    if (filter.kind != null)
+      pickLabel(facets?.kinds ?? const [], filter.kind!),
     if (filter.watch != null) '没看过',
-    if (filter.genres != null)
-      pick(facets?.genres ?? const [], filter.genres!).label,
-    if (filter.countries != null)
-      pick(facets?.countries ?? const [], filter.countries!).label,
-    if (filter.decades != null) filter.decades!,
+    if (filter.genres.isNotEmpty)
+      summarizeSet(filter.genres, facets?.genres ?? const []),
+    if (filter.countries.isNotEmpty)
+      summarizeSet(filter.countries, facets?.countries ?? const []),
+    if (filter.decades.isNotEmpty)
+      summarizeSet(filter.decades, facets?.decades ?? const []),
     if (filter.ratingGte != null) '${filter.ratingGte} 分以上',
-    if (filter.runtimes != null)
-      pick(facets?.runtimes ?? const [], filter.runtimes!).label,
+    if (filter.runtimes.isNotEmpty)
+      summarizeSet(filter.runtimes, facets?.runtimes ?? const []),
   ];
   if (labels.length == 1) return labels.first;
   return '已筛选 ${labels.length} 项';

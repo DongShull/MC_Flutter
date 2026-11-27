@@ -11,6 +11,7 @@ import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/subscribe_sheet.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/image/cover_preloader.dart';
+import '../../../core/session/permissions.dart';
 import '../routes.dart' as feat_discover;
 import '../state/discover_controller.dart';
 import '../widgets/discovery_filter.dart';
@@ -28,11 +29,12 @@ class _DimSheetBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final filters = ref.watch(discoverProvider).filters;
+    final state = ref.watch(discoverProvider);
     return DiscoveryFilterOptionsPanel(
       dimKey: dimKey,
-      filter: filters,
+      filter: state.filters,
       mediaType: mediaType,
+      genres: state.genres,
       onApply: (f) {
         Navigator.of(context).pop();
         onApply(f);
@@ -41,7 +43,7 @@ class _DimSheetBody extends ConsumerWidget {
   }
 }
 
-/// 组合筛选的结果网格：顶部已选条件胶囊条 + 自适应海报墙网格 + 滚到底自动翻页。
+/// 组合筛选的结果网格：顶部动态条件胶囊条 + 自适应海报墙网格 + 滚到底自动翻页。
 class DiscoverFilteredGrid extends ConsumerStatefulWidget {
   const DiscoverFilteredGrid({super.key});
 
@@ -71,6 +73,8 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(discoverProvider);
+    final subs = ref.watch(discoverSubscriptionIndexProvider);
+    final perms = ref.watch(permissionsProvider);
     final sig = state.filtered.length;
     if (sig > 0 && sig != _preloadedSig) {
       _preloadedSig = sig;
@@ -115,6 +119,7 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
                   child: DiscoverFilterChipsRow(
                     filters: state.filters,
                     mediaType: state.mediaType,
+                    genreNames: state.genreNameMap,
                     onOpenDim: _openDim,
                   ),
                 ),
@@ -139,8 +144,9 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
                     padding: const EdgeInsets.only(top: 48),
                     child: McErrorView(
                       text: state.filteredError!,
-                      onRetry: () =>
-                          ref.read(discoverProvider.notifier).loadFiltered(),
+                      onRetry: () => ref
+                          .read(discoverProvider.notifier)
+                          .loadFiltered(skipDebounce: true),
                     ),
                   ),
                 )
@@ -166,6 +172,13 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
                     delegate: SliverChildBuilderDelegate(
                       (context, i) {
                         final t = state.filtered[i];
+                        final sub = subs.findByTitle(t);
+                        final badge =
+                            t.owned ? '已入库' : (sub != null ? '已订阅' : null);
+                        final badgeColor = t.owned
+                            ? McTokens.ok
+                            : (sub != null ? McTokens.info : null);
+
                         return McFocusRing(
                           borderRadius: McTokens.posterRadius,
                           child: McPosterCard(
@@ -174,12 +187,19 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
                             width: null,
                             subtitle: [
                               if (t.year != null) t.year.toString(),
-                              if (t.genres.isNotEmpty) t.genres.first,
+                              if (t.extentLabel.isNotEmpty)
+                                t.extentLabel
+                              else if (t.genres.isNotEmpty)
+                                t.genres.first,
                             ].join(' · '),
                             rating: (t.rating ?? 0) > 0 ? t.rating : null,
-                            badge: t.owned ? '在库' : null,
-                            badgeDotColor: t.owned ? McTokens.ok : null,
-                            onTap: () => feat_discover.pushTitle(context, t.ref),
+                            badge: badge,
+                            badgeDotColor: badgeColor,
+                            onTap: () => feat_discover.pushTitle(
+                              context,
+                              t.ref,
+                              seed: t,
+                            ),
                             onQuickPlay: t.owned &&
                                     t.libraryId != null &&
                                     t.mediaItemId != null
@@ -191,8 +211,11 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
                               McPosterMenuAction(
                                 icon: McIcons.film,
                                 label: '查看详情',
-                                onTap: () =>
-                                    feat_discover.pushTitle(context, t.ref),
+                                onTap: () => feat_discover.pushTitle(
+                                  context,
+                                  t.ref,
+                                  seed: t,
+                                ),
                               ),
                               if (t.owned &&
                                   t.libraryId != null &&
@@ -204,15 +227,26 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
                                     '/detail/${t.libraryId}/${t.mediaItemId}',
                                   ),
                                 ),
-                              McPosterMenuAction(
-                                icon: McIcons.bookmarkFill,
-                                label: t.owned ? '管理订阅' : '订阅影片',
-                                onTap: () => showSubscribeSheet(
-                                  context,
-                                  ref,
-                                  titleRef: t.ref,
+                              if (perms.canSubscribe)
+                                McPosterMenuAction(
+                                  icon: McIcons.bookmarkFill,
+                                  label: sub != null ? '管理订阅' : '订阅影片',
+                                  onTap: () async {
+                                    final out = await showSubscribeSheet(
+                                      context,
+                                      ref,
+                                      titleRef: t.ref,
+                                    );
+                                    if (out != null) {
+                                      ref
+                                          .read(
+                                            discoverSubscriptionIndexProvider
+                                                .notifier,
+                                          )
+                                          .refresh();
+                                    }
+                                  },
                                 ),
-                              ),
                             ],
                           ),
                         );
@@ -265,7 +299,7 @@ class _DiscoverFilteredGridState extends ConsumerState<DiscoverFilteredGrid> {
           Expanded(
             child: Text(
               state.filteredTotal > 0
-                  ? '共找到 ${state.filteredTotal} 部作品'
+                  ? '共找到 ${state.filteredTotal} 部作品（已加载 ${state.filtered.length}）'
                   : '已启用 ${state.filters.activeCount} 项筛选',
               style: McText.sub.tabular,
             ),

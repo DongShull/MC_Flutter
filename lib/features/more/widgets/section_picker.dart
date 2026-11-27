@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/theme.dart';
 
-/// 三段式圆角胶囊分段切换器 `[ 会话 | 下载 | 服务器 ]`（带未读红点徽标）。
+/// 三段式圆角胶囊分段切换器 `[ 会话 | 下载 | 服务器 ]`（支持自定义徽标颜色：待处理红点 / 更新蓝点）。
 class SectionPicker extends StatelessWidget {
   const SectionPicker({
     super.key,
@@ -12,6 +12,7 @@ class SectionPicker extends StatelessWidget {
     required this.selected,
     required this.onSelect,
     this.badgeIndex,
+    this.badgeColor = McTokens.danger,
   });
 
   final List<String> labels;
@@ -19,6 +20,7 @@ class SectionPicker extends StatelessWidget {
   final int selected;
   final ValueChanged<int> onSelect;
   final int? badgeIndex;
+  final Color badgeColor;
 
   @override
   Widget build(BuildContext context) {
@@ -78,9 +80,9 @@ class SectionPicker extends StatelessWidget {
                               child: Container(
                                 width: 7,
                                 height: 7,
-                                decoration: const BoxDecoration(
+                                decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: McTokens.danger,
+                                  color: badgeColor,
                                 ),
                               ),
                             ),

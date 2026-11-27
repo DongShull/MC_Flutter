@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_exception.dart';
@@ -8,10 +11,12 @@ import '../../../core/session/session_store.dart';
 import 'models.dart';
 
 /// 更新检查 API 单例。
-final updateApiProvider = Provider<UpdateApi>((ref) => UpdateApi(
-      ref.watch(sessionStoreProvider),
-      product: UpdatePolicy.product,
-    ));
+final updateApiProvider = Provider<UpdateApi>(
+  (ref) => UpdateApi(
+    ref.watch(sessionStoreProvider),
+    product: UpdatePolicy.product,
+  ),
+);
 
 /// 本次结果来源（对齐 AppUpdater.Source）。
 enum UpdateSource { official, server }
@@ -23,9 +28,8 @@ extension UpdateSourceText on UpdateSource {
       };
 }
 
-/// 客户端自身新版检查（对齐原 core/update AppUpdater.check）：
-/// 先查官网 GitHub Release（tag 过滤 + release.json 附件），连不上（国内网络）再改问
-/// 自己的服务器 GET /app/clients/{product}/latest（服务器沿用它的 GitHub 出口代查）。
+/// 客户端自身新版检查（仅非 iOS 平台允许自检 APK/安装包发布；
+/// iOS 严格遵守 App Store 2.5.2 规范，不查询 Android APK 发布也不提供二进制下载）。
 class UpdateApi {
   UpdateApi(this._session, {this.product = 'android'});
 
@@ -37,8 +41,16 @@ class UpdateApi {
   static const _githubApi = 'https://api.github.com/repos/movieclaw/movieclaw';
   static const _prefix = '/api/v1';
 
-  /// 查最新版：来源标记 official / server；两边都失败时抛出说明两边原因的错误。
+  static bool get isSelfUpdateSupported => !kIsWeb && !Platform.isIOS;
+
+  /// 查最新版：iOS 上直接阻断；非 iOS 先查官网后兜底服务器。
   Future<(ClientReleaseView, UpdateSource)> latest({bool force = false}) async {
+    if (!isSelfUpdateSupported) {
+      throw const ApiException(
+        'update.ios_managed',
+        'iOS 版本请通过 App Store 或 TestFlight 更新',
+      );
+    }
     Object? officialError;
     try {
       return (await officialLatest(), UpdateSource.official);
@@ -48,22 +60,34 @@ class UpdateApi {
     try {
       return (await serverLatest(refresh: force), UpdateSource.server);
     } catch (e) {
-      throw Exception('官网检查失败（${_brief(officialError)}），服务器兜底也失败（${_brief(e)}）');
+      throw Exception(
+        '官网检查失败（${_brief(officialError)}），服务器兜底也失败（${_brief(e)}）',
+      );
     }
   }
 
   /// 官网：GET /git/matching-refs/tags/<prefix> → 取最新正式 release 的 release.json 附件。
   Future<ClientReleaseView> officialLatest() async {
+    if (!isSelfUpdateSupported) {
+      throw const ApiException(
+        'update.ios_managed',
+        'iOS 版本请通过 App Store 或 TestFlight 更新',
+      );
+    }
     final prefix = product == 'androidtv' ? 'androidtv-v' : 'android-v';
     final refs = await _getJson('$_githubApi/git/matching-refs/tags/$prefix');
     final list = (refs['refs'] as List?) ?? const [];
     final tags = list
         .whereType<Map>()
         .map((e) => (e['ref'] ?? '').toString().replaceFirst('refs/tags/', ''))
-        .where((t) => t.startsWith(prefix) && RegExp(r'^[A-Za-z0-9._-]+$').hasMatch(t))
+        .where(
+          (t) => t.startsWith(prefix) && RegExp(r'^[A-Za-z0-9._-]+$').hasMatch(t),
+        )
         .toList()
       ..sort((a, b) => b.compareTo(a));
-    final infoAsset = product == 'androidtv' ? 'androidtv-release.json' : 'android-release.json';
+    final infoAsset = product == 'androidtv'
+        ? 'androidtv-release.json'
+        : 'android-release.json';
     for (final tag in tags.take(5)) {
       final release = await _getJson('$_githubApi/releases/tags/$tag');
       if (release['draft'] == true || release['prerelease'] == true) continue;
@@ -101,6 +125,12 @@ class UpdateApi {
 
   /// 服务器兜底：GET /app/clients/{product}/latest（统一走 McClient，Channel.general）。
   Future<ClientReleaseView> serverLatest({bool refresh = false}) async {
+    if (!isSelfUpdateSupported) {
+      throw const ApiException(
+        'update.ios_managed',
+        'iOS 版本请通过 App Store 或 TestFlight 更新',
+      );
+    }
     await _session.restore();
     final client = _client ??= McClient(session: _session);
     final body = await client.unwrap<Map<String, dynamic>>(
@@ -113,11 +143,13 @@ class UpdateApi {
   }
 
   Future<Map<String, dynamic>> _getJson(String url) async {
-    final dio = _officialDio ??= Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 8),
-      receiveTimeout: const Duration(seconds: 15),
-      validateStatus: (_) => true,
-    ));
+    final dio = _officialDio ??= Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 8),
+        receiveTimeout: const Duration(seconds: 15),
+        validateStatus: (_) => true,
+      ),
+    );
     final res = await dio.get<dynamic>(url);
     if (res.statusCode != 200 || res.data == null) {
       throw ApiException('update.official', '官网请求失败 HTTP ${res.statusCode}');

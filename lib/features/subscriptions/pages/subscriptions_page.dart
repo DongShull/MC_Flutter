@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -10,15 +12,15 @@ import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/mc_strings.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
-import '../../root/state/main_tab_bus.dart';
+import '../../../core/shell/main_tab_bus.dart';
 import '../state/controllers.dart';
 import '../state/subscription_events.dart';
 import '../widgets/subs_home_sections.dart';
 
-/// 订阅首页（Tab 2，1:1 对齐 iOS `SubscriptionsView.swift` & 参考图 `scene-2.jpg`）：
+/// 订阅首页（Tab 2，1:1 对齐 iOS `SubscriptionsView.swift`）：
 /// - 全出血沉浸轮播 Hero + 剧照主色 `McAmbientTopGlow` 氛围底色晕染；
-/// - 顶栏：悬浮「订阅」大标题 + 右侧搜索液态玻璃圆钮（配吸顶护字黑雾）；
-/// - 分区流：Hero → 刚刚入库（16:9 横卡）→ 追更日程 → 剧集订阅 → 电影订阅。
+/// - 10s 轮询整周日程 + 下载器实时进度，20s 轮询刚刚入库；
+/// - 账号隔离 `PageSnapshots` 冷启动秒显。
 class SubscriptionsPage extends ConsumerStatefulWidget {
   const SubscriptionsPage({super.key});
 
@@ -31,12 +33,32 @@ class _SubscriptionsPageState extends ConsumerState<SubscriptionsPage> {
   double _scrollOffset = 0;
   Color? _ambientTint;
 
+  Timer? _fastPollTimer; // 10s: today-arrivals + downloadTasks
+  Timer? _recentPollTimer; // 20s: recent-arrivals
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(subscriptionsHomeProvider.notifier).load();
     });
+    _fastPollTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => ref
+          .read(subscriptionsHomeProvider.notifier)
+          .refreshArrivalsAndTasks(),
+    );
+    _recentPollTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => ref.read(subscriptionsHomeProvider.notifier).refreshRecent(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _fastPollTimer?.cancel();
+    _recentPollTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -142,6 +164,7 @@ class _SubscriptionsPageState extends ConsumerState<SubscriptionsPage> {
     }
     final home = bundle.home();
     final wide = form != McDeviceForm.phone;
+    final hasSchedule = home.today.isNotEmpty;
 
     final bodySections = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -150,8 +173,10 @@ class _SubscriptionsPageState extends ConsumerState<SubscriptionsPage> {
           const SizedBox(height: 22),
           SubsRecentRow(home: home, now: home.now),
         ],
-        const SizedBox(height: 28),
-        SubsScheduleRow(home: home, now: home.now),
+        if (hasSchedule) ...[
+          const SizedBox(height: 28),
+          SubsScheduleRow(home: home, now: home.now),
+        ],
         const SizedBox(height: 30),
         SubsShelfRow(
           home: home,

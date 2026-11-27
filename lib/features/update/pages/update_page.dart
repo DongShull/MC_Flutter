@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/auth/session_watch.dart';
 import '../../../core/designsystem/adaptive.dart';
 import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_icons.dart';
@@ -12,15 +13,22 @@ import '../state/mc_api.dart';
 import '../state/models.dart';
 import '../state/update_controller.dart';
 
-/// 应用更新页（对应原 Kotlin feature/update 的 AppUpdateController + AppUpdateDialog）。
+/// 应用关于与更新页：
+/// - iOS 上严格遵循 App Store 2.5.2，不请求 APK 发布接口也不提供二进制自更新，
+///   仅展示 App Store / TestFlight 更新指引，并为管理员提供「服务器更新与维护」直达入口；
+/// - Android / 桌面端保留官网优先 + 服务器兜底的客户端版本检查。
 class UpdatePage extends ConsumerWidget {
   const UpdatePage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final selfUpdateSupported = UpdateApi.isSelfUpdateSupported;
+    final perms = ref.watch(mcPermissionsProvider);
     final state = ref.watch(updateControllerProvider);
     ref.listen<UpdateUiState>(updateControllerProvider, (prev, next) {
-      if (next is! UpdateChecking && next is! UpdateIdle) {
+      if (selfUpdateSupported &&
+          next is! UpdateChecking &&
+          next is! UpdateIdle) {
         _showSheet(context, ref);
       }
     });
@@ -37,7 +45,7 @@ class UpdatePage extends ConsumerWidget {
           McFloatingDetailBar(
             onBack: () =>
                 context.canPop() ? context.pop() : context.go('/home'),
-            title: '关于与更新',
+            title: selfUpdateSupported ? '关于与更新' : '关于 MovieClaw',
             titleVisible: true,
           ),
           Expanded(
@@ -62,34 +70,57 @@ class UpdatePage extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 28),
-                    McInsetGroup(
-                      footer: '新版本会先在官网发布，查不到时再用你的服务器兜底。',
-                      children: [
-                        McFocusRing(
-                          borderRadius: McTokens.cardRadius,
-                          child: McInsetRow(
-                            icon: McIcons.dataupgradeFill,
-                            iconColor: McTokens.accentStrong,
-                            title: '检查更新',
-                            subtitle: '检查客户端是否有新版本可用',
-                            trailing: state is UpdateChecking
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : null,
-                            onTap: state is UpdateChecking
-                                ? null
-                                : () => ref
-                                    .read(updateControllerProvider.notifier)
-                                    .checkManually(),
+                    if (selfUpdateSupported)
+                      McInsetGroup(
+                        footer: '新版本会先在官网发布，查不到时再用你的服务器兜底。',
+                        children: [
+                          McFocusRing(
+                            borderRadius: McTokens.cardRadius,
+                            child: McInsetRow(
+                              icon: McIcons.dataupgradeFill,
+                              iconColor: McTokens.accentStrong,
+                              title: '检查更新',
+                              subtitle: '检查客户端是否有新版本可用',
+                              trailing: state is UpdateChecking
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : null,
+                              onTap: state is UpdateChecking
+                                  ? null
+                                  : () => ref
+                                      .read(updateControllerProvider.notifier)
+                                      .checkManually(),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      )
+                    else
+                      McInsetGroup(
+                        header: '应用更新',
+                        footer: 'iOS 端应用由 App Store / TestFlight 统一分发与自动更新。',
+                        children: [
+                          const McInsetRow(
+                            icon: McIcons.checkCircleFill,
+                            iconColor: McTokens.ok,
+                            title: 'App Store / TestFlight 管理更新',
+                            subtitle: '前往 App Store 或 TestFlight 检查客户端新版本',
+                          ),
+                          if (perms.isAdmin)
+                            McInsetRow(
+                              icon: McIcons.tools,
+                              iconColor: McTokens.accentStrong,
+                              title: '服务器更新与维护',
+                              subtitle: '检查服务端主程序与识别模型版本更新',
+                              showChevron: true,
+                              onTap: () => context.push('/settings/maintenance'),
+                            ),
+                        ],
+                      ),
                   ],
                 ),
               ),

@@ -14,8 +14,8 @@ import '../../../core/player/player_page_args.dart';
 import '../state/home_model.dart';
 import '../state/models.dart';
 
-/// 订阅首页各分区（1:1 对齐 iOS `SubscriptionsView.swift` & Web 银玻璃订阅页）：
-/// 全出血沉浸 Hero / 刚刚入库 16:9 横滑 / 7 天胶囊日程 / 剧集·电影订阅书架。
+/// 订阅首页各分区（1:1 对齐 iOS `SubscriptionsHomeHero.swift` & `SubscriptionsHomeSections.swift`）：
+/// 全出血沉浸 Hero / 刚刚入库 16:9 横滑 / 7 天胶囊日程（含实时下载进度与 readyAt）/ 剧集·电影订阅书架。
 
 const double subsPagePadding = McTokens.pagePadding;
 
@@ -43,7 +43,7 @@ class SubsSectionTitle extends StatelessWidget {
   }
 }
 
-// ── 海报卡（SubsPosterCard：统一 12dp 圆角 + 1px line 描边 + McArtwork 自适应模糊铺底） ──
+// ── 海报卡 ──
 
 class SubsPosterCard extends StatelessWidget {
   const SubsPosterCard({
@@ -64,7 +64,7 @@ class SubsPosterCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final st = home.standing(sub);
-    final chipText = st.chipText ?? '追踪中';
+    final chipText = st.chipText;
     final chipColor = st.chipColor ?? McTokens.info;
     final progress = home.seasonProgress(sub);
 
@@ -85,7 +85,7 @@ class SubsPosterCard extends StatelessWidget {
         posterUrl: sub.media.posterUrl,
         subtitle: home.meta(sub),
         badge: chipText,
-        badgeDotColor: chipColor,
+        badgeDotColor: chipText != null ? chipColor : null,
         progress: progress > 0 ? progress : null,
         abnormalLabel: (flowLine != null && flowLine!.isNotEmpty)
             ? flowLine
@@ -235,7 +235,7 @@ class McTapMenu extends StatelessWidget {
   }
 }
 
-/// 播放入口：会话协商起播。
+/// 播放入口：会话协商起播（准确传入新入库的 `seasonNumber` 与 `episodeNumber`）。
 void subsPlay(BuildContext context, RecentArrivalView r) {
   final isTv = r.media.kind == 'tv';
   context.push(
@@ -259,7 +259,7 @@ void subsOpenMedia(BuildContext context, MediaBrief media) {
   );
 }
 
-// ── 全出血沉浸式 Hero 轮播（对齐 `scene-2.jpg` & `subscriptions.jpg`） ──
+// ── 全出血沉浸式 Hero 轮播 ──
 
 class SubsHeroCarousel extends StatelessWidget {
   const SubsHeroCarousel({
@@ -306,7 +306,8 @@ class _HeroSlideForeground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final clockNumeric = heroClockIsNumeric(slide.clock);
-    final playable = slide.playable;
+    final playArrival = slide.playArrival;
+    final playable = playArrival != null;
     final label = playable
         ? (slide.resumePercent > 0
             ? McStrings.subsContinuePlay
@@ -316,7 +317,6 @@ class _HeroSlideForeground extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // TMDB 透明艺术 Logo 或回退大字片名
         if ((slide.media.logoUrl ?? '').isNotEmpty)
           SizedBox(
             height: 76,
@@ -324,7 +324,8 @@ class _HeroSlideForeground extends StatelessWidget {
             child: Center(
               child: CachedNetworkImage(
                 httpHeaders: mcImageHeaders(),
-                imageUrl: McImageUrls.resolve(slide.media.logoUrl, widthPx: 640),
+                imageUrl:
+                    McImageUrls.resolve(slide.media.logoUrl, widthPx: 640),
                 fit: BoxFit.contain,
                 errorWidget: (_, __, ___) => Text(
                   slide.media.title,
@@ -350,7 +351,6 @@ class _HeroSlideForeground extends StatelessWidget {
             ),
           ),
         const SizedBox(height: 12),
-        // 状态行（信号色点 + eyebrow）
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -358,7 +358,7 @@ class _HeroSlideForeground extends StatelessWidget {
               width: 7,
               height: 7,
               decoration: BoxDecoration(
-                color: slide.eyebrowTone,
+                color: slide.eyebrowTone ?? McTokens.info,
                 shape: BoxShape.circle,
               ),
             ),
@@ -397,6 +397,8 @@ class _HeroSlideForeground extends StatelessWidget {
           Text(
             slide.detail,
             textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: McText.sub.copyWith(color: McTokens.textMuted),
           ),
         ],
@@ -431,16 +433,8 @@ class _HeroSlideForeground extends StatelessWidget {
           primary: playable,
           tone: McGlassTone.secondary,
           onTap: playable
-              ? () => context.push(
-                    '/player',
-                    extra: PlayerPageArgs(
-                      mediaItemId: slide.media.mediaItemId,
-                      seasonNumber: slide.media.kind == 'tv' ? 1 : 0,
-                      episodeNumber: 0,
-                      title: slide.media.title,
-                      isEpisode: slide.media.kind == 'tv',
-                    ),
-                  )
+              // 修复 S1E0 Bug：直接起播实际新到的季号与集号！
+              ? () => subsPlay(context, playArrival)
               : () =>
                   context.push('/subscriptions/detail/${slide.subscriptionId}'),
         ),
@@ -529,7 +523,9 @@ class SubsRecentRow extends StatelessWidget {
   String _label(RecentArrivalView r) {
     final isTv = r.media.kind == 'tv';
     if (isTv) {
-      return 'S${pad2(r.seasonNumber)}E${pad2(r.episodeNumber)}';
+      final code = 'S${pad2(r.seasonNumber)}E${pad2(r.episodeNumber)}';
+      if ((r.episodeName ?? '').isNotEmpty) return '$code · ${r.episodeName}';
+      return code;
     }
     return '${r.media.year ?? ''} · ${McStrings.subsMovieWord}';
   }
@@ -548,13 +544,19 @@ class SubsScheduleRow extends StatefulWidget {
 }
 
 class _SubsScheduleRowState extends State<SubsScheduleRow> {
-  int _selected = 0;
+  int? _selected;
 
   @override
   Widget build(BuildContext context) {
     final home = widget.home;
     final days = scheduleDays(home.today);
-    final selected = days[_selected];
+    if (!days.any((d) => d.count > 0)) return const SizedBox.shrink();
+
+    final firstActive = days.indexWhere((d) => d.count > 0);
+    final idx = (_selected != null && _selected! < days.length)
+        ? _selected!
+        : (firstActive >= 0 ? firstActive : 0);
+    final selected = days[idx];
     final groups = dayGroups(home.today, selected.daysAhead);
     final caption =
         McStrings.subsScheduleCaption(selected.dateLabel, selected.count);
@@ -575,7 +577,7 @@ class _SubsScheduleRowState extends State<SubsScheduleRow> {
                 Expanded(
                   child: _dayChip(
                     days[i],
-                    i == _selected,
+                    i == idx,
                     () => setState(() => _selected = i),
                   ),
                 ),
@@ -608,7 +610,12 @@ class _SubsScheduleRowState extends State<SubsScheduleRow> {
     final dim = day.count == 0;
     final tones = dayGroups(widget.home.today, day.daysAhead)
         .map(
-          (g) => groupPresentation(g, widget.home.etas, widget.home.nowMs).tone,
+          (g) => groupPresentation(
+            g,
+            widget.home.etas,
+            widget.home.nowMs,
+            tasks: widget.home.tasksByHash,
+          ).tone,
         )
         .whereType<Color>()
         .toSet()
@@ -643,10 +650,12 @@ class _SubsScheduleRowState extends State<SubsScheduleRow> {
               const SizedBox(height: 3),
               Text(
                 '${day.dayNumber}',
-                style: McText.ui.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: selected ? McTokens.onAccent : McTokens.text,
-                ).tabular,
+                style: McText.ui
+                    .copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: selected ? McTokens.onAccent : McTokens.text,
+                    )
+                    .tabular,
               ),
               const SizedBox(height: 4),
               SizedBox(
@@ -676,10 +685,28 @@ class _SubsScheduleRowState extends State<SubsScheduleRow> {
 
   Widget _agendaTile(BuildContext context, DayGroup group) {
     final home = widget.home;
-    final p = groupPresentation(group, home.etas, home.nowMs);
+    final p = groupPresentation(
+      group,
+      home.etas,
+      home.nowMs,
+      tasks: home.tasksByHash,
+    );
+    final timeStr = groupTime(
+      group,
+      home.etas,
+      home.nowMs,
+      tasks: home.tasksByHash,
+    );
+    final liveProg = p.statusLabel == '下载中'
+        ? group.liveProgress(home.tasksByHash)
+        : null;
+    final statusStr = liveProg != null
+        ? '${p.statusLabel} ${(liveProg * 100).round()}%'
+        : p.statusLabel;
+
     final sub = home.subById(group.subscriptionId);
     final thumb = sub?.media.backdropUrl ?? sub?.media.posterUrl ?? '';
-    final pending = p.timeLabel == McStrings.subsTimePending;
+    final pending = timeStr == '待定';
 
     return McTapMenu(
       onTap: sub == null
@@ -704,12 +731,12 @@ class _SubsScheduleRowState extends State<SubsScheduleRow> {
         child: Row(
           children: [
             SizedBox(
-              width: 64,
+              width: 68,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    p.timeLabel,
+                    timeStr,
                     style: McText.titleSm
                         .copyWith(
                           fontSize: 18,
@@ -735,7 +762,7 @@ class _SubsScheduleRowState extends State<SubsScheduleRow> {
                       ],
                       Flexible(
                         child: Text(
-                          p.statusLabel,
+                          statusStr,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: McText.micro.copyWith(
@@ -754,10 +781,32 @@ class _SubsScheduleRowState extends State<SubsScheduleRow> {
               child: SizedBox(
                 width: 92,
                 height: 52,
-                child: McArtwork(
-                  url: thumb,
-                  frameAspect: McTokens.backdropAspect,
-                  widthPx: 360,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    McArtwork(
+                      url: thumb,
+                      frameAspect: McTokens.backdropAspect,
+                      widthPx: 360,
+                    ),
+                    if (liveProg != null)
+                      Positioned(
+                        left: 6,
+                        right: 6,
+                        bottom: 5,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: liveProg.clamp(0.02, 1.0),
+                            minHeight: 2.5,
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.25),
+                            valueColor:
+                                const AlwaysStoppedAnimation(subsToneInfo),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -794,7 +843,7 @@ class _SubsScheduleRowState extends State<SubsScheduleRow> {
   }
 }
 
-// ── 剧集/电影订阅横滑行 ──
+// ── 剧集/电影订阅横滑行（修复歇着区卡片被吞 Bug，1:1 对齐 iOS `SubsHomeShelfRow`） ──
 
 class SubsShelfRow extends StatelessWidget {
   const SubsShelfRow({
@@ -812,12 +861,46 @@ class SubsShelfRow extends StatelessWidget {
   final VoidCallback onViewAll;
   final String? Function(SubscriptionView sub)? flowLineOf;
 
+  static const int _limit = 20;
+
   @override
   Widget build(BuildContext context) {
     final split = home.shelfSplit(kind);
     if (split.all.isEmpty) return const SizedBox.shrink();
-    final active = split.active.take(20).toList();
-    final hasResting = split.paused.isNotEmpty || split.done.isNotEmpty;
+
+    final active = split.active.take(_limit).toList();
+    final remaining = (_limit - active.length).clamp(0, _limit);
+    final resting = split.resting.take(remaining).toList();
+    final hidden = split.all.length - active.length - resting.length;
+
+    final entries = <Widget>[
+      for (final sub in active)
+        SubsPosterCard(
+          sub: sub,
+          home: home,
+          flowLine: flowLineOf?.call(sub),
+          onOpen: () => context.push('/subscriptions/detail/${sub.id}'),
+          onOpenMedia: () => subsOpenMedia(context, sub.media),
+        ),
+      if (resting.isNotEmpty && active.isNotEmpty)
+        SubsRestingDivider(label: home.restingLabel(kind)),
+      for (final sub in resting)
+        Opacity(
+          opacity: 0.55,
+          child: SubsPosterCard(
+            sub: sub,
+            home: home,
+            flowLine: flowLineOf?.call(sub),
+            onOpen: () => context.push('/subscriptions/detail/${sub.id}'),
+            onOpenMedia: () => subsOpenMedia(context, sub.media),
+          ),
+        ),
+      if (hidden > 0)
+        SubsSeeAllCard(
+          count: split.all.length,
+          onTap: onViewAll,
+        ),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -833,32 +916,9 @@ class SubsShelfRow extends StatelessWidget {
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(horizontal: subsPagePadding),
             scrollDirection: Axis.horizontal,
-            itemCount: active.length + (hasResting ? 1 : 0) + 1,
+            itemCount: entries.length,
             separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (context, i) {
-              if (i == active.length + (hasResting ? 1 : 0)) {
-                return SubsSeeAllCard(
-                  count: split.all.length,
-                  onTap: onViewAll,
-                );
-              }
-              if (i == active.length) {
-                return SubsRestingDivider(label: home.restingLabel(kind));
-              }
-              final sub = active[i];
-              final resting = home.standing(sub).phase != 'active';
-              return Opacity(
-                opacity: resting ? 0.55 : 1,
-                child: SubsPosterCard(
-                  sub: sub,
-                  home: home,
-                  flowLine: flowLineOf?.call(sub),
-                  onOpen: () =>
-                      context.push('/subscriptions/detail/${sub.id}'),
-                  onOpenMedia: () => subsOpenMedia(context, sub.media),
-                ),
-              );
-            },
+            itemBuilder: (_, i) => entries[i],
           ),
         ),
       ],

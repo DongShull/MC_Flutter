@@ -1,20 +1,23 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'home_rows.dart';
 import 'mc_api.dart';
 import 'models.dart';
 
-/// 自定义首页状态（对齐 Kotlin LibraryCustomizeScreen.kt）：
-/// 持有完整的行清单（含隐藏行）、未落盘的本地编辑、以及每行的取数结果。
+/// 自定义首页状态（1:1 对齐 upstream iOS `LibraryCustomizeView.swift`）：
+/// - 持有完整的行清单（含隐藏行）、库与合集候选；
+/// - 每次改动先落本地草稿，400ms 防抖自动 PUT `/ui/preferences`；
+/// - `resetToDefault()` 直接保存空 `[]` 回到出厂默认布局。
 class CustomizeState {
   const CustomizeState({
     this.loading = false,
     this.error,
+    this.saveError,
     this.rows = const [],
-    this.rowItems = const {},
-    this.upNext = const [],
-    this.favorites = const [],
-    this.kindGenres = const {},
+    this.libraries = const [],
+    this.collections = const [],
     this.dirty = false,
     this.saving = false,
     this.savedAt,
@@ -22,29 +25,26 @@ class CustomizeState {
 
   final bool loading;
   final String? error;
+  final String? saveError;
   final List<HomeRow> rows;
-
-  /// 预览取数结果（只对可见行取，隐藏行不发请求）。
-  final Map<String, List<LibraryItemView>> rowItems;
-  final List<UpNextItem> upNext;
-  final List<LibraryItemView> favorites;
-  final Map<String, List<Map<String, dynamic>>> kindGenres;
-
-  /// 本地有未保存修改。
+  final List<LibraryView> libraries;
+  final List<CollectionView> collections;
   final bool dirty;
   final bool saving;
   final DateTime? savedAt;
 
   List<HomeRow> get visibleRows => rows.where((r) => !r.hidden).toList();
+  int get hiddenCount => rows.where((r) => r.hidden).length;
 
   CustomizeState copyWith({
     bool? loading,
     String? error,
+    bool clearError = false,
+    String? saveError,
+    bool clearSaveError = false,
     List<HomeRow>? rows,
-    Map<String, List<LibraryItemView>>? rowItems,
-    List<UpNextItem>? upNext,
-    List<LibraryItemView>? favorites,
-    Map<String, List<Map<String, dynamic>>>? kindGenres,
+    List<LibraryView>? libraries,
+    List<CollectionView>? collections,
     bool? dirty,
     bool? saving,
     DateTime? savedAt,
@@ -52,12 +52,11 @@ class CustomizeState {
   }) =>
       CustomizeState(
         loading: loading ?? this.loading,
-        error: error,
+        error: clearError ? null : (error ?? this.error),
+        saveError: clearSaveError ? null : (saveError ?? this.saveError),
         rows: rows ?? this.rows,
-        rowItems: rowItems ?? this.rowItems,
-        upNext: upNext ?? this.upNext,
-        favorites: favorites ?? this.favorites,
-        kindGenres: kindGenres ?? this.kindGenres,
+        libraries: libraries ?? this.libraries,
+        collections: collections ?? this.collections,
         dirty: dirty ?? this.dirty,
         saving: saving ?? this.saving,
         savedAt: clearSavedAt ? null : (savedAt ?? this.savedAt),
@@ -65,246 +64,302 @@ class CustomizeState {
 }
 
 class LibraryCustomizeController extends Notifier<CustomizeState> {
+  Timer? _debounce;
+  Map<String, dynamic>? _fullPrefs;
+
   @override
-  CustomizeState build() => const CustomizeState();
+  CustomizeState build() {
+    ref.onDispose(() {
+      _debounce?.cancel();
+    });
+    return const CustomizeState();
+  }
 
   LibraryApi get _api => ref.read(libraryApiProvider);
 
-  /// 与首页相同的合并规则构建行清单，然后对可见行逐行取预览数据。
   Future<void> load() async {
     if (state.loading) return;
-    state = state.copyWith(loading: true, error: null);
+    state = state.copyWith(loading: true, clearError: true, clearSaveError: true);
     try {
-      final libs = await _api.libraries();
-      final collections = await _api.collections();
-      final prefsRaw = await _api.uiPreferences();
+      final results = await Future.wait<dynamic>([
+        _api.libraries(scope: 'all'),
+        _api.collections(),
+        _api.uiPreferences(),
+      ]);
+      final libs = results[0] as List<LibraryView>;
+      final cols = results[1] as List<CollectionView>;
+      final prefsRaw = results[2] as Map<String, dynamic>;
+      _fullPrefs = prefsRaw;
       final homeJson = prefsRaw['home'];
-      final rowsJson = homeJson is Map<String, dynamic>
-          ? homeJson['rows'] as List<dynamic>? ?? []
+      final rowsJson = homeJson is Map
+          ? homeJson['rows'] as List<dynamic>? ?? const []
           : const <dynamic>[];
       final prefs = rowsJson
-          .whereType<Map<String, dynamic>>()
-          .map(HomeRowPref.fromJson)
+          .whereType<Map>()
+          .map((m) => HomeRowPref.fromJson(Map<String, dynamic>.from(m)))
           .toList();
       state = state.copyWith(
         loading: false,
-        rows: HomeRows.build(prefs, libs, collections),
+        libraries: libs,
+        collections: cols,
+        rows: HomeRows.build(prefs, libs, cols),
+        dirty: false,
       );
-      await _loadPreviews(state.visibleRows);
-    } catch (e) {
+    } catch (_) {
       state = state.copyWith(loading: false, error: '加载失败，请下拉重试');
     }
   }
 
-  Future<void> _loadPreviews(List<HomeRow> rows) async {
-    for (final row in rows) {
-      try {
-        final k = row.kind;
-        if (k is UpNextRowKind) {
-          if (state.upNext.isNotEmpty) continue;
-          state = state.copyWith(upNext: await _api.upNext(limit: 20));
-        } else if (k is FavoritesRowKind) {
-          if (state.favorites.isNotEmpty) continue;
-          final sort = k.sort == 'unwatched_first' ? null : k.sort;
-          state = state.copyWith(
-            favorites: (await _api.favorites(
-              limit: 20,
-              unwatchedFirst: k.sort == 'unwatched_first',
-              sort: sort,
-              order: HomeRows.orderParam(sort ?? 'favorited_at', k.reversed),
-            )).items,
-          );
-        } else if (k is LibraryRowKind) {
-          if (state.rowItems.containsKey(row.id)) continue;
-          final order = HomeRows.orderParam(k.sort, k.reversed);
-          state = state.copyWith(
-            rowItems: {
-              ...state.rowItems,
-              row.id: await _api.libraryItems(
-                k.library.id,
-                limit: 20,
-                filterQuery: {
-                  'sort': k.sort,
-                  if (order != null) 'order': order,
-                  if (k.unwatched) 'w': 'unwatched',
-                },
-              ),
-            },
-          );
-        } else if (k is CollectionRowKind) {
-          if (state.rowItems.containsKey(row.id)) continue;
-          state = state.copyWith(
-            rowItems: {
-              ...state.rowItems,
-              row.id: await _api.collectionItems(
-                k.collection.id,
-                limit: 20,
-                sort: k.sort,
-                order: HomeRows.orderParam(k.sort, k.reversed),
-              ),
-            },
-          );
-        } else if (k is GenresRowKind) {
-          if (state.kindGenres.containsKey(row.id)) continue;
-          state = state.copyWith(
-            kindGenres: {
-              ...state.kindGenres,
-              row.id: await _api.libraryKindGenres(k.kind),
-            },
-          );
-        }
-      } catch (_) {
-        // 单行预览失败不阻塞其他行。
-      }
+  void _commit(List<HomeRow> next) {
+    state = state.copyWith(
+      rows: next,
+      dirty: true,
+      clearSaveError: true,
+      clearSavedAt: true,
+    );
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () {
+      save();
+    });
+  }
+
+  /// 页面离开前刷掉防抖窗口里还没发出去的保存。
+  Future<void> flushPendingSave() async {
+    if (_debounce?.isActive == true || state.dirty) {
+      _debounce?.cancel();
+      await save();
     }
   }
 
-  void _mark(List<HomeRow> rows) =>
-      state = state.copyWith(rows: rows, dirty: true, clearSavedAt: true);
-
-  /// 隐藏 / 显示（只藏不删，行保留在原位）。
   void setHidden(String rowId, bool hidden) {
-    _mark([
+    _commit([
       for (final r in state.rows)
-        if (r.id == rowId) HomeRow(id: r.id, hidden: hidden, kind: r.kind) else r,
+        if (r.id == rowId) r.copyWith(hidden: hidden) else r,
     ]);
   }
 
-  /// 删除（仅 row:/kind: 行可删，其余只允许隐藏）。
+  /// 删除（严格遵循 `row.removable()`：仅 `row:` / `kind:` 可删）。
   void removeRow(String rowId) {
-    _mark(state.rows.where((r) => r.id != rowId).toList());
+    final target = state.rows.where((r) => r.id == rowId).firstOrNull;
+    if (target == null || !target.removable()) return;
+    _commit(state.rows.where((r) => r.id != rowId).toList());
   }
 
-  /// 拖拽排序：把 from 位置的行移到 to 位置。
   void reorder(int from, int to) {
+    if (from == to || from < 0 || to < 0 || from >= state.rows.length || to >= state.rows.length) {
+      return;
+    }
     final rows = [...state.rows];
     final row = rows.removeAt(from);
     rows.insert(to, row);
-    _mark(rows);
+    _commit(rows);
   }
 
-  /// 改行排序（行内可配排序：added_at / release_date / last_played / rating / random / title …）。
-  void setRowSort(String rowId, String sort, bool reversed) {
-    _mark([
+  void setRowName(String rowId, String rawName) {
+    final name = rawName.length > 40 ? rawName.substring(0, 40) : rawName;
+    _commit([
       for (final r in state.rows)
-        if (r.id == rowId)
-          HomeRow(id: r.id, hidden: r.hidden, kind: _withSort(r.kind, sort, reversed))
-        else r,
+        if (r.id == rowId) r.copyWith(kind: _withName(r.kind, name)) else r,
     ]);
   }
 
-  HomeRowKind _withSort(HomeRowKind kind, String sort, bool reversed) {
-    final k = kind;
-    if (k is LibraryRowKind) {
+  void setRowSort(String rowId, String sort, bool reversed) {
+    _commit([
+      for (final r in state.rows)
+        if (r.id == rowId)
+          r.copyWith(
+            unfinished: sort == 'last_played' ? false : r.unfinished,
+            kind: _withSort(r.kind, sort, reversed),
+          )
+        else
+          r,
+    ]);
+  }
+
+  /// 3 态观看过滤：`''`（全部）/ `'unwatched'`（未看）/ `'unfinished'`（未看完）。
+  void setWatch(String rowId, String watch) {
+    final isUnfinished = watch == 'unfinished';
+    final isUnwatched = watch == 'unwatched';
+    _commit([
+      for (final r in state.rows)
+        if (r.id == rowId)
+          r.copyWith(
+            unfinished: isUnfinished,
+            kind: _withUnwatched(r.kind, isUnwatched),
+          )
+        else
+          r,
+    ]);
+  }
+
+  HomeRowKind _withName(HomeRowKind kind, String name) {
+    if (kind is LibraryRowKind) {
       return HomeRowKind.library(
-        library: k.library,
-        sort: sort,
-        reversed: reversed,
-        unwatched: k.unwatched,
-        name: k.name,
-        builtin: k.builtin,
+        library: kind.library,
+        sort: kind.sort,
+        reversed: kind.reversed,
+        unwatched: kind.unwatched,
+        name: name,
+        builtin: kind.builtin,
       );
     }
-    if (k is CollectionRowKind) {
+    if (kind is MediaKindRowKind) {
+      return HomeRowKind.mediaKind(
+        kind: kind.kind,
+        libraries: kind.libraries,
+        sort: kind.sort,
+        reversed: kind.reversed,
+        unwatched: kind.unwatched,
+        name: name,
+        builtin: kind.builtin,
+      );
+    }
+    if (kind is CollectionRowKind) {
       return HomeRowKind.collection(
-        collection: k.collection,
-        sort: sort,
-        reversed: reversed,
-        name: k.name,
+        collection: kind.collection,
+        sort: kind.sort,
+        reversed: kind.reversed,
+        name: name,
       );
     }
-    if (k is FavoritesRowKind) {
+    return kind;
+  }
+
+  HomeRowKind _withSort(HomeRowKind kind, String sort, bool reversed) {
+    if (kind is LibraryRowKind) {
+      return HomeRowKind.library(
+        library: kind.library,
+        sort: sort,
+        reversed: reversed,
+        unwatched: sort == 'last_played' ? false : kind.unwatched,
+        name: kind.name,
+        builtin: kind.builtin,
+      );
+    }
+    if (kind is MediaKindRowKind) {
+      return HomeRowKind.mediaKind(
+        kind: kind.kind,
+        libraries: kind.libraries,
+        sort: sort,
+        reversed: reversed,
+        unwatched: sort == 'last_played' ? false : kind.unwatched,
+        name: kind.name,
+        builtin: kind.builtin,
+      );
+    }
+    if (kind is CollectionRowKind) {
+      return HomeRowKind.collection(
+        collection: kind.collection,
+        sort: sort,
+        reversed: reversed,
+        name: kind.name,
+      );
+    }
+    if (kind is FavoritesRowKind) {
       return HomeRowKind.favorites(sort: sort, reversed: reversed);
     }
     return kind;
   }
 
-  /// 是否观看过滤（unwatched 仅 sort != last_played 时生效，由 HomeRows 常量约束 UI）。
-  void setUnwatched(String rowId, bool unwatched) {
-    _mark([
-      for (final r in state.rows)
-        if (r.id == rowId && r.kind is LibraryRowKind)
-          HomeRow(
-            id: r.id,
-            hidden: r.hidden,
-            kind: HomeRowKind.library(
-              library: (r.kind as LibraryRowKind).library,
-              sort: (r.kind as LibraryRowKind).sort,
-              reversed: (r.kind as LibraryRowKind).reversed,
-              unwatched: unwatched,
-              name: (r.kind as LibraryRowKind).name,
-              builtin: (r.kind as LibraryRowKind).builtin,
-            ),
-          )
-        else r,
-    ]);
+  HomeRowKind _withUnwatched(HomeRowKind kind, bool unwatched) {
+    if (kind is LibraryRowKind) {
+      return HomeRowKind.library(
+        library: kind.library,
+        sort: kind.sort,
+        reversed: kind.reversed,
+        unwatched: unwatched,
+        name: kind.name,
+        builtin: kind.builtin,
+      );
+    }
+    if (kind is MediaKindRowKind) {
+      return HomeRowKind.mediaKind(
+        kind: kind.kind,
+        libraries: kind.libraries,
+        sort: kind.sort,
+        reversed: kind.reversed,
+        unwatched: unwatched,
+        name: kind.name,
+        builtin: kind.builtin,
+      );
+    }
+    return kind;
   }
 
-  /// 加「媒体库」新行（追加到最后）。
-  void addLibraryRow(LibraryView library) {
-    _mark([
-      ...state.rows,
-      HomeRow(
-        id: HomeRows.newRowId(),
-        kind: HomeRowKind.library(
-          library: library,
-          sort: 'added_at',
-          reversed: false,
-          unwatched: false,
-        ),
-      ),
-    ]);
+  HomeRow addLibraryRow(LibraryView library) {
+    final row = HomeRows.newLibraryRow(library);
+    _commit([...state.rows, row]);
+    return row;
   }
 
-  /// 加「合集」新行（追加到最后）。
-  void addCollectionRow(CollectionView collection) {
-    _mark([
-      ...state.rows,
-      HomeRow(
-        id: HomeRows.newRowId(),
-        kind: HomeRowKind.collection(
-          collection: collection,
-          sort: collection.sort,
-          reversed: false,
-        ),
-      ),
-    ]);
+  HomeRow addMediaKindRow(String kind, List<LibraryView> libraries) {
+    final row = HomeRows.newMediaKindRow(kind, libraries);
+    _commit([...state.rows, row]);
+    return row;
   }
 
-  /// 恢复出厂布局（不落盘，直到点保存）。
-  Future<void> resetToDefault() async {
+  HomeRow addCollectionRow(CollectionView collection) {
+    final row = HomeRows.newCollectionRow(collection);
+    _commit([...state.rows, row]);
+    return row;
+  }
+
+  /// 恢复出厂布局：向服务端保存空清单 `[]`（约定：空清单 = 出厂布局）。
+  Future<bool> resetToDefault() async {
+    _debounce?.cancel();
+    state = state.copyWith(saving: true, clearSaveError: true);
     try {
-      final libs = await _api.libraries();
-      _mark(HomeRows.defaultRows(libs.where((l) => !l.excludeFromHome).toList()));
-    } catch (_) {}
-  }
-
-  /// 保存：以服务器完整偏好为底，只替换 home.rows（PUT 整体覆盖）。
-  Future<bool> save() async {
-    if (!state.dirty || state.saving) return false;
-    state = state.copyWith(saving: true, error: null);
-    try {
-      final prefsRaw = await _api.uiPreferences();
-      // PUT 是整体覆盖：以服务器完整偏好为底，只替换 home.rows。
-      final homeJson = prefsRaw['home'];
-      final body = <String, dynamic>{
-        ...prefsRaw,
-        'home': <String, dynamic>{
-          ...(homeJson is Map<String, dynamic> ? homeJson : const {}),
-          'rows':
-              HomeRows.toPrefs(state.rows).map((r) => r.toJson()).toList(),
-        },
-      };
-      await _api.updateUiPreferences(body);
-      state = state.copyWith(saving: false, dirty: false, savedAt: DateTime.now());
+      await _putHomeRows(const []);
+      final defaults = HomeRows.defaultRows(state.libraries);
+      state = state.copyWith(
+        saving: false,
+        dirty: false,
+        rows: defaults,
+        savedAt: DateTime.now(),
+      );
       return true;
-    } catch (e) {
-      state = state.copyWith(saving: false, error: '保存失败，请重试');
+    } catch (_) {
+      state = state.copyWith(saving: false, saveError: '恢复默认失败，请重试');
       return false;
     }
+  }
+
+  Future<bool> save() async {
+    if (state.saving) return false;
+    final rowsSnapshot = state.rows;
+    state = state.copyWith(saving: true, clearSaveError: true);
+    try {
+      await _putHomeRows(
+        HomeRows.toPrefs(rowsSnapshot).map((r) => r.toJson()).toList(),
+      );
+      state = state.copyWith(
+        saving: false,
+        dirty: false,
+        savedAt: DateTime.now(),
+      );
+      return true;
+    } catch (_) {
+      state = state.copyWith(saving: false, saveError: '保存失败，请重试');
+      return false;
+    }
+  }
+
+  Future<void> _putHomeRows(List<Map<String, dynamic>> rowsJson) async {
+    final base = _fullPrefs ?? await _api.uiPreferences();
+    final homeJson = base['home'];
+    final body = <String, dynamic>{
+      ...base,
+      'home': <String, dynamic>{
+        ...(homeJson is Map ? Map<String, dynamic>.from(homeJson) : const {}),
+        'rows': rowsJson,
+      },
+    };
+    await _api.updateUiPreferences(body);
+    _fullPrefs = body;
   }
 }
 
 final libraryCustomizeProvider =
     NotifierProvider<LibraryCustomizeController, CustomizeState>(
-        LibraryCustomizeController.new);
+      LibraryCustomizeController.new,
+    );

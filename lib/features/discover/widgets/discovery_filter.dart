@@ -1,10 +1,147 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/api/api_exception.dart';
+import '../../../core/api/mc_client.dart';
 import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/theme.dart';
 
-/// 发现页筛选条件（TMDB discover 六维：类型/地区/年份/评分/片长/排序）。
+/// 后端本地化的 TMDB 类型项（`GET /api/v1/discover/filters?media_type=`）。
+class DiscoveryGenre {
+  const DiscoveryGenre({required this.id, required this.name});
+
+  final int id;
+  final String name;
+
+  factory DiscoveryGenre.fromJson(Map<String, dynamic> j) => DiscoveryGenre(
+        id: (j['id'] as num?)?.toInt() ?? 0,
+        name: (j['name'] ?? '').toString(),
+      );
+}
+
+/// 电影与剧集动态类型清单缓存（对齐 iOS `DiscoverGenreCatalog`）：
+/// 优先请求 `GET /api/v1/discover/filters?media_type=...`（404 回退 `/api/v1/discover/genres`），
+/// 拉取失败时优雅回退至内置中文清单，确保离网或老后端照常可用。
+class DiscoverGenreCatalog {
+  DiscoverGenreCatalog._();
+
+  static final Map<String, List<DiscoveryGenre>> _cache = {};
+  static final Map<String, Future<List<DiscoveryGenre>>> _inFlight = {};
+
+  static List<DiscoveryGenre> cached(String mediaType) =>
+      _cache[mediaType] ?? _fallback(mediaType);
+
+  static Map<int, String> nameMap(String mediaType) => {
+        for (final g in cached(mediaType)) g.id: g.name,
+      };
+
+  static Future<List<DiscoveryGenre>> load(
+    McClient mc,
+    String mediaType,
+  ) async {
+    final hit = _cache[mediaType];
+    if (hit != null) return hit;
+    final pending = _inFlight[mediaType];
+    if (pending != null) return pending;
+
+    final future = _fetch(mc, mediaType);
+    _inFlight[mediaType] = future;
+    try {
+      final result = await future;
+      if (result.isNotEmpty) {
+        _cache[mediaType] = result;
+      }
+      return _cache[mediaType] ?? _fallback(mediaType);
+    } finally {
+      _inFlight.remove(mediaType);
+    }
+  }
+
+  static Future<List<DiscoveryGenre>> _fetch(
+    McClient mc,
+    String mediaType,
+  ) async {
+    Future<List<DiscoveryGenre>> parse(dynamic raw) async {
+      final list = raw is List
+          ? raw
+          : (raw is Map ? (raw['genres'] as List<dynamic>? ?? const []) : const []);
+      return [
+        for (final el in list)
+          if (el is Map) DiscoveryGenre.fromJson(Map<String, dynamic>.from(el)),
+      ].where((g) => g.id > 0 && g.name.isNotEmpty).toList();
+    }
+
+    try {
+      final raw = await mc.unwrap<dynamic>(
+        Channel.general,
+        'GET',
+        '/api/v1/discover/filters',
+        query: {'media_type': mediaType},
+      );
+      final parsed = await parse(raw);
+      if (parsed.isNotEmpty) return parsed;
+    } on ApiException catch (e) {
+      if (e.httpStatus == 404) {
+        try {
+          final raw = await mc.unwrap<dynamic>(
+            Channel.general,
+            'GET',
+            '/api/v1/discover/genres',
+            query: {'media_type': mediaType},
+          );
+          final parsed = await parse(raw);
+          if (parsed.isNotEmpty) return parsed;
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return const [];
+  }
+
+  static List<DiscoveryGenre> _fallback(String mediaType) =>
+      mediaType == 'tv' ? _fallbackTvGenres : _fallbackMovieGenres;
+
+  static const _fallbackMovieGenres = <DiscoveryGenre>[
+    DiscoveryGenre(id: 28, name: '动作'),
+    DiscoveryGenre(id: 12, name: '冒险'),
+    DiscoveryGenre(id: 16, name: '动画'),
+    DiscoveryGenre(id: 35, name: '喜剧'),
+    DiscoveryGenre(id: 80, name: '犯罪'),
+    DiscoveryGenre(id: 99, name: '纪录'),
+    DiscoveryGenre(id: 18, name: '剧情'),
+    DiscoveryGenre(id: 10751, name: '家庭'),
+    DiscoveryGenre(id: 14, name: '奇幻'),
+    DiscoveryGenre(id: 36, name: '历史'),
+    DiscoveryGenre(id: 27, name: '恐怖'),
+    DiscoveryGenre(id: 10402, name: '音乐'),
+    DiscoveryGenre(id: 9648, name: '悬疑'),
+    DiscoveryGenre(id: 10749, name: '爱情'),
+    DiscoveryGenre(id: 878, name: '科幻'),
+    DiscoveryGenre(id: 53, name: '惊悚'),
+    DiscoveryGenre(id: 10752, name: '战争'),
+    DiscoveryGenre(id: 37, name: '西部'),
+  ];
+
+  static const _fallbackTvGenres = <DiscoveryGenre>[
+    DiscoveryGenre(id: 10759, name: '动作冒险'),
+    DiscoveryGenre(id: 16, name: '动画'),
+    DiscoveryGenre(id: 35, name: '喜剧'),
+    DiscoveryGenre(id: 80, name: '犯罪'),
+    DiscoveryGenre(id: 99, name: '纪录'),
+    DiscoveryGenre(id: 18, name: '剧情'),
+    DiscoveryGenre(id: 10751, name: '家庭'),
+    DiscoveryGenre(id: 10762, name: '儿童'),
+    DiscoveryGenre(id: 9648, name: '悬疑'),
+    DiscoveryGenre(id: 10763, name: '新闻'),
+    DiscoveryGenre(id: 10764, name: '真人秀'),
+    DiscoveryGenre(id: 10765, name: '科幻奇幻'),
+    DiscoveryGenre(id: 10766, name: '肥皂剧'),
+    DiscoveryGenre(id: 10767, name: '脱口秀'),
+    DiscoveryGenre(id: 10768, name: '战争政治'),
+    DiscoveryGenre(id: 37, name: '西部'),
+  ];
+}
+
+/// 组合发现的六维筛选（对齐 iOS `DiscoveryFilters`）：类型多选 + 地区 + 整数年份 + 最低评分 + 最长片长 + 排序。
 class DiscoveryFilter {
   const DiscoveryFilter({
     this.genreIds = const [],
@@ -12,267 +149,253 @@ class DiscoveryFilter {
     this.year,
     this.ratingGte,
     this.runtimeLte,
-    this.sort,
+    this.sort = defaultSort,
   });
 
-  final List<String> genreIds;
+  final List<int> genreIds;
   final String? originCountry;
-  final String? year;
-  final String? ratingGte;
-  final String? runtimeLte;
-  final String? sort;
+  final int? year;
+  final double? ratingGte;
+  final int? runtimeLte;
+  final String sort;
 
   static const defaultSort = 'popular';
 
+  static const countries = <MapEntry<String, String>>[
+    MapEntry('CN', '中国大陆'),
+    MapEntry('US', '美国'),
+    MapEntry('JP', '日本'),
+    MapEntry('KR', '韩国'),
+    MapEntry('GB', '英国'),
+    MapEntry('FR', '法国'),
+    MapEntry('HK', '中国香港'),
+    MapEntry('TW', '中国台湾'),
+    MapEntry('IN', '印度'),
+  ];
+
+  static const sorts = <MapEntry<String, String>>[
+    MapEntry('popular', '热门优先'),
+    MapEntry('rating', '高分优先'),
+    MapEntry('newest', '最新上映'),
+    MapEntry('most-rated', '最多人评'),
+  ];
+
+  static const ratings = <double>[6, 7, 8, 9];
+  static const runtimes = <int>[60, 90, 120, 150];
+
+  static String countryLabel(String code) => countries
+      .firstWhere((e) => e.key == code, orElse: () => MapEntry(code, code))
+      .value;
+
+  static String sortLabel(String value) => sorts
+      .firstWhere((e) => e.key == value, orElse: () => MapEntry(value, value))
+      .value;
+
+  static String formatRating(double v) =>
+      v == v.roundToDouble() ? v.round().toString() : v.toStringAsFixed(1);
+
+  /// 已启用的维度数（与 iOS `activeCount` 口径一致：按维度计数）。
   int get activeCount =>
-      genreIds.length +
-      (originCountry != null ? 1 : 0) +
-      (year != null ? 1 : 0) +
-      (ratingGte != null ? 1 : 0) +
-      (runtimeLte != null ? 1 : 0) +
-      (sort != null && sort != defaultSort ? 1 : 0);
+      (genreIds.isEmpty ? 0 : 1) +
+      (originCountry == null ? 0 : 1) +
+      (year == null ? 0 : 1) +
+      (ratingGte == null ? 0 : 1) +
+      (runtimeLte == null ? 0 : 1) +
+      (sort == defaultSort ? 0 : 1);
 
   DiscoveryFilter copyWith({
-    List<String>? genreIds,
+    List<int>? genreIds,
     Object? originCountry = _sentinel,
     Object? year = _sentinel,
     Object? ratingGte = _sentinel,
     Object? runtimeLte = _sentinel,
-    Object? sort = _sentinel,
+    String? sort,
   }) =>
       DiscoveryFilter(
         genreIds: genreIds ?? this.genreIds,
         originCountry: identical(originCountry, _sentinel)
             ? this.originCountry
             : originCountry as String?,
-        year: identical(year, _sentinel) ? this.year : year as String?,
+        year: identical(year, _sentinel) ? this.year : year as int?,
         ratingGte: identical(ratingGte, _sentinel)
             ? this.ratingGte
-            : ratingGte as String?,
+            : ratingGte as double?,
         runtimeLte: identical(runtimeLte, _sentinel)
             ? this.runtimeLte
-            : runtimeLte as String?,
-        sort: identical(sort, _sentinel) ? this.sort : sort as String?,
+            : runtimeLte as int?,
+        sort: sort ?? this.sort,
+      );
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! DiscoveryFilter) return false;
+    if (genreIds.length != other.genreIds.length) return false;
+    for (var i = 0; i < genreIds.length; i++) {
+      if (genreIds[i] != other.genreIds[i]) return false;
+    }
+    return originCountry == other.originCountry &&
+        year == other.year &&
+        ratingGte == other.ratingGte &&
+        runtimeLte == other.runtimeLte &&
+        sort == other.sort;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+        Object.hashAll(genreIds),
+        originCountry,
+        year,
+        ratingGte,
+        runtimeLte,
+        sort,
       );
 
   static const _sentinel = Object();
 }
 
-class _Dim {
-  const _Dim(
-    this.key,
-    this.title,
-    this.icon, {
-    this.multi = false,
-    this.options = const [],
-  });
-
-  final String key;
-  final String title;
-  final IconData icon;
-  final bool multi;
-  final List<MapEntry<String, String>> options;
-}
-
-const _movieGenres = [
-  MapEntry('28', '动作'),
-  MapEntry('12', '冒险'),
-  MapEntry('16', '动画'),
-  MapEntry('35', '喜剧'),
-  MapEntry('80', '犯罪'),
-  MapEntry('99', '纪录'),
-  MapEntry('18', '剧情'),
-  MapEntry('10751', '家庭'),
-  MapEntry('14', '奇幻'),
-  MapEntry('36', '历史'),
-  MapEntry('27', '恐怖'),
-  MapEntry('10402', '音乐'),
-  MapEntry('9648', '悬疑'),
-  MapEntry('10749', '爱情'),
-  MapEntry('878', '科幻'),
-  MapEntry('53', '惊悚'),
-  MapEntry('10752', '战争'),
-  MapEntry('37', '西部'),
+const discoveryDimKeys = <String>[
+  'genres',
+  'country',
+  'year',
+  'rating',
+  'runtime',
+  'sort',
 ];
 
-const _tvGenres = [
-  MapEntry('10759', '动作冒险'),
-  MapEntry('16', '动画'),
-  MapEntry('35', '喜剧'),
-  MapEntry('80', '犯罪'),
-  MapEntry('99', '纪录'),
-  MapEntry('18', '剧情'),
-  MapEntry('10751', '家庭'),
-  MapEntry('10762', '儿童'),
-  MapEntry('9648', '悬疑'),
-  MapEntry('10763', '新闻'),
-  MapEntry('10764', '真人秀'),
-  MapEntry('10765', '科幻奇幻'),
-  MapEntry('10766', '肥皂剧'),
-  MapEntry('10767', '脱口秀'),
-  MapEntry('10768', '战争政治'),
-  MapEntry('37', '西部'),
-];
-
-const _dims = [
-  _Dim('genres', '类型', McIcons.gridFill, multi: true),
-  _Dim('country', '地区', McIcons.planet, options: [
-    MapEntry('CN', '中国大陆'),
-    MapEntry('HK', '中国香港'),
-    MapEntry('TW', '中国台湾'),
-    MapEntry('US', '美国'),
-    MapEntry('GB', '英国'),
-    MapEntry('JP', '日本'),
-    MapEntry('KR', '韩国'),
-    MapEntry('FR', '法国'),
-    MapEntry('DE', '德国'),
-  ]),
-  _Dim('year', '年代', McIcons.calendar, options: [
-    MapEntry('2026', '2026'),
-    MapEntry('2025', '2025'),
-    MapEntry('2024', '2024'),
-    MapEntry('2023', '2023'),
-    MapEntry('2022', '2022'),
-    MapEntry('2021', '2021'),
-    MapEntry('2020', '2020'),
-    MapEntry('2010s', '2010 年代'),
-    MapEntry('2000s', '2000 年代'),
-    MapEntry('1990s', '90 年代'),
-  ]),
-  _Dim('rating', '评分', McIcons.star2Fill, options: [
-    MapEntry('9', '9 分以上'),
-    MapEntry('8', '8 分以上'),
-    MapEntry('7', '7 分以上'),
-    MapEntry('6', '6 分以上'),
-    MapEntry('5', '5 分以上'),
-  ]),
-  _Dim('runtime', '片长', McIcons.clock, options: [
-    MapEntry('60', '60 分钟以内'),
-    MapEntry('90', '90 分钟以内'),
-    MapEntry('120', '120 分钟以内'),
-    MapEntry('150', '150 分钟以内'),
-  ]),
-  _Dim('sort', '排序', McIcons.sort, options: [
-    MapEntry('popular', '热门优先'),
-    MapEntry('rating', '评分最高'),
-    MapEntry('newest', '最新上线'),
-    MapEntry('oldest', '最早上映'),
-    MapEntry('revenue', '票房最高'),
-  ]),
-];
-
-List<MapEntry<String, String>> _optionsOf(_Dim dim, String mediaType) {
-  if (dim.key == 'genres') {
-    return mediaType == 'tv' ? _tvGenres : _movieGenres;
-  }
-  return dim.options;
-}
-
-String _genreLabel(String mediaType, String id) {
-  final table = mediaType == 'tv' ? _tvGenres : _movieGenres;
-  return table
-      .firstWhere((e) => e.key == id, orElse: () => const MapEntry('', '1 个类型'))
-      .value;
-}
-
-String dimValue(String key, DiscoveryFilter f, String mediaType) => switch (key) {
-      'genres' => () {
-          if (f.genreIds.isEmpty) return '不限';
-          if (f.genreIds.length == 1) return _genreLabel(mediaType, f.genreIds.first);
-          return '${_genreLabel(mediaType, f.genreIds.first)} +${f.genreIds.length - 1}';
-        }(),
-      'country' => () {
-          final c = f.originCountry;
-          if (c == null) return '不限';
-          return _dims
-              .firstWhere((d) => d.key == 'country')
-              .options
-              .firstWhere((e) => e.key == c, orElse: () => MapEntry(c, c))
-              .value;
-        }(),
-      'year' => f.year ?? '不限',
-      'rating' => f.ratingGte != null ? '${f.ratingGte} 分以上' : '不限',
-      'runtime' => f.runtimeLte != null ? '${f.runtimeLte} 分钟以内' : '不限',
-      _ => () {
-          final s = f.sort;
-          if (s == null || s == DiscoveryFilter.defaultSort) return '热门优先';
-          return _dims
-              .firstWhere((d) => d.key == 'sort')
-              .options
-              .firstWhere((e) => e.key == s, orElse: () => MapEntry(s, s))
-              .value;
-        }(),
+String discoveryDimTitle(String key, {String mediaType = 'movie'}) =>
+    switch (key) {
+      'genres' => '类型',
+      'country' => '国家/地区',
+      'year' => mediaType == 'movie' ? '上映年份' : '首播年份',
+      'rating' => '最低评分',
+      'runtime' => mediaType == 'movie' ? '最长片长' : '单集片长',
+      'sort' => '排序',
+      _ => key,
     };
 
-String discoveryDimTitle(String key) => _dims
-    .firstWhere(
-      (d) => d.key == key,
-      orElse: () => _Dim(key, key, McIcons.helpCircleFill),
-    )
-    .title;
+IconData discoveryDimIcon(String key) => switch (key) {
+      'genres' => McIcons.gridFill,
+      'country' => McIcons.planet,
+      'year' => McIcons.calendar,
+      'rating' => McIcons.star2Fill,
+      'runtime' => McIcons.clock,
+      'sort' => McIcons.sort,
+      _ => McIcons.filterS,
+    };
 
-List<String> get discoveryDimKeys => [for (final d in _dims) d.key];
-
-bool _dimEnabled(_Dim dim, DiscoveryFilter f) => switch (dim.key) {
+bool discoveryDimEnabled(String key, DiscoveryFilter f) => switch (key) {
       'genres' => f.genreIds.isNotEmpty,
       'country' => f.originCountry != null,
       'year' => f.year != null,
       'rating' => f.ratingGte != null,
       'runtime' => f.runtimeLte != null,
-      _ => f.sort != null && f.sort != DiscoveryFilter.defaultSort,
+      'sort' => f.sort != DiscoveryFilter.defaultSort,
+      _ => false,
     };
 
-String? discoveryDimSummary(String key, DiscoveryFilter f, String mediaType) {
-  final dim = _dims.firstWhere((d) => d.key == key);
-  if (!_dimEnabled(dim, f)) return null;
-  return dimValue(key, f, mediaType);
+String? discoveryDimSummary(
+  String key,
+  DiscoveryFilter f,
+  String mediaType, {
+  Map<int, String>? genreNames,
+}) {
+  if (!discoveryDimEnabled(key, f)) return null;
+  final names = genreNames ?? DiscoverGenreCatalog.nameMap(mediaType);
+  return switch (key) {
+    'genres' => () {
+        final resolved = [
+          for (final id in f.genreIds)
+            if (names[id] != null) names[id]!,
+        ];
+        if (resolved.length == f.genreIds.length && resolved.length <= 2) {
+          return resolved.join('、');
+        }
+        if (resolved.isNotEmpty) {
+          return '${resolved.first} 等 ${f.genreIds.length} 个';
+        }
+        return '${f.genreIds.length} 个类型';
+      }(),
+    'country' => DiscoveryFilter.countryLabel(f.originCountry!),
+    'year' => '${f.year} 年',
+    'rating' => '${DiscoveryFilter.formatRating(f.ratingGte!)} 分以上',
+    'runtime' => '${f.runtimeLte} 分钟以内',
+    'sort' => DiscoveryFilter.sortLabel(f.sort),
+    _ => null,
+  };
 }
 
-DiscoveryFilter _clearDim(String key, DiscoveryFilter f) => switch (key) {
+String dimValue(
+  String key,
+  DiscoveryFilter f,
+  String mediaType, {
+  Map<int, String>? genreNames,
+}) {
+  final summary = discoveryDimSummary(
+    key,
+    f,
+    mediaType,
+    genreNames: genreNames,
+  );
+  if (summary != null) return summary;
+  return key == 'sort' ? DiscoveryFilter.sortLabel(f.sort) : '不限';
+}
+
+DiscoveryFilter clearDiscoveryDim(String key, DiscoveryFilter f) =>
+    switch (key) {
       'genres' => f.copyWith(genreIds: const []),
       'country' => f.copyWith(originCountry: null),
       'year' => f.copyWith(year: null),
       'rating' => f.copyWith(ratingGte: null),
       'runtime' => f.copyWith(runtimeLte: null),
-      _ => f.copyWith(sort: null),
+      'sort' => f.copyWith(sort: DiscoveryFilter.defaultSort),
+      _ => f,
     };
 
-DiscoveryFilter _toggleDim(String key, String value, DiscoveryFilter f) =>
-    switch (key) {
-      'genres' => f.copyWith(
-          genreIds: f.genreIds.contains(value)
-              ? f.genreIds.where((e) => e != value).toList()
-              : [...f.genreIds, value],
-        ),
-      'country' =>
-        f.copyWith(originCountry: f.originCountry == value ? null : value),
-      'year' => f.copyWith(year: f.year == value ? null : value),
-      'rating' => f.copyWith(ratingGte: f.ratingGte == value ? null : value),
-      'runtime' => f.copyWith(runtimeLte: f.runtimeLte == value ? null : value),
-      _ => f.copyWith(sort: f.sort == value ? null : value),
-    };
-
-/// 单维度的选项面板（顶部标题 + 「不限」/ 各选项胶囊列表）。
-class DiscoveryFilterOptionsPanel extends StatelessWidget {
+/// 单维度筛选选项弹层（支持动态类型、真实整数年份+更早年份展开、4 种有效排序）。
+class DiscoveryFilterOptionsPanel extends StatefulWidget {
   const DiscoveryFilterOptionsPanel({
     super.key,
     required this.dimKey,
     required this.filter,
     required this.mediaType,
     required this.onApply,
+    this.genres,
     this.onBack,
   });
 
   final String dimKey;
   final DiscoveryFilter filter;
   final String mediaType;
+  final List<DiscoveryGenre>? genres;
   final ValueChanged<DiscoveryFilter> onApply;
   final VoidCallback? onBack;
 
   @override
+  State<DiscoveryFilterOptionsPanel> createState() =>
+      _DiscoveryFilterOptionsPanelState();
+}
+
+class _DiscoveryFilterOptionsPanelState
+    extends State<DiscoveryFilterOptionsPanel> {
+  bool _showOlderYears = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final currentYear = DateTime.now().year;
+    if (widget.filter.year != null && widget.filter.year! < currentYear - 14) {
+      _showOlderYears = true;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final dim = _dims.firstWhere((d) => d.key == dimKey);
-    final options = _optionsOf(dim, mediaType);
+    final dim = widget.dimKey;
+    final f = widget.filter;
+    final title = discoveryDimTitle(dim, mediaType: widget.mediaType);
+    final enabled = discoveryDimEnabled(dim, f);
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -281,140 +404,219 @@ class DiscoveryFilterOptionsPanel extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
           child: Row(
             children: [
-              if (onBack != null)
+              if (widget.onBack != null)
                 IconButton(
-                  onPressed: onBack,
+                  onPressed: widget.onBack,
                   icon: const Icon(McIcons.arrowLeftS, size: 20),
                 ),
-              Expanded(child: Text('筛选 · ${dim.title}', style: McText.titleSm)),
-              if (_dimEnabled(dim, filter))
+              Expanded(child: Text('筛选 · $title', style: McText.titleSm)),
+              if (enabled)
                 TextButton(
-                  onPressed: () => onApply(_clearDim(dim.key, filter)),
-                  child: const Text('不限'),
+                  onPressed: () =>
+                      widget.onApply(clearDiscoveryDim(dim, f)),
+                  child: Text(dim == 'sort' ? '恢复默认' : '不限'),
                 ),
             ],
           ),
         ),
         ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 380),
+          constraints: const BoxConstraints(maxHeight: 400),
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: dim.key == 'genres' || dim.key == 'country' || dim.key == 'year'
-                ? Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      if (!dim.multi)
-                        McChip(
-                          label: '不限',
-                          selected: !_dimEnabled(dim, filter),
-                          onTap: () => onApply(_clearDim(dim.key, filter)),
-                        ),
-                      for (final opt in options)
-                        McChip(
-                          label: opt.value,
-                          selected: switch (dim.key) {
-                            'genres' => filter.genreIds.contains(opt.key),
-                            'country' => filter.originCountry == opt.key,
-                            'year' => filter.year == opt.key,
-                            _ => false,
-                          },
-                          onTap: () => onApply(_toggleDim(dim.key, opt.key, filter)),
-                        ),
-                    ],
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (dim.key != 'sort' && !dim.multi)
-                        _OptionRow(
-                          label: '不限',
-                          selected: !_dimEnabled(dim, filter),
-                          onTap: () => onApply(_clearDim(dim.key, filter)),
-                        ),
-                      for (final opt in options)
-                        _OptionRow(
-                          label: opt.value,
-                          selected: switch (dim.key) {
-                            'rating' => filter.ratingGte == opt.key,
-                            'runtime' => filter.runtimeLte == opt.key,
-                            _ => (filter.sort ?? DiscoveryFilter.defaultSort) ==
-                                opt.key,
-                          },
-                          onTap: () => onApply(_toggleDim(dim.key, opt.key, filter)),
-                        ),
-                    ],
-                  ),
+            child: switch (dim) {
+              'genres' => _buildGenres(f),
+              'country' => _buildCountries(f),
+              'year' => _buildYears(f),
+              'rating' => _buildRatings(f),
+              'runtime' => _buildRuntimes(f),
+              _ => _buildSorts(f),
+            },
           ),
         ),
       ],
     );
   }
-}
 
-/// 发现页筛选菜单面板（六个维度行 + 清空条件）。
-class DiscoveryFilterMenu extends StatefulWidget {
-  const DiscoveryFilterMenu({
-    super.key,
-    required this.filter,
-    required this.mediaType,
-    required this.onApply,
-  });
+  Widget _buildGenres(DiscoveryFilter f) {
+    final list = widget.genres ?? DiscoverGenreCatalog.cached(widget.mediaType);
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final g in list)
+          McChip(
+            label: g.name,
+            selected: f.genreIds.contains(g.id),
+            onTap: () {
+              final next = f.genreIds.contains(g.id)
+                  ? f.genreIds.where((e) => e != g.id).toList()
+                  : [...f.genreIds, g.id];
+              widget.onApply(f.copyWith(genreIds: next));
+            },
+          ),
+      ],
+    );
+  }
 
-  final DiscoveryFilter filter;
-  final String mediaType;
-  final ValueChanged<DiscoveryFilter> onApply;
-
-  @override
-  State<DiscoveryFilterMenu> createState() => _DiscoveryFilterMenuState();
-}
-
-class _DiscoveryFilterMenuState extends State<DiscoveryFilterMenu> {
-  String? _openDim;
-
-  @override
-  Widget build(BuildContext context) {
-    final f = widget.filter;
-    return Material(
-      color: McTokens.surfaceSolid,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(McTokens.cardRadius),
-        side: const BorderSide(color: McTokens.lineStrong),
-      ),
-      child: SizedBox(
-        width: 280,
-        child: _openDim == null
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final d in _dims)
-                    _MenuRow(
-                      title: d.title,
-                      icon: d.icon,
-                      value: dimValue(d.key, f, widget.mediaType),
-                      chevron: true,
-                      onTap: () => setState(() => _openDim = d.key),
-                    ),
-                  if (f.activeCount > 0) ...[
-                    const Divider(height: 1, color: McTokens.line),
-                    _MenuRow(
-                      title: '清空条件',
-                      icon: McIcons.close,
-                      danger: true,
-                      onTap: () => widget.onApply(const DiscoveryFilter()),
-                    ),
-                  ],
-                ],
-              )
-            : DiscoveryFilterOptionsPanel(
-                dimKey: _openDim!,
-                filter: f,
-                mediaType: widget.mediaType,
-                onApply: widget.onApply,
-                onBack: () => setState(() => _openDim = null),
+  Widget _buildCountries(DiscoveryFilter f) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        McChip(
+          label: '不限',
+          selected: f.originCountry == null,
+          onTap: () => widget.onApply(f.copyWith(originCountry: null)),
+        ),
+        for (final c in DiscoveryFilter.countries)
+          McChip(
+            label: c.value,
+            selected: f.originCountry == c.key,
+            onTap: () => widget.onApply(
+              f.copyWith(
+                originCountry: f.originCountry == c.key ? null : c.key,
               ),
-      ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildYears(DiscoveryFilter f) {
+    final nowYear = DateTime.now().year;
+    final recentYears = [for (var y = nowYear; y >= nowYear - 14; y--) y];
+    final olderYears = [for (var y = nowYear - 15; y >= 1950; y--) y];
+    final classicYears = [for (var y = 1949; y >= 1874; y--) y];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            McChip(
+              label: '不限',
+              selected: f.year == null,
+              onTap: () => widget.onApply(f.copyWith(year: null)),
+            ),
+            for (final y in recentYears)
+              McChip(
+                label: '$y',
+                selected: f.year == y,
+                onTap: () =>
+                    widget.onApply(f.copyWith(year: f.year == y ? null : y)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => setState(() => _showOlderYears = !_showOlderYears),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _showOlderYears ? '收起更早年份' : '更早年份（1950–${nowYear - 15}）',
+                  style: McText.caption.copyWith(
+                    color: McTokens.accent,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  _showOlderYears ? McIcons.arrowUpS : McIcons.arrowDownS,
+                  size: 16,
+                  color: McTokens.accent,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_showOlderYears) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final y in olderYears)
+                McChip(
+                  label: '$y',
+                  compact: true,
+                  selected: f.year == y,
+                  onTap: () =>
+                      widget.onApply(f.copyWith(year: f.year == y ? null : y)),
+                ),
+              for (final y in classicYears)
+                McChip(
+                  label: '$y',
+                  compact: true,
+                  selected: f.year == y,
+                  onTap: () =>
+                      widget.onApply(f.copyWith(year: f.year == y ? null : y)),
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildRatings(DiscoveryFilter f) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _OptionRow(
+          label: '不限',
+          selected: f.ratingGte == null,
+          onTap: () => widget.onApply(f.copyWith(ratingGte: null)),
+        ),
+        for (final r in DiscoveryFilter.ratings)
+          _OptionRow(
+            label: '${DiscoveryFilter.formatRating(r)} 分以上',
+            selected: f.ratingGte == r,
+            onTap: () => widget.onApply(
+              f.copyWith(ratingGte: f.ratingGte == r ? null : r),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildRuntimes(DiscoveryFilter f) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _OptionRow(
+          label: '不限',
+          selected: f.runtimeLte == null,
+          onTap: () => widget.onApply(f.copyWith(runtimeLte: null)),
+        ),
+        for (final m in DiscoveryFilter.runtimes)
+          _OptionRow(
+            label: '$m 分钟以内',
+            selected: f.runtimeLte == m,
+            onTap: () => widget.onApply(
+              f.copyWith(runtimeLte: f.runtimeLte == m ? null : m),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSorts(DiscoveryFilter f) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final s in DiscoveryFilter.sorts)
+          _OptionRow(
+            label: s.value,
+            selected: f.sort == s.key,
+            onTap: () => widget.onApply(f.copyWith(sort: s.key)),
+          ),
+      ],
     );
   }
 }
@@ -426,11 +628,13 @@ class DiscoverFilterChipsRow extends StatelessWidget {
     required this.filters,
     required this.mediaType,
     required this.onOpenDim,
+    this.genreNames,
   });
 
   final DiscoveryFilter filters;
   final String mediaType;
   final ValueChanged<String> onOpenDim;
+  final Map<int, String>? genreNames;
 
   @override
   Widget build(BuildContext context) {
@@ -443,74 +647,22 @@ class DiscoverFilterChipsRow extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
           final key = discoveryDimKeys[i];
-          final summary = discoveryDimSummary(key, filters, mediaType);
+          final summary = discoveryDimSummary(
+            key,
+            filters,
+            mediaType,
+            genreNames: genreNames,
+          );
           final on = summary != null;
           return McChip(
             label: on
-                ? '${discoveryDimTitle(key)} · $summary'
-                : discoveryDimTitle(key),
+                ? summary
+                : discoveryDimTitle(key, mediaType: mediaType),
             selected: on,
             compact: true,
             onTap: () => onOpenDim(key),
           );
         },
-      ),
-    );
-  }
-}
-
-class _MenuRow extends StatelessWidget {
-  const _MenuRow({
-    required this.title,
-    required this.onTap,
-    this.icon,
-    this.value,
-    this.danger = false,
-    this.chevron = false,
-  });
-
-  final String title;
-  final VoidCallback onTap;
-  final IconData? icon;
-  final String? value;
-  final bool danger;
-  final bool chevron;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-        child: Row(
-          children: [
-            if (icon != null) ...[
-              Icon(
-                icon,
-                size: 16,
-                color: danger ? McTokens.danger : McTokens.textMuted,
-              ),
-              const SizedBox(width: 10),
-            ],
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: McText.sub.copyWith(
-                  color: danger ? McTokens.danger : McTokens.text,
-                ),
-              ),
-            ),
-            if (value != null)
-              Text(value!, style: McText.caption.copyWith(color: McTokens.textMuted)),
-            if (chevron) ...[
-              const SizedBox(width: 4),
-              const Icon(McIcons.chevronRight, size: 14, color: McTokens.textFaint),
-            ],
-          ],
-        ),
       ),
     );
   }

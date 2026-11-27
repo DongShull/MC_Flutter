@@ -3,14 +3,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-/// 播放器手势层 —— 逐条对齐 Android PlayerGestureLayer.kt（原对齐 iOS）的语义与常量：
-///  · 单击立即生效（不为等双击延迟）；双击事后推断（0.3s 窗口），三击按新的单击算
-///  · 首次移动超过 12px 才判定方向：横向 → 定位（满屏一划 = 90 秒），纵向 → 亮度/音量
-///  · 长按 0.5s = 2× 变速（仅播放中可触发；移动超阈值即作废）
-///  · 起始点落在上下 32px 边缘守卫内才接手势，否则交给系统
-///  · 竖向调节只在 12%–76% 高度、且距左右边 ≥32px 时生效，其余区域放弃该手势
-///  · 满行程 = 视口高度的 60%
-/// 控制层排除由布局承担：手势层是控制层下方的兄弟节点，控件上的触摸不会落到这里。
+/// 播放器手势层（对齐 iOS `PlayerGestureLayer.swift`）：
+/// - 单击与双击严格互斥（220ms 窗口）：双击左/右 ±10s 或中区播停绝不闪出控制栏；
+/// - 双指捏合缩放（pinch-to-zoom）：外扩切换 `fill`（铺满），内收切换 `fit`（原始比例）；
+/// - 横滑定位（满屏行程 90 秒）、左半屏竖滑亮度、右半屏竖滑音量、长按 0.5s 触发 2× 倍速；
+/// - 上下 32px 边缘守卫，竖滑限定 12%–76% 高度且距左右边 ≥32px。
 class PlayerGestureLayer extends StatefulWidget {
   const PlayerGestureLayer({
     super.key,
@@ -26,6 +23,7 @@ class PlayerGestureLayer extends StatefulWidget {
     required this.onAdjustEnd,
     required this.onHoldStart,
     required this.onHoldEnd,
+    this.onPinchMode,
     required this.child,
   });
 
@@ -41,31 +39,38 @@ class PlayerGestureLayer extends StatefulWidget {
   final VoidCallback onAdjustEnd;
   final VoidCallback onHoldStart;
   final VoidCallback onHoldEnd;
+
+  /// 双指缩放回调：`'fill'`（铺满屏幕）或 `'fit'`（原始比例）。
+  final ValueChanged<String>? onPinchMode;
   final Widget child;
 
   @override
   State<PlayerGestureLayer> createState() => _PlayerGestureLayerState();
 }
 
-/// 供 UI 复用的常量（定位满屏行程等）。
+/// 供 UI 复用的常量（定位满屏行程 90 秒）。
 const int kPlayerFullSweepSeekMs = 90000;
 
-enum _GestureIntent { undecided, scrub, adjust, hold, cancel }
+enum _GestureIntent { undecided, scrub, adjust, hold, pinch, cancel }
 
 class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
   static const double _activatePx = 12;
   static const double _edgeGuardPx = 32;
-  static const int _doubleTapWindowMs = 300;
+  static const int _doubleTapWindowMs = 230;
   static const int _holdDelayMs = 500;
   static const double _fullSweepRatio = 0.6;
   static const double _adjustTopExclude = 0.12;
   static const double _adjustBottomExclude = 0.24;
 
+  final Map<int, Offset> _activePointers = {};
   int? _pointerId;
   Offset _start = Offset.zero;
+  double? _pinchBaseDistance;
+  bool _pinchTriggered = false;
   _GestureIntent _intent = _GestureIntent.undecided;
   bool _isBrightness = false;
   Timer? _holdTimer;
+  Timer? _singleTapTimer;
   int _lastTapAt = 0;
 
   bool _insideEdgeGuard(Offset p, Size size) =>
@@ -80,16 +85,41 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
     return withinVertical && withinHorizontal;
   }
 
+  double _currentTwoFingerDistance() {
+    if (_activePointers.length < 2) return 0;
+    final pts = _activePointers.values.take(2).toList();
+    return (pts[0] - pts[1]).distance;
+  }
+
   void _onDown(PointerDownEvent event, Size size) {
     if (!widget.enabled) return;
+    _activePointers[event.pointer] = event.position;
+
+    if (_activePointers.length == 2) {
+      // 双指落下 -> 立即切为 pinch 意图，取消单击/长按/拖拽
+      _holdTimer?.cancel();
+      _singleTapTimer?.cancel();
+      if (_intent == _GestureIntent.scrub) widget.onScrubEnd();
+      if (_intent == _GestureIntent.adjust) widget.onAdjustEnd();
+      if (_intent == _GestureIntent.hold) widget.onHoldEnd();
+      _intent = _GestureIntent.pinch;
+      _pinchBaseDistance = _currentTwoFingerDistance();
+      _pinchTriggered = false;
+      return;
+    }
+
+    if (_activePointers.length > 2) return;
+
     _start = event.position;
     _intent = _GestureIntent.undecided;
     _isBrightness = false;
     if (!_insideEdgeGuard(_start, size)) return;
     _pointerId = event.pointer;
     if (widget.canHold) {
+      _holdTimer?.cancel();
       _holdTimer = Timer(const Duration(milliseconds: _holdDelayMs), () {
-        if (_intent == _GestureIntent.undecided) {
+        if (_intent == _GestureIntent.undecided && _activePointers.length == 1) {
+          _singleTapTimer?.cancel();
           _intent = _GestureIntent.hold;
           widget.onHoldStart();
         }
@@ -98,6 +128,27 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
   }
 
   void _onMove(PointerMoveEvent event, Size size) {
+    if (!_activePointers.containsKey(event.pointer)) return;
+    _activePointers[event.pointer] = event.position;
+
+    if (_intent == _GestureIntent.pinch) {
+      if (_activePointers.length >= 2 &&
+          !_pinchTriggered &&
+          _pinchBaseDistance != null &&
+          _pinchBaseDistance! > 16) {
+        final dist = _currentTwoFingerDistance();
+        final scale = dist / _pinchBaseDistance!;
+        if (scale >= 1.16) {
+          _pinchTriggered = true;
+          widget.onPinchMode?.call('fill');
+        } else if (scale <= 0.84) {
+          _pinchTriggered = true;
+          widget.onPinchMode?.call('fit');
+        }
+      }
+      return;
+    }
+
     if (_pointerId != event.pointer) return;
     final position = event.position;
     if (_intent == _GestureIntent.undecided) {
@@ -105,6 +156,7 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
       final dy = position.dy - _start.dy;
       if (math.sqrt(dx * dx + dy * dy) > _activatePx) {
         _holdTimer?.cancel();
+        _singleTapTimer?.cancel();
         if (dx.abs() >= dy.abs()) {
           _intent = _GestureIntent.scrub;
           widget.onScrubStart();
@@ -113,7 +165,6 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
           _isBrightness = _start.dx < size.width / 2;
           widget.onAdjustStart(_isBrightness);
         } else {
-          // 竖向滑动落在排除区（顶部/底部/左右边缘）：整个手势作废
           _intent = _GestureIntent.cancel;
         }
       }
@@ -132,11 +183,31 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
   }
 
   void _onUp(PointerUpEvent event, Size size) {
+    _activePointers.remove(event.pointer);
+    if (_intent == _GestureIntent.pinch) {
+      if (_activePointers.isEmpty) {
+        _pinchBaseDistance = null;
+        _pinchTriggered = false;
+        _pointerId = null;
+        _intent = _GestureIntent.undecided;
+      }
+      return;
+    }
     if (_pointerId != event.pointer) return;
     _finish(size);
   }
 
   void _onCancel(PointerCancelEvent event, Size size) {
+    _activePointers.remove(event.pointer);
+    if (_intent == _GestureIntent.pinch) {
+      if (_activePointers.isEmpty) {
+        _pinchBaseDistance = null;
+        _pinchTriggered = false;
+        _pointerId = null;
+        _intent = _GestureIntent.undecided;
+      }
+      return;
+    }
     if (_pointerId != event.pointer) return;
     _intent = _GestureIntent.cancel;
     _finish(size);
@@ -157,12 +228,23 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
         final now = DateTime.now().millisecondsSinceEpoch;
         final isDouble = now - _lastTapAt <= _doubleTapWindowMs;
         if (isDouble) {
-          _lastTapAt = 0; // 三击视为新的单击
+          _singleTapTimer?.cancel();
+          _singleTapTimer = null;
+          _lastTapAt = 0;
           widget.onDoubleTap((_start.dx / size.width).clamp(0.0, 1.0));
         } else {
           _lastTapAt = now;
-          widget.onTap();
+          _singleTapTimer?.cancel();
+          _singleTapTimer = Timer(
+            const Duration(milliseconds: _doubleTapWindowMs),
+            () {
+              if (!mounted) return;
+              _lastTapAt = 0;
+              widget.onTap();
+            },
+          );
         }
+      case _GestureIntent.pinch:
       case _GestureIntent.cancel:
         break;
     }
@@ -172,6 +254,7 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
   @override
   void dispose() {
     _holdTimer?.cancel();
+    _singleTapTimer?.cancel();
     super.dispose();
   }
 

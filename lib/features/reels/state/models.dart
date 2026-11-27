@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-/// 刷片域模型（1:1 对应 Android core/model/Reels.kt，字段 snake_case）。
+/// 刷片域模型（1:1 对齐 iOS `Generated/Models.swift` 中的 Reel*View 与多选筛选）。
 
 class ReelEpisodeView {
   const ReelEpisodeView({
@@ -34,13 +34,10 @@ class ReelPersonView {
       );
 
   final String name;
-
-  /// TMDB 影人 ID（打开人物页用）；只有姓名时为空
   final int? tmdbPersonId;
   final String? avatarUrl;
 }
 
-/// 这一条属于哪部片（展示用）
 class ReelTitleView {
   const ReelTitleView({
     this.mediaItemId = 0,
@@ -72,7 +69,7 @@ class ReelTitleView {
         rating: (json['rating'] as num?)?.toDouble(),
         runtimeMinutes: (json['runtime_minutes'] as num?)?.toInt(),
         genres: ((json['genres'] as List<dynamic>?) ?? const [])
-            .map((e) => e as String)
+            .map((e) => e.toString())
             .toList(),
         tagline: json['tagline'] as String?,
         overview: json['overview'] as String?,
@@ -80,41 +77,32 @@ class ReelTitleView {
         played: json['played'] as bool? ?? false,
         progressPercent: (json['progress_percent'] as num?)?.toInt(),
         directors: ((json['directors'] as List<dynamic>?) ?? const [])
-            .map((e) => ReelPersonView.fromJson(e as Map<String, dynamic>))
+            .whereType<Map>()
+            .map((e) => ReelPersonView.fromJson(e.cast<String, dynamic>()))
             .toList(),
         posterUrl: json['poster_url'] as String?,
         backdropUrl: json['backdrop_url'] as String?,
         logoUrl: json['logo_url'] as String?,
-        episode: json['episode'] == null
-            ? null
-            : ReelEpisodeView.fromJson(json['episode'] as Map<String, dynamic>),
+        episode: json['episode'] is Map
+            ? ReelEpisodeView.fromJson(
+                (json['episode'] as Map).cast<String, dynamic>(),
+              )
+            : null,
       );
 
   final int mediaItemId;
   final int libraryId;
-
-  /// movie / tv / video
   final String kind;
   final String name;
   final int? year;
   final double? rating;
-
-  /// 片长；剧集是这一集的时长
   final int? runtimeMinutes;
   final List<String> genres;
   final String? tagline;
   final String? overview;
-
-  /// 本人收藏了没有（电影 / 整剧）
   final bool favorite;
-
-  /// 本人看过没有（电影看整部，剧集看这一集）
   final bool played;
-
-  /// 看了一半时的进度（1~99）；没看过、已看完为空
   final int? progressPercent;
-
-  /// 电影是导演、剧集是主创，最多两位
   final List<ReelPersonView> directors;
   final String? posterUrl;
   final String? backdropUrl;
@@ -122,7 +110,6 @@ class ReelTitleView {
   final ReelEpisodeView? episode;
 }
 
-/// 放原片的哪一段（原片时间轴）
 class ReelSegmentView {
   const ReelSegmentView({
     this.fileId = 0,
@@ -145,24 +132,76 @@ class ReelSegmentView {
   final int startMs;
   final int endMs;
   final int? durationMs;
-
-  /// bitrate 码率最高段 / chapter 章节起点 / position 固定位置
   final String method;
+
+  int get spanMs => endMs > startMs ? endMs - startMs : (durationMs ?? 45000);
 }
 
-/// 怎么放这一条：seek = 从原片中间起播；clip = 放服务端预切好的片段文件
+class ReelSubtitleView {
+  const ReelSubtitleView({
+    this.ordinal = 0,
+    this.language,
+    this.title,
+    this.codec,
+    this.url,
+    this.format,
+  });
+
+  factory ReelSubtitleView.fromJson(Map<String, dynamic> json) =>
+      ReelSubtitleView(
+        ordinal: (json['ordinal'] as num?)?.toInt() ?? 0,
+        language: json['language']?.toString(),
+        title: json['title']?.toString(),
+        codec: json['codec']?.toString(),
+        url: json['url']?.toString(),
+        format: json['format']?.toString(),
+      );
+
+  final int ordinal;
+  final String? language;
+  final String? title;
+  final String? codec;
+  final String? url;
+  final String? format;
+}
+
 class ReelPlayView {
-  const ReelPlayView({this.mode = 'seek', this.streamUrl, this.clipUrl});
+  const ReelPlayView({
+    this.mode = 'seek',
+    this.streamUrl,
+    this.clipUrl,
+    this.clipSizeBytes,
+    this.sizeBytes,
+    this.disc,
+    this.audioOrdinal,
+    this.subtitle,
+  });
 
   factory ReelPlayView.fromJson(Map<String, dynamic> json) => ReelPlayView(
         mode: json['mode'] as String? ?? 'seek',
         streamUrl: json['stream_url'] as String?,
         clipUrl: json['clip_url'] as String?,
+        clipSizeBytes: (json['clip_size_bytes'] as num?)?.toInt(),
+        sizeBytes: (json['size_bytes'] as num?)?.toInt(),
+        disc: json['disc']?.toString(),
+        audioOrdinal: (json['audio_ordinal'] as num?)?.toInt(),
+        subtitle: json['subtitle'] is Map
+            ? ReelSubtitleView.fromJson(
+                (json['subtitle'] as Map).cast<String, dynamic>(),
+              )
+            : null,
       );
 
   final String mode;
   final String? streamUrl;
   final String? clipUrl;
+  final int? clipSizeBytes;
+  final int? sizeBytes;
+  final String? disc;
+  final int? audioOrdinal;
+  final ReelSubtitleView? subtitle;
+
+  bool get isClip => mode == 'clip';
 }
 
 class ReelItemView {
@@ -177,19 +216,19 @@ class ReelItemView {
   factory ReelItemView.fromJson(Map<String, dynamic> json) => ReelItemView(
         id: json['id'] as String? ?? '',
         title: ReelTitleView.fromJson(
-            (json['title'] as Map<String, dynamic>?) ?? const {}),
+          (json['title'] as Map?)?.cast<String, dynamic>() ?? const {},
+        ),
         coverUrl: json['cover_url'] as String?,
         segment: ReelSegmentView.fromJson(
-            (json['segment'] as Map<String, dynamic>?) ?? const {}),
+          (json['segment'] as Map?)?.cast<String, dynamic>() ?? const {},
+        ),
         play: ReelPlayView.fromJson(
-            (json['play'] as Map<String, dynamic>?) ?? const {}),
+          (json['play'] as Map?)?.cast<String, dynamic>() ?? const {},
+        ),
       );
 
-  /// 片段标识（事件上报用）：文件 + 起点
   final String id;
   final ReelTitleView title;
-
-  /// 封面：起点那一帧；没有时是剧照
   final String? coverUrl;
   final ReelSegmentView segment;
   final ReelPlayView play;
@@ -208,11 +247,11 @@ class ReelFeedView {
         nextOffset: (json['next_offset'] as num?)?.toInt() ?? 0,
         hasMore: json['has_more'] as bool? ?? false,
         items: ((json['items'] as List<dynamic>?) ?? const [])
-            .map((e) => ReelItemView.fromJson(e as Map<String, dynamic>))
+            .whereType<Map>()
+            .map((e) => ReelItemView.fromJson(e.cast<String, dynamic>()))
             .toList(),
       );
 
-  /// 这次刷片的随机种子，翻页时原样带回
   final int seed;
   final int nextOffset;
   final bool hasMore;
@@ -233,7 +272,6 @@ class FacetValue {
   final int count;
 }
 
-/// 筛选菜单的候选值与计数（每维计数排除本维自身条件；为 0 的档 UI 置灰）
 class ReelFacetsView {
   const ReelFacetsView({
     this.total = 0,
@@ -261,12 +299,11 @@ class ReelFacetsView {
 
   static List<FacetValue> _facetList(dynamic raw) =>
       ((raw as List<dynamic>?) ?? const [])
-          .map((e) => FacetValue.fromJson(e as Map<String, dynamic>))
+          .whereType<Map>()
+          .map((e) => FacetValue.fromJson(e.cast<String, dynamic>()))
           .toList();
 
   final int total;
-
-  /// False = 当前池子是「其他」，只剩观看状态可筛
   final bool filterable;
   final List<FacetValue> kinds;
   final List<FacetValue> genres;
@@ -274,9 +311,26 @@ class ReelFacetsView {
   final List<FacetValue> decades;
   final List<FacetValue> ratings;
   final List<FacetValue> runtimes;
-
-  /// 观看状态：只有「没看过」一项
   final List<FacetValue> watch;
+}
+
+class ReelShareResult {
+  const ReelShareResult({
+    required this.slug,
+    required this.url,
+    this.password,
+  });
+
+  factory ReelShareResult.fromJson(Map<String, dynamic> json) =>
+      ReelShareResult(
+        slug: (json['slug'] ?? '').toString(),
+        url: (json['url'] ?? '').toString(),
+        password: json['password']?.toString(),
+      );
+
+  final String slug;
+  final String url;
+  final String? password;
 }
 
 /* ---------------- 事件上报 ---------------- */
@@ -316,50 +370,110 @@ class ReelEventView {
   final int? positionMs;
   final int? watchedMs;
   final int? waitMs;
-  final String? detail;
+  final Map<String, dynamic>? detail;
 }
 
-/* ---------------- 刷片筛选（请求参数的唯一来源） ---------------- */
+/* ---------------- 刷片多选筛选（维内逗号 OR、维间 AND） ---------------- */
 
-/// 与服务端 GET /reels 的参数一一对应（维内 OR、维间 AND）
 @immutable
 class ReelFilter {
   const ReelFilter({
     this.kind,
-    this.genres,
-    this.countries,
-    this.decades,
+    this.genres = const {},
+    this.countries = const {},
+    this.decades = const {},
     this.ratingGte,
-    this.runtimes,
+    this.runtimes = const {},
     this.watch,
   });
 
-  /// movie / tv / video；null = 电影 + 剧集（服务端默认）
   final String? kind;
-  final String? genres;
-  final String? countries;
-  final String? decades;
+  final Set<String> genres;
+  final Set<String> countries;
+  final Set<String> decades;
   final double? ratingGte;
-  final String? runtimes;
-
-  /// 只看没看过的（"unwatched"）；null = 不限
+  final Set<String> runtimes;
   final String? watch;
 
-  bool get isActive => kind != null ||
-      genres != null ||
-      countries != null ||
-      decades != null ||
+  String? get genresQuery => _joinSet(genres);
+  String? get countriesQuery => _joinSet(countries);
+  String? get decadesQuery => _joinSet(decades);
+  String? get runtimesQuery => _joinSet(runtimes);
+
+  static String? _joinSet(Set<String> s) {
+    if (s.isEmpty) return null;
+    final list = s.toList()..sort();
+    return list.join(',');
+  }
+
+  bool get isActive =>
+      kind != null ||
+      genres.isNotEmpty ||
+      countries.isNotEmpty ||
+      decades.isNotEmpty ||
       ratingGte != null ||
-      runtimes != null ||
+      runtimes.isNotEmpty ||
       watch != null;
 
   int get activeCount => [
         kind != null,
-        genres != null,
-        countries != null,
-        decades != null,
+        genres.isNotEmpty,
+        countries.isNotEmpty,
+        decades.isNotEmpty,
         ratingGte != null,
-        runtimes != null,
+        runtimes.isNotEmpty,
         watch != null,
       ].where((e) => e).length;
+
+  ReelFilter copyWith({
+    String? kind,
+    bool clearKind = false,
+    Set<String>? genres,
+    Set<String>? countries,
+    Set<String>? decades,
+    double? ratingGte,
+    bool clearRating = false,
+    Set<String>? runtimes,
+    String? watch,
+    bool clearWatch = false,
+  }) {
+    return ReelFilter(
+      kind: clearKind ? null : (kind ?? this.kind),
+      genres: genres ?? this.genres,
+      countries: countries ?? this.countries,
+      decades: decades ?? this.decades,
+      ratingGte: clearRating ? null : (ratingGte ?? this.ratingGte),
+      runtimes: runtimes ?? this.runtimes,
+      watch: clearWatch ? null : (watch ?? this.watch),
+    );
+  }
+
+  static Set<String> toggleInSet(Set<String> current, String value) {
+    final next = Set<String>.from(current);
+    if (!next.remove(value)) next.add(value);
+    return next;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ReelFilter &&
+          other.kind == kind &&
+          setEquals(other.genres, genres) &&
+          setEquals(other.countries, countries) &&
+          setEquals(other.decades, decades) &&
+          other.ratingGte == ratingGte &&
+          setEquals(other.runtimes, runtimes) &&
+          other.watch == watch;
+
+  @override
+  int get hashCode => Object.hash(
+        kind,
+        Object.hashAllUnordered(genres),
+        Object.hashAllUnordered(countries),
+        Object.hashAllUnordered(decades),
+        ratingGte,
+        Object.hashAllUnordered(runtimes),
+        watch,
+      );
 }

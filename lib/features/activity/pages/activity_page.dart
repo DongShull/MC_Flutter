@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,18 +8,19 @@ import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
-import '../../../core/image/image_urls.dart';
 import '../../../core/models/format.dart';
+import '../routes.dart';
 import '../state/activity_derive.dart';
 import '../state/controllers.dart';
 import '../state/models.dart';
+import '../widgets/activity_cards.dart';
 import '../widgets/watch_stats_panel.dart';
 
-/// 活动页（Tab 4，1:1 对齐 iOS `ActivityView.swift` & 参考图 `scene-3.zh.jpg`）：
-/// - 纯黑无界画布 + 左上 `30sp Bold`「活动」大标题 + 右侧玻璃刷新圆钮与搜索圆钮；
-/// - 紧随标题下的一行实时状态摘要（如 `4 台设备在播放 · 1 个下载进行中`）；
-/// - 按紧急度自上而下排列 `McInsetGroup` 圆角卡片组：
-///   `● 需要处理`（红点）→ `● 正在播放`（绿点）→ `● 正在下载`（蓝点）→ `进行中` → `最近播放` → `观看统计` → `最近完成`。
+/// 活动总览页（Tab 4，1:1 对齐 iOS `ActivityView.swift`）：
+/// - 按紧急度自上而下排列：
+///   `● 需要处理`（完整卡片）→ `● 正在播放` → `● 正在下载` → `进行中（含刷流）` →
+///   `最近播放` → `观看统计` → `最近完成`；
+/// - 各个长列表/分析区通过分组标题「查看全部 ›」直达 5 个专用二级页。
 class ActivityPage extends ConsumerStatefulWidget {
   const ActivityPage({super.key});
 
@@ -29,7 +29,9 @@ class ActivityPage extends ConsumerStatefulWidget {
 }
 
 class _ActivityPageState extends ConsumerState<ActivityPage> {
-  bool _showAllFinished = false;
+  static const _activePreviewLimit = 5;
+  static const _recentPlaysLimit = 3;
+  static const _recentFinishedLimit = 3;
 
   ActivityController get _controller =>
       ref.read(activityControllerProvider.notifier);
@@ -52,9 +54,12 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
     final form = McFormWatch.of(context);
     final wide = mcWindowClassOf(form) != McWindowClass.compact;
     final playback = snapshot.playback;
-    final watching = playback?.sessions.length ?? 0;
-    final historyTotal = activity.historyJobs.length;
-    final downloading = playback?.downloads.length ?? 0;
+    final watching =
+        (playback?.sessions.length ?? 0) + (playback?.hiddenSessionCount ?? 0);
+    final downloading =
+        (playback?.downloads.length ?? 0) + (playback?.hiddenDownloadCount ?? 0);
+    final hasSourceWarning = snapshot.downloadsError != null ||
+        snapshot.downloadSources.any((s) => s.status != 'active');
 
     return Scaffold(
       backgroundColor: McTokens.bg,
@@ -91,7 +96,7 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
                 child: Center(
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
-                      maxWidth: wide ? 760 : double.infinity,
+                      maxWidth: wide ? 780 : double.infinity,
                     ),
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: 120),
@@ -112,190 +117,226 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
                                 McTokens.pagePadding,
                                 0,
                               ),
-                              child: _WarningBanner(message: snapshot.error!),
+                              child: ActivityWarningBanner(
+                                message: snapshot.error!,
+                              ),
                             ),
-                          if (activity.attentionTotal > 0)
-                            _DashboardSection(
+                          if (hasSourceWarning)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                McTokens.pagePadding,
+                                8,
+                                McTokens.pagePadding,
+                                0,
+                              ),
+                              child: TaskSourceWarningBanner(
+                                sources: snapshot.downloadSources,
+                                downloadsError: snapshot.downloadsError,
+                              ),
+                            ),
+
+                          // 1. 需要处理（保留完整卡片：支持换种/重试/AI诊断/删除/忽略）
+                          if (activity.attentionTotal > 0) ...[
+                            const SizedBox(height: 22),
+                            McSectionHeader(
                               title: '需要处理',
-                              dotColor: McTokens.danger,
-                              count: activity.attentionTotal,
-                              trailingText: _hasFailed(activity)
-                                  ? '全部清除'
+                              leadingDotColor: McTokens.danger,
+                              countLabel: '${activity.attentionTotal}',
+                              trailingText:
+                                  _hasFailed(activity) ? '全部忽略' : null,
+                              onTap: _hasFailed(activity)
+                                  ? () => _guard(() async {
+                                        final n =
+                                            await _controller.dismissAllJobs();
+                                        McToast.success(
+                                          n == 0
+                                              ? '没有可忽略的失败任务'
+                                              : '已忽略 $n 个失败任务',
+                                        );
+                                      })
                                   : null,
-                              onTrailingTap: _hasFailed(activity)
-                                  ? () => _guard(_controller.dismissAllJobs)
-                                  : null,
-                              rows: [
-                                for (final group in activity.attentionGroups)
-                                  _ActiveDownloadRow(
-                                    group: group,
-                                    onReplace:
-                                        group.tasks.length == 1 &&
-                                            group.tasks.first.downloaderId !=
-                                                null
-                                        ? () => _guard(
-                                            () => _controller
-                                                .replaceDownloadTask(
-                                                  group.tasks.first,
-                                                ),
-                                          )
-                                        : null,
-                                    onDelete:
-                                        group.tasks.length == 1 &&
-                                            group.tasks.first.downloaderId !=
-                                                null
-                                        ? () => _guard(
-                                            () => _controller
-                                                .deleteDownloadTask(
-                                                  group.tasks.first,
-                                                ),
-                                          )
-                                        : null,
-                                  ),
-                                for (final job in activity.attentionJobs)
-                                  _ActiveJobRow(
-                                    job: job,
-                                    onAskAi: () async {
-                                      final sid = await _controller
-                                          .handoffJobToAi(job);
-                                      if (!context.mounted) return;
-                                      if (sid != null && sid.isNotEmpty) {
-                                        context.push('/agent/session/$sid');
-                                      } else {
-                                        context.push('/agent/new');
-                                      }
-                                    },
-                                    onCancel: () => _guard(
-                                      () => _controller.cancelJob(job.id),
-                                    ),
-                                    onDismiss: () => _guard(
-                                      () => _controller.dismissJob(job.id),
-                                    ),
-                                  ),
-                              ],
                             ),
-                          if (playback != null && playback.sessions.isNotEmpty)
+                            const SizedBox(height: 6),
+                            for (final group in activity.attentionGroups)
+                              DownloadGroupCard(
+                                group: group,
+                                ingestJobs: activity.ingestJobs,
+                                onReplace: (t) => _guard(
+                                  () => _controller.replaceDownloadTask(t),
+                                ),
+                                onDelete: (t, delFiles) => _guard(
+                                  () => _controller.deleteDownloadTask(
+                                    t,
+                                    deleteFiles: delFiles,
+                                  ),
+                                ),
+                              ),
+                            for (final job in activity.attentionJobs)
+                              JobCard(
+                                job: job,
+                                onCancel: activeFeedJobStatuses.contains(job.status)
+                                    ? () => _guard(
+                                          () => _controller.cancelJob(job.id),
+                                        )
+                                    : null,
+                                onRetry: () => _guard(
+                                  () => _controller.retryJob(job.id),
+                                ),
+                                onDismiss: (mute) => _controller.dismissJob(
+                                  job.id,
+                                  muteSource: mute,
+                                ),
+                                onUndismiss: () => _guard(
+                                  () => _controller.undismissJob(job.id),
+                                ),
+                              ),
+                          ],
+
+                          // 2. 正在播放（含真实 delivery / 结束播放 / 注销设备 / 范围切换脚注）
+                          if (playback != null &&
+                              (playback.sessions.isNotEmpty ||
+                                  playback.hiddenSessionCount > 0)) ...[
                             _DashboardSection(
                               title: '正在播放',
                               dotColor: McTokens.ok,
-                              count: playback.sessions.length,
+                              count: watching,
                               rows: [
                                 for (final session in playback.sessions)
-                                  _SessionRow(
+                                  ActivityPlaybackSessionRow(
                                     session: session,
-                                    onEnd: () => _guard(
-                                      () => _controller.endPlaybackSession(
-                                        session.deviceId,
-                                      ),
+                                    onEnd: () => _controller.endPlaybackSession(
+                                      session.deviceId,
+                                    ),
+                                    onRevoke: () =>
+                                        _controller.revokePlaybackDevice(
+                                      session.deviceId,
                                     ),
                                   ),
                               ],
+                              footer: ActivityScopeFooter(
+                                hiddenCount: playback.hiddenSessionCount,
+                                scope: snapshot.scope,
+                                hiddenText:
+                                    '另有 ${playback.hiddenSessionCount} 台设备在播放范围外内容',
+                                onToggleScope: (next) =>
+                                    _guard(() => _controller.setScope(next)),
+                              ),
                             ),
-                          if (playback != null && playback.downloads.isNotEmpty)
+                          ],
+
+                          // 3. 正在下载（整文件离线缓存 + 范围切换脚注）
+                          if (playback != null &&
+                              (playback.downloads.isNotEmpty ||
+                                  playback.hiddenDownloadCount > 0)) ...[
                             _DashboardSection(
                               title: '正在下载',
                               dotColor: McTokens.info,
-                              count: playback.downloads.length,
+                              count: downloading,
                               rows: [
                                 for (final download in playback.downloads)
-                                  _FileDownloadRow(download: download),
+                                  ActivityFileDownloadRow(
+                                    download: download,
+                                    onRevoke: () =>
+                                        _controller.revokePlaybackDevice(
+                                      download.deviceId,
+                                    ),
+                                  ),
                               ],
+                              footer: ActivityScopeFooter(
+                                hiddenCount: playback.hiddenDownloadCount,
+                                scope: snapshot.scope,
+                                hiddenText:
+                                    '另有 ${playback.hiddenDownloadCount} 个范围外文件正在下载',
+                                onToggleScope: (next) =>
+                                    _guard(() => _controller.setScope(next)),
+                              ),
                             ),
-                          if (activity.activeTotal > 0)
+                          ],
+
+                          // 4. 进行中（含刷流摘要行，点「查看全部 ›」进 /activity/active）
+                          if (activity.activeTotal > 0 ||
+                              activity.boostTasks.isNotEmpty)
                             _DashboardSection(
                               title: '进行中',
                               dotColor: McTokens.info,
-                              count: activity.activeTotal,
+                              count: activity.activeTotal > 0
+                                  ? activity.activeTotal
+                                  : null,
+                              trailingText:
+                                  activity.activeTotal > 0 ? '查看全部 ›' : null,
+                              onTrailingTap: activity.activeTotal > 0
+                                  ? () => context.push(routeActivityActive)
+                                  : null,
                               rows: [
-                                for (final group in activity.activeGroups)
-                                  _ActiveDownloadRow(
-                                    group: group,
-                                    onDelete:
-                                        group.tasks.length == 1 &&
-                                            group.tasks.first.downloaderId !=
-                                                null
-                                        ? () => _guard(
-                                            () => _controller
-                                                .deleteDownloadTask(
-                                                  group.tasks.first,
-                                                ),
-                                          )
-                                        : null,
-                                  ),
-                                for (final job in activity.activeJobs)
-                                  _ActiveJobRow(
-                                    job: job,
-                                    onCancel:
-                                        job.status == 'queued' ||
-                                            job.status == 'running' ||
-                                            job.status == 'retry_wait'
-                                        ? () => _guard(
-                                            () => _controller.cancelJob(job.id),
-                                          )
-                                        : null,
+                                ..._buildActivePreviewRows(context, activity),
+                                if (activity.boostTasks.isNotEmpty)
+                                  ActivityBoostSummaryRow(
+                                    tasks: activity.boostTasks,
+                                    pool: snapshot.boostPool,
+                                    onTap: () =>
+                                        context.push(routeActivityBoost),
                                   ),
                               ],
                             ),
+
+                          // 5. 最近播放（点「查看全部 ›」进 /activity/plays）
                           if (!snapshot.historyForbidden &&
                               snapshot.history != null &&
                               snapshot.history!.entries.isNotEmpty)
                             _DashboardSection(
                               title: '最近播放',
+                              trailingText: '查看全部 ›',
+                              onTrailingTap: () =>
+                                  context.push(routeActivityPlays),
                               rows: [
-                                for (final entry
-                                    in snapshot.history!.entries.take(6))
-                                  _RecentPlayRow(entry: entry),
+                                for (final entry in snapshot.history!.entries
+                                    .take(_recentPlaysLimit))
+                                  ActivityRecentPlayRow(entry: entry),
                               ],
                             ),
+
+                          // 6. 观看统计（7 天紧凑摘要卡，点卡或「查看全部 ›」进 /activity/stats）
                           if (!snapshot.statsForbidden &&
                               snapshot.watchStats != null)
                             _DashboardSection(
                               title: '观看统计',
-                              customChild: WatchStatsPanel(
+                              trailingText: '查看全部 ›',
+                              onTrailingTap: () =>
+                                  context.push(routeActivityStats),
+                              customChild: ActivityWeeklyWatchCard(
                                 stats: snapshot.watchStats!,
-                                days: snapshot.watchStatsDays,
-                                memberId: snapshot.watchStatsMemberId,
-                                onDaysChanged: (d) => _guard(
-                                  () => _controller.setWatchStatsDays(d),
-                                ),
-                                onMemberSelected: (id) => _guard(
-                                  () => _controller.setWatchStatsMember(id),
-                                ),
+                                onTap: () => context.push(routeActivityStats),
                               ),
                             ),
+
+                          // 7. 最近完成（点「查看全部 N ›」进 /activity/finished）
                           if (activity.historyJobs.isNotEmpty)
                             _DashboardSection(
                               title: '最近完成',
-                              count: activity.historyJobs.length,
-                              trailingText: _showAllFinished
-                                  ? null
-                                  : '查看全部 $historyTotal',
-                              onTrailingTap: _showAllFinished
-                                  ? null
-                                  : () => setState(
-                                      () => _showAllFinished = true,
-                                    ),
+                              count: activity.historyTotal,
+                              trailingText: '查看全部 ${activity.historyTotal} ›',
+                              onTrailingTap: () =>
+                                  context.push(routeActivityFinished),
                               rows: [
-                                for (final job in _showAllFinished
-                                    ? activity.historyJobs
-                                    : activity.historyJobs.take(5))
-                                  _FinishedJobRow(
+                                for (final job in activity.historyJobs
+                                    .take(_recentFinishedLimit))
+                                  _FinishedJobPreviewRow(
                                     job: job,
-                                    onUndismiss:
-                                        job.status == 'failed' &&
+                                    onTap: () =>
+                                        context.push(routeActivityFinished),
+                                    onUndismiss: job.status == 'failed' &&
                                             jobIsDismissed(job)
                                         ? () => _guard(
-                                            () => _controller.undismissJob(
-                                              job.id,
-                                            ),
-                                          )
+                                              () => _controller
+                                                  .undismissJob(job.id),
+                                            )
                                         : null,
-                                    onRetry:
-                                        job.status == 'cancelled' &&
-                                            !jobIsDismissed(job)
+                                    // 修复：仅对非系统取消的已取消任务提供重试！
+                                    onRetry: job.status == 'cancelled' &&
+                                            !jobIsSystemCancelled(job)
                                         ? () => _guard(
-                                            () => _controller.retryJob(job.id),
-                                          )
+                                              () => _controller.retryJob(job.id),
+                                            )
                                         : null,
                                   ),
                               ],
@@ -311,20 +352,36 @@ class _ActivityPageState extends ConsumerState<ActivityPage> {
       ),
     );
   }
-}
 
-String _relative(String? iso) {
-  final t = DateTime.tryParse(iso ?? '')?.toLocal();
-  if (t == null) return '';
-  final d = DateTime.now().difference(t);
-  final mins = d.inMinutes;
-  final hours = d.inHours;
-  final days = d.inDays;
-  if (mins < 1) return '刚刚';
-  if (mins < 60) return '$mins 分钟前';
-  if (hours < 24) return '$hours 小时前';
-  if (days < 7) return '$days 天前';
-  return t.toString().substring(0, 10);
+  List<Widget> _buildActivePreviewRows(
+    BuildContext context,
+    TaskActivity activity,
+  ) {
+    final rows = <Widget>[];
+    for (final group in activity.activeGroups) {
+      if (rows.length >= _activePreviewLimit) break;
+      rows.add(
+        _ActiveDownloadPreviewRow(
+          group: group,
+          ingestJobs: activity.ingestJobs,
+          onTap: () => context.push(routeActivityActive),
+        ),
+      );
+    }
+    for (final job in activity.activeJobs) {
+      if (rows.length >= _activePreviewLimit) break;
+      rows.add(
+        _ActiveJobPreviewRow(
+          job: job,
+          onTap: () => context.push(routeActivityActive),
+          onCancel: job.status != 'cancelling'
+              ? () => _guard(() => _controller.cancelJob(job.id))
+              : null,
+        ),
+      );
+    }
+    return rows;
+  }
 }
 
 class _SummaryLine extends StatelessWidget {
@@ -357,7 +414,7 @@ class _SummaryLine extends StatelessWidget {
     if (attention > 0) add('$attention 项需要处理', strong);
     if (watching > 0) add('$watching 台设备在播放');
     if (downloading > 0) add('$downloading 个下载进行中');
-    if (active > 0) add('$active 个后台任务');
+    if (active > 0) add('$active 个任务进行中');
     if (spans.isEmpty) {
       return Padding(
         padding: const EdgeInsets.fromLTRB(
@@ -366,7 +423,7 @@ class _SummaryLine extends StatelessWidget {
           McTokens.pagePadding,
           4,
         ),
-        child: Text('一切正常 · 当前无活动会话', style: base),
+        child: Text('一切正常 · 当前无人在看', style: base),
       );
     }
     if (watching == 0) add('当前无人在看');
@@ -382,38 +439,6 @@ class _SummaryLine extends StatelessWidget {
   }
 }
 
-class _WarningBanner extends StatelessWidget {
-  const _WarningBanner({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0x1FFF6B6B),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0x4DFF6B6B), width: 1),
-      ),
-      child: Row(
-        children: [
-          const Icon(McIcons.alert1, color: McTokens.danger, size: 17),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              message,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: McText.caption.copyWith(color: McTokens.danger),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _DashboardSection extends StatelessWidget {
   const _DashboardSection({
     required this.title,
@@ -423,6 +448,7 @@ class _DashboardSection extends StatelessWidget {
     this.onTrailingTap,
     this.rows = const [],
     this.customChild,
+    this.footer,
   });
 
   final String title;
@@ -432,6 +458,7 @@ class _DashboardSection extends StatelessWidget {
   final VoidCallback? onTrailingTap;
   final List<Widget> rows;
   final Widget? customChild;
+  final Widget? footer;
 
   @override
   Widget build(BuildContext context) {
@@ -458,59 +485,64 @@ class _DashboardSection extends StatelessWidget {
             clipBehavior: Clip.antiAlias,
             child: customChild,
           )
-        else
+        else if (rows.isNotEmpty)
           McInsetGroup(children: rows),
+        if (footer != null) footer!,
       ],
     );
   }
 }
 
-/// 正在播放会话精排行（对齐 `scene-3.zh.jpg`：圆角小海报 + 四行紧凑指标 + 左滑终止会话）。
-class _SessionRow extends StatelessWidget {
-  const _SessionRow({required this.session, required this.onEnd});
+class _ActiveDownloadPreviewRow extends StatelessWidget {
+  const _ActiveDownloadPreviewRow({
+    required this.group,
+    required this.ingestJobs,
+    required this.onTap,
+  });
 
-  final ActivePlaybackSession session;
-  final Future<void> Function() onEnd;
+  final DownloadGroup group;
+  final Map<String, JobView> ingestJobs;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final media = session.media;
-    final poster = McImageUrls.resolve(media.posterUrl, widthPx: 140);
-    final posMs = session.positionMs ?? 0;
-    final durMs = session.durationMs ?? 0;
-    final progress = (posMs > 0 && durMs > 0)
-        ? (posMs / durMs).clamp(0.0, 1.0)
+    final task = group.tasks.first;
+    final ingest = task.state == 'completed'
+        ? ingestJobs[task.infoHash.toLowerCase()]
         : null;
-    final pct = progress != null ? '${(progress * 100).round()}%' : null;
-    final who = session.memberName.isNotEmpty
-        ? session.memberName
-        : session.client;
-    final epLabel = mcEpisodeLabel(media.seasonNumber, media.episodeNumber);
-    final episode = media.seasonNumber > 0 ? ' · $epLabel' : '';
-    final speed =
-        (session.rateBytesPerSecond != null && session.rateBytesPerSecond! > 0)
-        ? '↓ ${mcFormatSpeed(session.rateBytesPerSecond!)}'
-        : null;
+    final percent = ingest != null
+        ? ingest.progress.percent
+        : (task.progress != null ? task.progress! * 100 : null);
+    final statusParts = <String>[
+      if (ingest != null)
+        activeJobStatus(ingest)
+      else
+        downloadStateLabel(task.state),
+      if (ingest != null && ingest.progress.message.isNotEmpty)
+        ingest.progress.message
+      else ...[
+        if ((task.dlspeedBytes ?? 0) > 0) '↓ ${mcFormatSpeed(task.dlspeedBytes!)}',
+        if ((task.etaSeconds ?? 0) > 0 && task.state == 'downloading')
+          '剩 ${formatDurationSeconds(task.etaSeconds!.toDouble())}',
+      ],
+    ];
+    final accent = ingest != null ? McTokens.ok : McTokens.info;
 
-    return Dismissible(
-      key: ValueKey('play-session-${session.deviceId}'),
-      direction: DismissDirection.endToStart,
-      confirmDismiss: (_) async {
-        await onEnd();
-        return false;
-      },
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        color: McTokens.danger,
-        child: const Icon(McIcons.stopCircle, color: Colors.white, size: 20),
-      ),
+    return McPressable(
+      onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _PosterThumb(url: poster, width: 52, height: 76),
+            Icon(
+              ingest != null
+                  ? McIcons.inboxArchive
+                  : (task.state == 'downloading'
+                      ? McIcons.downloadCloudOut
+                      : McIcons.clock),
+              size: 19,
+              color: accent,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -520,144 +552,51 @@ class _SessionRow extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          (media.title.isEmpty ? '未知内容' : media.title) +
-                              episode,
+                          group.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: McText.sub
-                              .copyWith(
-                                color: McTokens.text,
-                                fontWeight: FontWeight.w600,
-                              )
-                              .tabular,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      McPressable(
-                        onTap: onEnd,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0x1FFF6B6B),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: const Color(0x40FF6B6B),
-                              width: 1,
-                            ),
-                          ),
-                          child: Text(
-                            '结束',
-                            style: McText.micro.copyWith(
-                              color: McTokens.danger,
-                            ),
+                          style: McText.sub.copyWith(
+                            color: McTokens.text,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    [
-                      if (who.isNotEmpty) who,
-                      if (session.deviceName.isNotEmpty) session.deviceName,
-                    ].join(' · '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: McText.caption.muted,
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 1.5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: session.paused
-                              ? McTokens.surfaceInset
-                              : const Color(0x1F4ADE80),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color: session.paused
-                                ? McTokens.line
-                                : const Color(0x4D4ADE80),
-                            width: 1,
-                          ),
-                        ),
-                        child: Text(
-                          session.paused ? '已暂停' : '直连',
-                          style: McText.micro.copyWith(
-                            color: session.paused
-                                ? McTokens.textMuted
-                                : McTokens.ok,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        [
-                          session.paused ? '❚❚ 暂停' : '▶ 播放中',
-                          if (pct != null) pct,
-                        ].join(' · '),
-                        style: McText.caption.muted.tabular,
-                      ),
-                      const Spacer(),
-                      if (speed != null)
+                      if (group.tasks.length > 1)
                         Text(
-                          speed,
-                          style: McText.micro
-                              .copyWith(
-                                color: McTokens.info,
-                                fontWeight: FontWeight.w500,
-                              )
-                              .tabular,
+                          ' ${group.tasks.length} 个资源',
+                          style: McText.caption.faint.tabular,
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 7),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      minHeight: 3,
-                      color: session.paused
-                          ? McTokens.textFaint
-                          : McTokens.accentStrong,
-                      backgroundColor: const Color(0x26FFFFFF),
-                    ),
-                  ),
-                  if (durMs > 0) ...[
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
+                      if (percent != null) ...[
+                        const SizedBox(width: 8),
                         Text(
-                          mcFormatClock(posMs ~/ 1000),
-                          style: McText.micro
-                              .copyWith(
-                                fontWeight: FontWeight.w400,
-                                color: McTokens.textFaint,
-                              )
-                              .tabular,
-                        ),
-                        Text(
-                          mcFormatClock(durMs ~/ 1000),
-                          style: McText.micro
-                              .copyWith(
-                                fontWeight: FontWeight.w400,
-                                color: McTokens.textFaint,
-                              )
-                              .tabular,
+                          '${percent.floor().clamp(0, 100)}%',
+                          style: McText.caption.muted.tabular,
                         ),
                       ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    statusParts.join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: McText.caption.muted.tabular,
+                  ),
+                  if (percent != null) ...[
+                    const SizedBox(height: 6),
+                    ActivityProgressBar(
+                      progress: percent / 100.0,
+                      color: accent,
                     ),
                   ],
                 ],
               ),
+            ),
+            const SizedBox(width: 6),
+            const Icon(
+              McIcons.arrowRightS,
+              size: 16,
+              color: McTokens.textFaint,
             ),
           ],
         ),
@@ -666,435 +605,144 @@ class _SessionRow extends StatelessWidget {
   }
 }
 
-class _ActiveDownloadRow extends StatelessWidget {
-  const _ActiveDownloadRow({
-    required this.group,
-    this.onReplace,
-    this.onDelete,
-  });
-
-  final DownloadGroup group;
-  final Future<void> Function()? onReplace;
-  final Future<void> Function()? onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final task = group.tasks.first;
-    final percent = (task.progress ?? 0) * 100;
-    final taskCount = group.tasks.length;
-    final pct = percent.floor();
-    final isError = task.state == 'error';
-    final stateLine = switch (task.state) {
-      'downloading' => '下载中',
-      'paused' => '已暂停',
-      'stalled' => '等待连接',
-      'checking' => '校验中',
-      'completed' => '已完成',
-      'error' => task.errorMessage ?? '下载出错',
-      _ => task.state,
-    };
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          Icon(
-            task.state == 'downloading'
-                ? McIcons.downloadCloudOut
-                : task.state == 'paused' || task.state == 'stalled'
-                ? McIcons.pause
-                : isError
-                ? McIcons.alert1
-                : McIcons.clock,
-            size: 19,
-            color: isError ? McTokens.danger : McTokens.info,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        group.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: McText.sub.copyWith(
-                          color: McTokens.text,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    if (taskCount > 1)
-                      Text(' $taskCount 项', style: McText.caption.faint.tabular),
-                    const SizedBox(width: 8),
-                    Text(
-                      '$pct%',
-                      style: McText.caption
-                          .copyWith(
-                            color: McTokens.textMuted,
-                            fontWeight: FontWeight.w600,
-                          )
-                          .tabular,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  stateLine,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: McText.caption.copyWith(
-                    color: isError ? McTokens.danger : McTokens.textMuted,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: LinearProgressIndicator(
-                    value: percent.clamp(0.0, 100.0) / 100,
-                    minHeight: 3,
-                    color: isError ? McTokens.danger : McTokens.info,
-                    backgroundColor: const Color(0x26FFFFFF),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (onReplace != null && isError) ...[
-            const SizedBox(width: 8),
-            McChip(
-              label: '换源重抓',
-              compact: true,
-              onTap: onReplace,
-            ),
-          ],
-          if (onDelete != null) ...[
-            const SizedBox(width: 8),
-            McGlassIconButton(
-              icon: McIcons.trash2,
-              size: 32,
-              iconSize: 15,
-              iconColor: McTokens.danger,
-              tooltip: '删除任务',
-              onTap: onDelete,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _ActiveJobRow extends StatelessWidget {
-  const _ActiveJobRow({
+class _ActiveJobPreviewRow extends StatelessWidget {
+  const _ActiveJobPreviewRow({
     required this.job,
-    this.onAskAi,
+    required this.onTap,
     this.onCancel,
-    this.onDismiss,
   });
 
   final JobView job;
-  final VoidCallback? onAskAi;
+  final VoidCallback onTap;
   final Future<void> Function()? onCancel;
-  final Future<void> Function()? onDismiss;
 
   @override
   Widget build(BuildContext context) {
-    final percent = job.progress.percent;
-    final needsAttention = jobNeedsAttention(job);
-    final pct = percent?.round();
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          Icon(
-            needsAttention ? McIcons.alert1 : McIcons.setting1,
-            size: 18,
-            color: needsAttention ? McTokens.danger : McTokens.info,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        jobTypeLabel(job),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: McText.sub.copyWith(
-                          color: McTokens.text,
-                          fontWeight: FontWeight.w600,
+    final pct = job.progress.percent;
+    final subtitle = [
+      activeJobStatus(job),
+      if (job.progress.message.isNotEmpty) job.progress.message,
+    ].join(' · ');
+
+    return McPressable(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            const Icon(McIcons.setting1, size: 19, color: McTokens.info),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          jobFeedIdentity(job) ?? jobTypeLabel(job),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: McText.sub.copyWith(
+                            color: McTokens.text,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                    ),
-                    if (pct != null)
-                      Text(
-                        '$pct%',
-                        style: McText.caption.muted.tabular,
-                      ),
-                  ],
-                ),
-                if (job.progress.message.isNotEmpty) ...[
+                      if (pct != null) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          '${pct.round()}%',
+                          style: McText.caption.muted.tabular,
+                        ),
+                      ],
+                    ],
+                  ),
                   const SizedBox(height: 2),
                   Text(
-                    job.progress.message,
+                    subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: McText.caption.muted,
                   ),
-                ],
-                if (!needsAttention && percent != null) ...[
-                  const SizedBox(height: 6),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: LinearProgressIndicator(
-                      value: percent.clamp(0.0, 100.0) / 100,
-                      minHeight: 3,
+                  if (pct != null) ...[
+                    const SizedBox(height: 6),
+                    ActivityProgressBar(
+                      progress: pct / 100.0,
                       color: McTokens.info,
-                      backgroundColor: const Color(0x26FFFFFF),
                     ),
-                  ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-          if (onAskAi != null && needsAttention) ...[
-            const SizedBox(width: 6),
-            McChip(
-              icon: McIcons.aiStarFill,
-              label: 'AI 排查',
-              compact: true,
-              onTap: onAskAi,
-            ),
+            if (onCancel != null) ...[
+              const SizedBox(width: 8),
+              McGlassIconButton(
+                icon: McIcons.close,
+                size: 30,
+                iconSize: 14,
+                tooltip: '取消任务',
+                onTap: onCancel,
+              ),
+            ] else ...[
+              const SizedBox(width: 6),
+              const Icon(
+                McIcons.arrowRightS,
+                size: 16,
+                color: McTokens.textFaint,
+              ),
+            ],
           ],
-          if (onCancel != null) ...[
-            const SizedBox(width: 6),
-            McGlassIconButton(
-              icon: McIcons.close,
-              size: 32,
-              iconSize: 15,
-              tooltip: '取消',
-              onTap: onCancel,
-            ),
-          ],
-          if (onDismiss != null) ...[
-            const SizedBox(width: 6),
-            McGlassIconButton(
-              icon: McIcons.eyeOff,
-              size: 32,
-              iconSize: 15,
-              tooltip: '忽略',
-              onTap: onDismiss,
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
 }
 
-class _FileDownloadRow extends StatelessWidget {
-  const _FileDownloadRow({required this.download});
+class _FinishedJobPreviewRow extends StatelessWidget {
+  const _FinishedJobPreviewRow({
+    required this.job,
+    required this.onTap,
+    this.onUndismiss,
+    this.onRetry,
+  });
 
-  final ActiveFileDownload download;
-
-  @override
-  Widget build(BuildContext context) {
-    final media = download.media;
-    final who = download.memberName.isNotEmpty
-        ? download.memberName
-        : download.deviceName;
-    final percent = download.progressPercent;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          const Icon(
-            McIcons.downloadCloudOut,
-            size: 19,
-            color: McTokens.info,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  media?.title ?? download.fileName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: McText.sub.copyWith(
-                    color: McTokens.text,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  [
-                    if (who.isNotEmpty) who,
-                    mcFormatBytes(download.sizeBytes),
-                    if (download.rateBytesPerSecond != null &&
-                        download.rateBytesPerSecond! > 0)
-                      '↓ ${mcFormatSpeed(download.rateBytesPerSecond!)}',
-                  ].join(' · '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: McText.caption.muted.tabular,
-                ),
-                if (percent != null) ...[
-                  const SizedBox(height: 6),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: LinearProgressIndicator(
-                      value: percent.clamp(0.0, 100.0) / 100,
-                      minHeight: 3,
-                      color: McTokens.info,
-                      backgroundColor: const Color(0x26FFFFFF),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RecentPlayRow extends StatelessWidget {
-  const _RecentPlayRow({required this.entry});
-
-  final PlaybackLogEntry entry;
+  final JobView job;
+  final VoidCallback onTap;
+  final Future<void> Function()? onUndismiss;
+  final Future<void> Function()? onRetry;
 
   @override
   Widget build(BuildContext context) {
-    final media = entry.media;
-    final poster = McImageUrls.resolve(media.posterUrl, widthPx: 120);
-    final epLabel = mcEpisodeLabel(media.seasonNumber, media.episodeNumber);
-    final episode = media.seasonNumber > 0 ? ' · $epLabel' : '';
-    final lid = media.libraryId;
-    final mid = media.mediaItemId;
-    final year = media.year;
-    final right = entry.completed
-        ? '已看完'
-        : entry.watchedMs > 0
-        ? mcFormatWatched(entry.watchedMs)
-        : '';
+    final ok = job.status == 'succeeded';
+    final ingest = ingestHistoryDetail(job);
+    final summary = ingest?.summary ?? historicalJobSummary(job);
 
     return McPressable(
-      onTap: lid == null ? null : () => context.push('/detail/$lid/$mid'),
-      scaleDown: 0.99,
+      onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
         child: Row(
           children: [
-            _PosterThumb(url: poster, width: 38, height: 56),
+            Icon(
+              ok ? McIcons.checkCircleFill : McIcons.closeCircle,
+              size: 18,
+              color: ok ? McTokens.ok : McTokens.textFaint,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    (media.title.isEmpty ? '已移除条目' : media.title) + episode,
+                    historicalJobTitle(job),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: McText.sub
-                        .copyWith(
-                          color: McTokens.text,
-                          fontWeight: FontWeight.w600,
-                        )
-                        .tabular,
+                    style: McText.sub.copyWith(
+                      color: McTokens.text,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    [
-                      if (entry.memberName.isNotEmpty) entry.memberName,
-                      if (year != null) '$year',
-                    ].join(' · '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: McText.caption.muted.tabular,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (right.isNotEmpty)
-                  Text(
-                    right,
-                    style: McText.caption
-                        .copyWith(
-                          color: entry.completed
-                              ? McTokens.ok
-                              : McTokens.textMuted,
-                          fontWeight: FontWeight.w600,
-                        )
-                        .tabular,
-                  ),
-                Text(
-                  _relative(entry.startedAt),
-                  style: McText.micro
-                      .copyWith(
-                        fontWeight: FontWeight.w400,
-                        color: McTokens.textFaint,
-                      )
-                      .tabular,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FinishedJobRow extends StatelessWidget {
-  const _FinishedJobRow({required this.job, this.onUndismiss, this.onRetry});
-
-  final JobView job;
-  final Future<void> Function()? onUndismiss;
-  final Future<void> Function()? onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final dismissed = job.status == 'failed' && jobIsDismissed(job);
-    final (iconData, iconColor) = job.status == 'succeeded'
-        ? (McIcons.checkCircleFill, McTokens.ok)
-        : dismissed
-        ? (McIcons.eyeOff, McTokens.textFaint)
-        : (McIcons.closeCircle, McTokens.textFaint);
-    final summary = historicalJobSummary(job);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: [
-          Icon(iconData, size: 18, color: iconColor),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  historicalJobTitle(job),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: McText.sub.copyWith(
-                    color: McTokens.text,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                if (summary.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
                     summary,
@@ -1103,74 +751,21 @@ class _FinishedJobRow extends StatelessWidget {
                     style: McText.caption.muted,
                   ),
                 ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            _relative(job.finishedAt ?? job.createdAt),
-            style: McText.caption.faint.tabular,
-          ),
-          if (onUndismiss != null) ...[
-            const SizedBox(width: 6),
-            McGlassIconButton(
-              icon: McIcons.clockwise,
-              size: 30,
-              iconSize: 15,
-              tooltip: '恢复显示',
-              onTap: onUndismiss,
-            ),
-          ],
-          if (onRetry != null) ...[
-            const SizedBox(width: 6),
-            McGlassIconButton(
-              icon: McIcons.replay,
-              size: 30,
-              iconSize: 15,
-              tooltip: '重新执行',
-              onTap: onRetry,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _PosterThumb extends StatelessWidget {
-  const _PosterThumb({
-    required this.url,
-    required this.width,
-    required this.height,
-  });
-
-  final String url;
-  final double width;
-  final double height;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        color: McTokens.posterPlaceholder,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: McTokens.line, width: 1),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: url.isNotEmpty
-          ? CachedNetworkImage(
-              imageUrl: url,
-              httpHeaders: mcImageHeaders(),
-              fit: BoxFit.cover,
-              errorWidget: (_, __, ___) => const Center(
-                child: Icon(McIcons.film, size: 16, color: McTokens.textFaint),
               ),
-            )
-          : const Center(
-              child: Icon(McIcons.film, size: 16, color: McTokens.textFaint),
             ),
+            const SizedBox(width: 8),
+            if (onUndismiss != null)
+              McChip(label: '恢复', compact: true, onTap: onUndismiss)
+            else if (onRetry != null)
+              McChip(label: '重试', compact: true, onTap: onRetry)
+            else
+              Text(
+                mcFromNowIso(job.finishedAt ?? job.createdAt, empty: ''),
+                style: McText.micro.faint.tabular,
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

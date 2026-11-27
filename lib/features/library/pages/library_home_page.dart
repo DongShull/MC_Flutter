@@ -1,5 +1,8 @@
+import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,16 +17,19 @@ import '../../../core/designsystem/theme.dart';
 import '../../../core/image/image_urls.dart';
 import '../../../core/models/format.dart';
 import '../../../core/player/player_page_args.dart';
+import '../../offline/embed.dart';
 import '../routes.dart';
 import '../state/home_rows.dart';
 import '../state/library_home_controller.dart';
 import '../state/models.dart';
 import '../widgets/library_shared.dart';
+import '../widgets/library_widgets.dart';
 
-/// 媒体库首页（默认 Tab 1，1:1 对齐 iOS `LibraryHomeView.swift` & Web 银玻璃媒体库页）：
+/// 媒体库首页（默认 Tab 1，1:1 对齐 upstream iOS `LibraryHomeView.swift`）：
 /// - 顶栏：左上 `30sp Bold`「媒体库」+ 右侧液态玻璃 `⋯` 菜单钮、片段钮与搜索圆钮；
-/// - 下拉二楼：继续下拉超过 `-96dp` 展开胶片齿孔预览条，松手伴随触感震动直接进入竖屏「片段（Reels）」；
-/// - 内容行流：`16:9` 接下来继续横卡（`McUpNextCard`）→ 我的媒体库圆角横卡 → 各库/收藏/合集 `2:3` 海报架 → 页脚库存统计。
+/// - 下拉二楼：继续下拉展开 35mm 胶片齿孔预览条（`ReelsFilmStrip`），松手伴随触感震动进入竖屏「片段（Reels）」（蜂窝网络先弹确认）；
+/// - 内容行流：`16:9` 接下来继续横卡 → 我的收藏 → 我的媒体库（真实库 + 置顶合集虚拟库卡）→ 按类型找电影/剧集渐变剧照卡 → 各库/跨库类型/合集 `2:3` 海报架 → 页脚库存统计；
+/// - 离线兜底：网络不可达时展示警告横幅，并给出「查看本机 N 部离线内容」入口。
 class LibraryHomePage extends ConsumerStatefulWidget {
   const LibraryHomePage({super.key});
 
@@ -39,6 +45,8 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
 
   double _overscroll = 0;
   bool _armedReels = false;
+  int _lastFilmStep = 0;
+  final int _floorShuffle = math.Random().nextInt(1 << 30);
 
   @override
   void initState() {
@@ -54,11 +62,96 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
 
   Future<void> _openCustomize() async {
     await context.push(routeLibraryCustomize);
-    if (mounted) await _controller.reload();
+    if (mounted) await _controller.reloadWithPrefs();
   }
 
-  void _openItem(int libraryId, int itemId) =>
+  void _openItem(int libraryId, int itemId) {
+    if (libraryId > 0) {
       context.push('/detail/$libraryId/$itemId');
+    }
+  }
+
+  Future<bool> _isOnCellular() async {
+    if (kIsWeb || (!Platform.isIOS && !Platform.isAndroid)) return false;
+    try {
+      final ifaces = await NetworkInterface.list(
+        includeLoopback: false,
+        includeLinkLocal: false,
+      );
+      if (ifaces.isEmpty) return false;
+      var hasWifi = false;
+      var hasCell = false;
+      for (final iface in ifaces) {
+        final name = iface.name.toLowerCase();
+        if (name.startsWith('en') ||
+            name.startsWith('wlan') ||
+            name.startsWith('eth') ||
+            name.startsWith('wifi')) {
+          hasWifi = true;
+        } else if (name.startsWith('pdp_ip') ||
+            name.startsWith('rmnet') ||
+            name.startsWith('ccmni') ||
+            name.startsWith('wwan')) {
+          hasCell = true;
+        }
+      }
+      return hasCell && !hasWifi;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _openReels() async {
+    final cellular = await _isOnCellular();
+    if (!mounted) return;
+    if (!cellular) {
+      context.push('/reels');
+      return;
+    }
+    final ok = await showMcSheet<bool>(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('当前正在使用移动数据', style: McText.titleSm),
+            const SizedBox(height: 8),
+            Text(
+              '「片段」会自动连续预载高清视频片段，在蜂窝网络下可能消耗较多流量，确认进入吗？',
+              style: McText.sub.muted,
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: McActionPill(
+                    label: '取消',
+                    primary: false,
+                    expanded: true,
+                    onTap: () => Navigator.pop(ctx, false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: McActionPill(
+                    label: '继续进入',
+                    primary: true,
+                    expanded: true,
+                    onTap: () => Navigator.pop(ctx, true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok == true && mounted) {
+      context.push('/reels');
+    }
+  }
 
   void _play(UpNextItem item) {
     context.push(
@@ -83,8 +176,13 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
     final px = n.metrics.pixels;
     if (px < 0) {
       final armed = px <= _reelsTriggerOffset;
+      final step = ((-px) * 2.4 / 96).floor();
+      if (step != _lastFilmStep && !armed && -px > 36) {
+        _lastFilmStep = step;
+        HapticFeedback.selectionClick();
+      }
       if (armed != _armedReels) {
-        if (armed) HapticFeedback.mediumImpact();
+        if (armed) HapticFeedback.heavyImpact();
         setState(() {
           _armedReels = armed;
           _overscroll = px;
@@ -104,15 +202,40 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
         _overscroll = 0;
         _armedReels = false;
       });
-      context.push('/reels');
+      _openReels();
     }
     return false;
+  }
+
+  List<String> _floorStills(LibraryHomeState state) {
+    final seen = <String>{};
+    final out = <String>[];
+    for (final u in state.upNext) {
+      final p = u.backdropUrl ?? u.episodeStillUrl;
+      if (p != null && p.isNotEmpty && seen.add(p)) out.add(p);
+    }
+    for (final list in state.itemsByKey.values) {
+      for (final item in list) {
+        final p = item.backdropUrl;
+        if (p != null && p.isNotEmpty && seen.add(p)) out.add(p);
+      }
+    }
+    out.sort((a, b) => (a.hashCode ^ _floorShuffle)
+        .compareTo(b.hashCode ^ _floorShuffle));
+    return out
+        .take(8)
+        .map((p) => McImageUrls.resolve(p, widthPx: 360))
+        .where((u) => u.isNotEmpty)
+        .toList();
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(libraryHomeProvider);
+    final offline = ref.watch(offlineProvider);
+    final offlineCount = offline.doneUnits.length;
     final pullDepth = math.max(0.0, -_overscroll);
+    final reveal = ((pullDepth - 28) / 64).clamp(0.0, 1.0);
 
     return Scaffold(
       backgroundColor: McTokens.bg,
@@ -131,7 +254,7 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
                 ),
                 slivers: [
                   _buildTopBar(context),
-                  ..._content(state),
+                  ..._content(state, offlineCount),
                   if (state.libraries != null && state.libraries!.isNotEmpty)
                     SliverToBoxAdapter(child: _statsFooter(state)),
                   const SliverToBoxAdapter(
@@ -141,17 +264,19 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
               ),
             ),
           ),
-          // 下拉二楼胶片条（Reels 入口提示）
-          if (pullDepth > 28)
+          // 下拉二楼 35mm 胶片走片预览条（ReelsFloor）
+          if (reveal > 0.02)
             Positioned(
-              top: MediaQuery.paddingOf(context).top + 6,
-              left: 24,
-              right: 24,
+              top: MediaQuery.paddingOf(context).top + 8,
+              left: 0,
+              right: 0,
               child: IgnorePointer(
                 child: Opacity(
-                  opacity: ((pullDepth - 28) / 56).clamp(0.0, 1.0),
-                  child: Center(
-                    child: _ReelsPullPill(armed: _armedReels),
+                  opacity: reveal,
+                  child: _ReelsFilmStrip(
+                    pull: pullDepth,
+                    armed: _armedReels,
+                    stills: _floorStills(state),
                   ),
                 ),
               ),
@@ -169,7 +294,7 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
         McGlassIconButton(
           icon: McIcons.play2,
           tooltip: '片段 Reels',
-          onTap: () => context.push('/reels'),
+          onTap: _openReels,
         ),
         const SizedBox(width: 8),
         PopupMenuButton<String>(
@@ -183,16 +308,16 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
               });
             }
           },
-          itemBuilder: (_) => [
-            const PopupMenuItem(
+          itemBuilder: (_) => const [
+            PopupMenuItem(
               value: 'customize',
               child: _MenuRow(icon: McIcons.setting1, label: '自定义首页'),
             ),
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'collections',
               child: _MenuRow(icon: McIcons.mediaLibraryFill, label: '全部合集'),
             ),
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'manage',
               child: _MenuRow(
                 icon: McIcons.folderSettings,
@@ -231,7 +356,7 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
     );
   }
 
-  List<Widget> _content(LibraryHomeState state) {
+  List<Widget> _content(LibraryHomeState state, int offlineCount) {
     if (state.libraries == null && !state.failed) {
       return const [
         SliverToBoxAdapter(
@@ -244,10 +369,23 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.only(top: 72),
-            child: McErrorView(
-              title: '媒体库暂时无法加载',
-              text: '请检查服务器连接后重试。',
-              onRetry: _controller.reload,
+            child: Column(
+              children: [
+                McErrorView(
+                  title: '媒体库暂时无法加载',
+                  text: '请检查服务器连接后重试。',
+                  onRetry: _controller.reload,
+                ),
+                if (offlineCount > 0) ...[
+                  const SizedBox(height: 16),
+                  McActionPill(
+                    label: '进入离线媒体库（本机已下载 $offlineCount 项）',
+                    icon: McIcons.downloadCheck,
+                    primary: false,
+                    onTap: () => context.push('/offline/library'),
+                  ),
+                ],
+              ],
             ),
           ),
         ),
@@ -255,7 +393,13 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
     }
     final rows = state.rows;
     return [
-      if (state.failed) const SliverToBoxAdapter(child: _FailedBanner()),
+      if (state.failed)
+        SliverToBoxAdapter(
+          child: _FailedBanner(
+            offlineCount: offlineCount,
+            onOpenOffline: () => context.push('/offline/library'),
+          ),
+        ),
       if (state.libraries!.isEmpty)
         SliverToBoxAdapter(
           child: Padding(
@@ -295,17 +439,44 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
         onMore: () => context.push(routeLibraryFavorites),
         items: state.favorites.items,
         favorite: true,
+        showRating: k.sort == 'rating',
         onOpen: _openItem,
       );
     }
     if (k is LibrariesRowKind) return _librariesRow(state, row);
+    if (k is GenresRowKind) return _genresRow(state, row, k);
     if (k is LibraryRowKind) {
+      final order = HomeRows.orderParam(k.sort, k.reversed);
+      final q = <String, String>{
+        'sort': k.sort,
+        if (order != null) 'order': order,
+        if (row.watch != null) 'w': row.watch!,
+      };
       return _PosterRow(
         title: row.title(),
         moreTitle: '查看全部',
-        onMore: () => context.push(routeLibraryDetail(k.library.id)),
+        onMore: () => context.push(routeLibraryDetail(k.library.id, query: q)),
         items: state.itemsByKey[LibraryHomeController.fetchKey(row)] ?? const [],
         fallbackLibraryId: k.library.id,
+        showRating: k.sort == 'rating',
+        onOpen: _openItem,
+      );
+    }
+    if (k is MediaKindRowKind) {
+      return _PosterRow(
+        title: row.title(),
+        moreTitle: '查看全部',
+        onMore: () => context.push(
+          routeLibraryKind(
+            k.kind,
+            watch: row.watch,
+            sort: k.sort,
+            order: HomeRows.orderParam(k.sort, k.reversed),
+          ),
+        ),
+        items: state.itemsByKey[LibraryHomeController.fetchKey(row)] ?? const [],
+        fallbackLibraryId: 0,
+        showRating: k.sort == 'rating',
         onOpen: _openItem,
       );
     }
@@ -316,13 +487,63 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
         onMore: () => context.push(routeLibraryCollection(k.collection.id)),
         items: state.itemsByKey[LibraryHomeController.fetchKey(row)] ?? const [],
         fallbackLibraryId: k.collection.libraryId ?? 0,
+        showRating: k.sort == 'rating',
         onOpen: _openItem,
       );
     }
     return const SizedBox.shrink();
   }
 
-  // ── 接下来继续：16:9 沉浸横卡横滑（对齐 iOS & Web UpNextRow） ──
+  // ── 按类型找电影 / 剧集（渐变剧照色块行） ──
+
+  Widget _genresRow(
+    LibraryHomeState state,
+    HomeRow row,
+    GenresRowKind kindRow,
+  ) {
+    final genres = state.genresByKind[kindRow.kind] ?? const [];
+    if (genres.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          McSectionHeader(
+            title: row.title(),
+            trailingText: '全部${HomeRows.mediaKindLabel(kindRow.kind)}',
+            onTap: () => context.push(routeLibraryKind(kindRow.kind)),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 186 * 150 / 236 + 4,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(
+                horizontal: McTokens.pagePadding,
+              ),
+              itemCount: genres.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, i) {
+                final g = genres[i];
+                return GenreCardFace(
+                  label: g.label,
+                  count: g.count,
+                  mediaKind: kindRow.kind,
+                  coverUrl: g.coverUrl,
+                  width: 186,
+                  onTap: () => context.push(
+                    routeLibraryKind(kindRow.kind, genre: g.value),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── 接下来继续：16:9 沉浸横卡横滑 ──
 
   Widget _upNextRow(LibraryHomeState state, HomeRow row) {
     if (state.upNext.isEmpty) return const SizedBox.shrink();
@@ -610,11 +831,13 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
     );
   }
 
-  // ── 我的媒体库：横滑库卡片 ──
+  // ── 我的媒体库：真实库 + 置顶合集虚拟库横滑卡 ──
 
   Widget _librariesRow(LibraryHomeState state, HomeRow row) {
     final libs = state.visibleLibraries;
-    if (libs.isEmpty) return const SizedBox.shrink();
+    final pinnedCols = state.homeCollections;
+    if (libs.isEmpty && pinnedCols.isEmpty) return const SizedBox.shrink();
+    final totalCards = libs.length + pinnedCols.length;
     return Padding(
       padding: const EdgeInsets.only(top: 24),
       child: Column(
@@ -635,22 +858,32 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
               padding: const EdgeInsets.symmetric(
                 horizontal: McTokens.pagePadding,
               ),
-              itemCount: libs.length,
+              itemCount: totalCards,
               separatorBuilder: (_, __) => const SizedBox(width: 14),
               itemBuilder: (context, i) {
-                final lib = libs[i];
-                final hasPosters =
-                    (state.itemsByKey[LibraryHomeController.coverKey(lib.id)] ??
-                            const [])
-                        .isNotEmpty;
+                if (i < libs.length) {
+                  final lib = libs[i];
+                  final hasPosters = (state.itemsByKey[
+                              LibraryHomeController.coverKey(lib.id)] ??
+                          const [])
+                      .isNotEmpty;
+                  return McPressable(
+                    onTap: () => context.push(routeLibraryDetail(lib.id)),
+                    child: SizedBox(
+                      width: 228,
+                      child: _LibraryCard(
+                        library: lib,
+                        showCover: hasPosters || lib.customCover,
+                      ),
+                    ),
+                  );
+                }
+                final col = pinnedCols[i - libs.length];
                 return McPressable(
-                  onTap: () => context.push(routeLibraryDetail(lib.id)),
+                  onTap: () => context.push(routeLibraryCollection(col.id)),
                   child: SizedBox(
                     width: 228,
-                    child: _LibraryCard(
-                      library: lib,
-                      showCover: hasPosters || lib.customCover,
-                    ),
+                    child: _PinnedCollectionCard(collection: col),
                   ),
                 );
               },
@@ -662,37 +895,170 @@ class _LibraryHomePageState extends ConsumerState<LibraryHomePage> {
   }
 }
 
-class _ReelsPullPill extends StatelessWidget {
-  const _ReelsPullPill({required this.armed});
+/// 35mm 胶片齿孔走片预览条（对齐 iOS `ReelsFilmStrip`）。
+class _ReelsFilmStrip extends StatelessWidget {
+  const _ReelsFilmStrip({
+    required this.pull,
+    required this.armed,
+    required this.stills,
+  });
 
+  final double pull;
   final bool armed;
+  final List<String> stills;
 
   @override
   Widget build(BuildContext context) {
-    return McLiquidGlass(
-      radius: McTokens.pillRadius,
-      tone: armed ? McGlassTone.strong : McGlassTone.regular,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            McIcons.play2Fill,
-            size: 14,
-            color: armed ? McTokens.accentStrong : McTokens.textMuted,
+    final shift = (pull * 1.8) % 92;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        McLiquidGlass(
+          radius: McTokens.pillRadius,
+          tone: armed ? McGlassTone.strong : McGlassTone.regular,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                McIcons.play2Fill,
+                size: 13,
+                color: armed ? McTokens.accentStrong : McTokens.textMuted,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                armed ? '松手进入「片段」' : '继续下拉进入「片段」',
+                style: McText.caption.copyWith(
+                  color: armed ? McTokens.text : McTokens.textMuted,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 6),
-          Text(
-            armed ? '松手进入「片段」' : '继续下拉进入「片段」',
-            style: McText.caption.copyWith(
-              color: armed ? McTokens.text : McTokens.textMuted,
-              fontWeight: FontWeight.w600,
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            height: 76,
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: const Color(0xEB0E1015),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: armed
+                    ? const Color(0x99CCE0FF)
+                    : const Color(0x2EFFFFFF),
+                width: armed ? 1.4 : 0.8,
+              ),
+              boxShadow: armed
+                  ? const [
+                      BoxShadow(
+                        color: Color(0x55A7C6FF),
+                        blurRadius: 16,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Column(
+              children: [
+                _sprocketStrip(),
+                Expanded(
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final count = (constraints.maxWidth / 92).ceil() + 2;
+                          return OverflowBox(
+                            maxWidth: double.infinity,
+                            alignment: Alignment.centerLeft,
+                            child: Transform.translate(
+                              offset: Offset(-shift, 0),
+                              child: Row(
+                                children: [
+                                  for (var i = 0; i < count; i++)
+                                    _filmFrame(
+                                      stills.isEmpty
+                                          ? null
+                                          : stills[i % stills.length],
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      // 中央片门高光框
+                      Container(
+                        width: 96,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: armed
+                                ? const Color(0xE6DDEAFF)
+                                : const Color(0x66FFFFFF),
+                            width: armed ? 2 : 1,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                _sprocketStrip(),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
+
+  Widget _sprocketStrip() => SizedBox(
+        height: 10,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            for (var i = 0; i < 18; i++)
+              Container(
+                width: 7,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: armed
+                      ? const Color(0x99CCE0FF)
+                      : const Color(0x40FFFFFF),
+                  borderRadius: BorderRadius.circular(1.2),
+                ),
+              ),
+          ],
+        ),
+      );
+
+  Widget _filmFrame(String? url) => Container(
+        width: 84,
+        height: 50,
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1E28),
+          borderRadius: BorderRadius.circular(3),
+          border: Border.all(color: const Color(0x26FFFFFF), width: 0.6),
+        ),
+        child: url == null
+            ? const Icon(McIcons.film, size: 18, color: Color(0x33FFFFFF))
+            : CachedNetworkImage(
+                imageUrl: url,
+                httpHeaders: mcImageHeaders(),
+                fit: BoxFit.cover,
+                errorWidget: (_, __, ___) => const Icon(
+                  McIcons.film,
+                  size: 18,
+                  color: Color(0x33FFFFFF),
+                ),
+              ),
+      );
 }
 
 class _MenuRow extends StatelessWidget {
@@ -709,6 +1075,114 @@ class _MenuRow extends StatelessWidget {
           Text(label),
         ],
       );
+}
+
+/// 置顶到首页的合集虚拟库卡片（与真实库同宽 228、同 2.05 宽屏比例）。
+class _PinnedCollectionCard extends StatelessWidget {
+  const _PinnedCollectionCard({required this.collection});
+
+  final CollectionView collection;
+
+  @override
+  Widget build(BuildContext context) {
+    final covers =
+        collection.covers.where((c) => c.url.isNotEmpty).take(3).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AspectRatio(
+          aspectRatio: 2.05,
+          child: Container(
+            clipBehavior: Clip.antiAlias,
+            foregroundDecoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(McTokens.cardRadius),
+              border: Border.all(color: McTokens.line),
+            ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(McTokens.cardRadius),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF1D2230), Color(0xFF0E1016)],
+              ),
+            ),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (covers.isEmpty)
+                  const Icon(
+                    McIcons.stack,
+                    size: 36,
+                    color: Color(0x24FFFFFF),
+                  )
+                else
+                  Row(
+                    children: [
+                      for (final c in covers)
+                        Expanded(
+                          child: LibraryNetImage(
+                            url: McImageUrls.resolve(c.url, widthPx: 360),
+                            blurDataUri: c.blur,
+                            placeholderIcon: McIcons.stack,
+                          ),
+                        ),
+                    ],
+                  ),
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0x14000000), Color(0x8C000000)],
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 8,
+                  bottom: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0x99000000),
+                      borderRadius: BorderRadius.circular(McTokens.pillRadius),
+                      border: Border.all(color: const Color(0x26FFFFFF)),
+                    ),
+                    child: Text(
+                      '合集 · ${collection.itemCount} 部',
+                      style: McText.micro
+                          .copyWith(color: const Color(0xEBFFFFFF))
+                          .tabular,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Row(
+            children: [
+              const Icon(McIcons.stack, size: 14, color: McTokens.textMuted),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  collection.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: McText.ui.semibold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 /// 库卡片：服务端拼贴封面 + 库名 +「默认」；扫描/整理/刷元数据时展示银白进度环。
@@ -886,7 +1360,7 @@ class _LibraryCard extends StatelessWidget {
   }
 }
 
-/// 横滚海报行（收藏行 / 库行 / 合集行统一形态）；支持悬停快播、桌面右键与触屏长按快捷菜单。
+/// 横滚海报行（收藏行 / 库行 / 跨库类型行 / 合集行统一形态）。
 class _PosterRow extends ConsumerWidget {
   const _PosterRow({
     required this.title,
@@ -896,6 +1370,7 @@ class _PosterRow extends ConsumerWidget {
     required this.onOpen,
     this.fallbackLibraryId = 0,
     this.favorite = false,
+    this.showRating = false,
   });
 
   final String title;
@@ -905,6 +1380,7 @@ class _PosterRow extends ConsumerWidget {
   final void Function(int libraryId, int itemId) onOpen;
   final int fallbackLibraryId;
   final bool favorite;
+  final bool showRating;
 
   static const _cellWidth = 122.0;
 
@@ -923,7 +1399,7 @@ class _PosterRow extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: _cellWidth / McTokens.posterAspect + 46,
+            height: _cellWidth / McTokens.posterAspect + 54,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(
@@ -933,52 +1409,25 @@ class _PosterRow extends ConsumerWidget {
               separatorBuilder: (_, __) => const SizedBox(width: 12),
               itemBuilder: (context, i) {
                 final item = items[i];
-                final lid = item.libraryId ?? fallbackLibraryId;
                 final isFav = favorite || item.isFavorite;
                 final recentBadge = !favorite && item.recentAddition != null
                     ? formatRecentAddition(item.recentAddition!)
                     : null;
-                final infoLines = posterInfoLines(item, favorite: favorite);
-                return McPosterCard(
+                final favCorner = favorite
+                    ? favoriteLevelLabel(
+                        item.kind,
+                        item.favoriteSeasonNumber,
+                        item.favoriteEpisodeNumber,
+                      )
+                    : null;
+                return mcItemCard(
+                  context,
+                  item.copyWith(isFavorite: isFav),
                   width: _cellWidth,
-                  title: item.title,
-                  posterUrl: item.posterUrl,
-                  imageAspect: item.primaryAspect,
-                  subtitle: [
-                    if (item.year != null) '${item.year}',
-                    if ((item.rating ?? 0) > 0)
-                      '★ ${item.rating!.toStringAsFixed(1)}',
-                    if (infoLines.isNotEmpty) infoLines.first,
-                  ].take(2).join(' · '),
-                  badge: recentBadge,
-                  favorite: isFav,
-                  onTap: () => onOpen(lid, item.mediaItemId),
-                  onQuickPlay: () => context.push(
-                    '/player',
-                    extra: PlayerPageArgs(
-                      mediaItemId: item.mediaItemId,
-                      title: item.title,
-                      isEpisode: item.kind == 'tv',
-                    ),
-                  ),
-                  contextActions: [
-                    McPosterMenuAction(
-                      icon: McIcons.play2Fill,
-                      label: '立即播放',
-                      onTap: () => context.push(
-                        '/player',
-                        extra: PlayerPageArgs(
-                          mediaItemId: item.mediaItemId,
-                          title: item.title,
-                          isEpisode: item.kind == 'tv',
-                        ),
-                      ),
-                    ),
-                    McPosterMenuAction(
-                      icon: McIcons.film,
-                      label: '查看详情',
-                      onTap: () => onOpen(lid, item.mediaItemId),
-                    ),
+                  fallbackLibraryId: fallbackLibraryId,
+                  showRating: showRating,
+                  cornerLabel: favCorner ?? recentBadge,
+                  extraActions: [
                     McPosterMenuAction(
                       icon: isFav ? McIcons.unheart2 : McIcons.heart2,
                       label: isFav ? '取消收藏' : '加入收藏',
@@ -1016,7 +1465,13 @@ class _PosterRow extends ConsumerWidget {
 }
 
 class _FailedBanner extends StatelessWidget {
-  const _FailedBanner();
+  const _FailedBanner({
+    required this.offlineCount,
+    required this.onOpenOffline,
+  });
+
+  final int offlineCount;
+  final VoidCallback onOpenOffline;
 
   @override
   Widget build(BuildContext context) {
@@ -1035,16 +1490,30 @@ class _FailedBanner extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: const Color(0x4DF5C451)),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(McIcons.alert1, size: 16, color: McTokens.warning),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                '与服务器通信暂时中断，正在自动重试；当前展示上次缓存。',
-                style: McText.caption.copyWith(color: McTokens.warning),
-              ),
+            Row(
+              children: [
+                const Icon(McIcons.alert1, size: 16, color: McTokens.warning),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '与服务器通信暂时中断，正在自动重试；当前展示上次缓存。',
+                    style: McText.caption.copyWith(color: McTokens.warning),
+                  ),
+                ),
+              ],
             ),
+            if (offlineCount > 0) ...[
+              const SizedBox(height: 8),
+              McChip(
+                icon: McIcons.downloadCheck,
+                label: '查看本机离线下载 ($offlineCount 项)',
+                compact: true,
+                onTap: onOpenOffline,
+              ),
+            ],
           ],
         ),
       ),

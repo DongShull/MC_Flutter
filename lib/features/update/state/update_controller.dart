@@ -33,19 +33,24 @@ class UpdateFailed extends UpdateUiState {
   final String message;
 }
 
-/// 手动/自动检查控制器（对齐 AppUpdateController：
-/// 先官网后服务器兜底；「跳过这个版本」记录在本地，自动检查不再提示同一版）。
+/// 手动/自动检查控制器：
+/// - iOS 上静默跳过自更新检查（遵守 App Store 2.5.2，不请求 Android APK 接口）；
+/// - 非 iOS 平台先官网后服务器兜底。
 class UpdateController extends Notifier<UpdateUiState> {
   static const _skippedKey = 'update.skipped.build';
 
   @override
   UpdateUiState build() => const UpdateIdle();
 
-  /// 手动检查：不看跳过记录，结果是什么就报什么。
-  Future<void> checkManually() => _check(force: true, respectSkip: false);
+  /// 手动检查：iOS 上不触发任何 APK 网络请求。
+  Future<void> checkManually() async {
+    if (!UpdateApi.isSelfUpdateSupported) return;
+    await _check(force: true, respectSkip: false);
+  }
 
-  /// 自动检查：一天最多一次，且用户跳过的版本不再打扰。
+  /// 自动检查：一天最多一次，iOS 上直接跳过。
   Future<void> autoCheck() async {
+    if (!UpdateApi.isSelfUpdateSupported) return;
     final prefs = await SharedPreferences.getInstance();
     final lastMs = prefs.getInt('update.last.check');
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -67,7 +72,11 @@ class UpdateController extends Notifier<UpdateUiState> {
         final prefs = await SharedPreferences.getInstance();
         skipped = prefs.getInt(_skippedKey);
       }
-      if (!UpdatePolicy.shouldPrompt(release, UpdatePolicy.currentBuild, skipped)) {
+      if (!UpdatePolicy.shouldPrompt(
+        release,
+        UpdatePolicy.currentBuild,
+        skipped,
+      )) {
         state = UpdateUpToDate(release);
       } else {
         state = UpdateAvailable(release, source);

@@ -1,91 +1,95 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/api/mc_client.dart';
 import '../../../core/designsystem/mc_chrome.dart';
 import '../../../core/designsystem/mc_glass.dart';
 import '../../../core/designsystem/mc_icons.dart';
 import '../../../core/designsystem/state_views.dart';
 import '../../../core/designsystem/theme.dart';
 import '../../../core/models/format.dart';
+import '../../../core/session/session_store.dart';
+import '../routes.dart';
 import '../state/mc_api.dart';
 import '../state/models.dart';
+import '../widgets/issue_drawer_sheet.dart';
+import '../widgets/library_form_sheet.dart';
+import '../widgets/library_organize_sheet.dart';
 import '../widgets/library_shared.dart';
+import '../widgets/manage_duplicate_files.dart';
 
-/// 媒体库原生管控中心（对齐并整合 Web `/library/manage` 四大核心面板）：
-/// 0) `媒体库`：创建/编辑（内置服务端目录树浏览器 `/api/v1/fs/browse`）、扫描、整理、刷新元数据、排序、删除；
-/// 1) `待识别`：盘点未识别媒体文件，内置 TMDB 搜索一键认领绑定；
-/// 2) `回收站`：已移除文件一键恢复或彻底清理释放磁盘；
-/// 3) `活跃分享`：全站外链分享统一审计、复制与一键吊销。
+/// 媒体库原生管控中心（5 页签完整对齐 upstream iOS `LibraryManageView`）：
+/// 0) 媒体库：新建/编辑（含目录树、4 种类型、自定义封面、路由范围+重叠警告、刮削覆盖、成员权限）、
+///    扫描/停止、整理文件名（4段式）、元数据刷新、待处理入口、排序、删除；
+/// 1) 待处理：缺失 / 待识别 / 身份复核 / 已忽略四合一视图；
+/// 2) 重复文件：扫描进度条 + 摘要/明细两层清理（`ManageDuplicateFilesTab`）；
+/// 3) 回收站：搜索 + 库/原因分面 + 三态多选 + 24h 倒计时警示 + 批量恢复/彻底清理；
+/// 4) 活跃分享：全站外链审计（浏览次数、最近访问、密码标记、合集部数、复制与吊销）。
 class LibraryManagePage extends ConsumerStatefulWidget {
-  const LibraryManagePage({super.key, this.initialTab = 0});
+  const LibraryManagePage({
+    super.key,
+    this.initialTab = 0,
+    this.initialItemId,
+  });
 
   final int initialTab;
+  final int? initialItemId;
 
   @override
   ConsumerState<LibraryManagePage> createState() => _LibraryManagePageState();
 }
 
 class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
-  late int _tab = widget.initialTab.clamp(0, 3);
-  bool _loading = true;
-  String? _error;
+  late int _tab = widget.initialTab.clamp(0, 4);
+
+  bool _loadingLibs = true;
+  String? _libsError;
   List<LibraryView> _libraries = const [];
-  List<Map<String, dynamic>> _unidentified = const [];
-  List<Map<String, dynamic>> _trashed = const [];
-  List<Map<String, dynamic>> _shares = const [];
+
+  int _dupCount = 0;
+  int _trashCount = 0;
+  int _shareCount = 0;
 
   LibraryApi get _api => ref.read(libraryApiProvider);
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(_reload);
+    Future.microtask(_loadLibraries);
   }
 
-  Future<void> _reload() async {
+  Future<void> _loadLibraries() async {
     setState(() {
-      _loading = true;
-      _error = null;
+      _loadingLibs = true;
+      _libsError = null;
     });
     try {
-      switch (_tab) {
-        case 0:
-          _libraries = await _api.libraries();
-        case 1:
-          _unidentified = await _api.unidentifiedFiles();
-        case 2:
-          _trashed = await _api.trashedFiles();
-        case 3:
-          _shares = await _api.activeShares();
-      }
-      if (mounted) setState(() => _loading = false);
+      final libs = await _api.libraries(scope: 'all');
+      if (!mounted) return;
+      setState(() {
+        _libraries = libs;
+        _loadingLibs = false;
+      });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = '加载失败：$e';
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _loadingLibs = false;
+        _libsError = '加载媒体库失败：$e';
+      });
     }
   }
 
-  void _switchTab(int idx) {
-    if (_tab == idx) return;
-    setState(() => _tab = idx);
-    _reload();
-  }
-
-  Future<void> _openLibraryEditor({LibraryView? existing}) async {
-    final saved = await showMcSheet<bool>(
-      context: context,
-      maxWidth: 600,
-      builder: (_) => _LibraryEditorSheet(existing: existing),
+  Future<void> _openEditor({LibraryView? existing}) async {
+    final saved = await showLibraryFormSheet(
+      context,
+      editing: existing,
+      existingLibraries: _libraries,
     );
     if (saved == true && mounted) {
-      await _reload();
+      await _loadLibraries();
     }
   }
 
@@ -100,12 +104,90 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
       await _api.reorderLibraries([for (final l in list) l.id]);
     } catch (e) {
       if (mounted) McToast.error('排序保存失败：$e');
-      await _reload();
+      await _loadLibraries();
     }
+  }
+
+  Future<void> _deleteLibrary(LibraryView lib) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: McTokens.surfaceSolid,
+        title: Text('删除媒体库「${lib.name}」？'),
+        content: const Text('仅移除媒体库索引记录，不会删除磁盘上的任何视频和照片文件。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('删除', style: TextStyle(color: McTokens.danger)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await _api.deleteLibrary(lib.id);
+      McToast.success('已删除媒体库「${lib.name}」');
+      await _loadLibraries();
+    } catch (e) {
+      if (mounted) McToast.error('删除失败：$e');
+    }
+  }
+
+  List<String> _globalOverlapWarnings() {
+    final warnings = <String>[];
+    for (var i = 0; i < _libraries.length; i++) {
+      final a = _libraries[i];
+      if (a.matchRules.isEmpty) continue;
+      for (var j = i + 1; j < _libraries.length; j++) {
+        final b = _libraries[j];
+        if (b.kind != a.kind || b.matchRules.isEmpty) continue;
+        final ar = _extractRuleSet(a.matchRules, 'origin_country');
+        final br = _extractRuleSet(b.matchRules, 'origin_country');
+        final ag = _extractRuleSet(a.matchRules, 'genre');
+        final bg = _extractRuleSet(b.matchRules, 'genre');
+        final regionHit =
+            ar.isEmpty || br.isEmpty || ar.intersection(br).isNotEmpty;
+        final genreHit =
+            ag.isEmpty || bg.isEmpty || ag.intersection(bg).isNotEmpty;
+        if (regionHit && genreHit) {
+          warnings.add('「${a.name}」与「${b.name}」的收录范围存在重叠，建议微调地区/类型条件避免路由歧义。');
+        }
+      }
+    }
+    return warnings;
+  }
+
+  Set<String> _extractRuleSet(List<Map<String, dynamic>> rules, String prefix) {
+    final out = <String>{};
+    for (final r in rules) {
+      final f = r['field']?.toString() ?? '';
+      if (f == prefix || f == '${prefix}s' || f == 'origin_countries' && prefix == 'origin_country') {
+        for (final v in (r['values'] as List<dynamic>? ?? const [])) {
+          out.add(v.toString());
+        }
+      }
+    }
+    return out;
   }
 
   @override
   Widget build(BuildContext context) {
+    final totalIssues = _libraries.fold<int>(
+      0,
+      (s, l) => s + l.missingCount + l.unidentifiedCount + l.reviewCount,
+    );
+    final tabs = <(int, String, int)>[
+      (0, '媒体库', _libraries.length),
+      (1, '待处理', totalIssues),
+      (2, '重复文件', _dupCount),
+      (3, '回收站', _trashCount),
+      (4, '活跃分享', _shareCount),
+    ];
+
     return Scaffold(
       backgroundColor: McTokens.bg,
       body: Column(
@@ -120,67 +202,62 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
                 McGlassIconButton(
                   icon: McIcons.addS,
                   tooltip: '新建媒体库',
-                  onTap: () => _openLibraryEditor(),
+                  onTap: () => _openEditor(),
                 ),
             ],
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              McTokens.pagePadding,
-              4,
-              McTokens.pagePadding,
-              10,
-            ),
-            child: SingleChildScrollView(
+          // 5 页签横滚条
+          SizedBox(
+            height: 40,
+            child: ListView(
               scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  McChip(
-                    label: '媒体库',
-                    icon: McIcons.mediaLibraryFill,
-                    selected: _tab == 0,
-                    onTap: () => _switchTab(0),
-                  ),
-                  const SizedBox(width: 8),
-                  McChip(
-                    label: '待识别文件',
-                    icon: McIcons.fileSearch,
-                    selected: _tab == 1,
-                    onTap: () => _switchTab(1),
-                  ),
-                  const SizedBox(width: 8),
-                  McChip(
-                    label: '回收站',
-                    icon: McIcons.trash2,
-                    selected: _tab == 2,
-                    onTap: () => _switchTab(2),
-                  ),
-                  const SizedBox(width: 8),
-                  McChip(
-                    label: '活跃分享',
-                    icon: McIcons.share,
-                    selected: _tab == 3,
-                    onTap: () => _switchTab(3),
-                  ),
-                ],
+              padding: const EdgeInsets.symmetric(
+                horizontal: McTokens.pagePadding,
+                vertical: 4,
               ),
+              children: [
+                for (final (idx, label, count) in tabs)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: McChip(
+                      label: count > 0 ? '$label $count' : label,
+                      compact: true,
+                      selected: _tab == idx,
+                      onTap: () => setState(() => _tab = idx),
+                    ),
+                  ),
+              ],
             ),
           ),
           const Divider(height: 1, color: McTokens.line),
           Expanded(
-            child: RefreshIndicator(
-              onRefresh: _reload,
-              child: _loading
-                  ? const McLoadingView()
-                  : _error != null
-                      ? McErrorView(text: _error!, onRetry: _reload)
-                      : switch (_tab) {
-                          0 => _buildLibrariesTab(),
-                          1 => _buildUnidentifiedTab(),
-                          2 => _buildTrashTab(),
-                          _ => _buildSharesTab(),
-                        },
-            ),
+            child: switch (_tab) {
+              0 => _buildLibrariesTab(),
+              1 => IssueDrawerView(onChanged: _loadLibraries),
+              2 => ManageDuplicateFilesTab(
+                  libraries: _libraries,
+                  initialItemId: widget.initialItemId,
+                  onCountChange: (c) {
+                    if (_dupCount != c && mounted) {
+                      setState(() => _dupCount = c);
+                    }
+                  },
+                ),
+              3 => _ManageRecycleBinTab(
+                  onCountChange: (c) {
+                    if (_trashCount != c && mounted) {
+                      setState(() => _trashCount = c);
+                    }
+                  },
+                ),
+              _ => _ManageSharesTab(
+                  onCountChange: (c) {
+                    if (_shareCount != c && mounted) {
+                      setState(() => _shareCount = c);
+                    }
+                  },
+                ),
+            },
           ),
         ],
       ),
@@ -188,760 +265,241 @@ class _LibraryManagePageState extends ConsumerState<LibraryManagePage> {
   }
 
   Widget _buildLibrariesTab() {
+    if (_loadingLibs && _libraries.isEmpty) {
+      return const McLoadingView();
+    }
+    if (_libsError != null && _libraries.isEmpty) {
+      return McErrorView(text: _libsError!, onRetry: _loadLibraries);
+    }
     if (_libraries.isEmpty) {
       return McEmptyView(
-        icon: McIcons.folderPlus,
-        title: '尚未创建任何媒体库',
-        text: '点击下方按钮选择服务器上的影视目录，MovieClaw 将自动刮削海报与演职员。',
+        icon: McIcons.mediaLibraryFill,
+        title: '还没有媒体库',
+        text: '点击右上角 + 创建电影、剧集、视频或照片媒体库。',
         actionLabel: '新建媒体库',
-        onRetry: () => _openLibraryEditor(),
+        onRetry: () => _openEditor(),
       );
     }
-    return ListView.separated(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(
-        McTokens.pagePadding,
-        14,
-        McTokens.pagePadding,
-        40,
-      ),
-      itemCount: _libraries.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, i) {
-        final lib = _libraries[i];
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: McTokens.surfaceRaised,
-            borderRadius: BorderRadius.circular(McTokens.cardRadius),
-            border: Border.all(color: McTokens.line),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    libraryKindIcon(lib.kind),
-                    size: 20,
-                    color: McTokens.accentStrong,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(lib.name, style: McText.titleSm),
-                  ),
-                  if (lib.isDefault)
-                    const Padding(
-                      padding: EdgeInsets.only(right: 6),
-                      child: McChip(label: '默认', compact: true),
-                    ),
-                  IconButton(
-                    tooltip: '上移',
-                    visualDensity: VisualDensity.compact,
-                    icon: const Icon(McIcons.arrowUpS, size: 18),
-                    onPressed: i > 0 ? () => _moveLibrary(i, -1) : null,
-                  ),
-                  IconButton(
-                    tooltip: '下移',
-                    visualDensity: VisualDensity.compact,
-                    icon: const Icon(McIcons.arrowDownS, size: 18),
-                    onPressed: i < _libraries.length - 1
-                        ? () => _moveLibrary(i, 1)
-                        : null,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '${lib.stats.itemCount} 部作品 · ${lib.stats.fileCount} 个文件 · ${mcFormatBytes(lib.stats.totalSizeBytes)}'
-                '${lib.stats.unidentifiedCount > 0 ? ' · ${lib.stats.unidentifiedCount} 待识别' : ''}',
-                style: McText.caption.muted.tabular,
-              ),
-              if (lib.paths.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  lib.paths.join(' · '),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: McText.micro.faint,
-                ),
-              ],
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  McChip(
-                    icon: lib.scanning ? McIcons.stop : McIcons.scan,
-                    label: lib.scanning ? '停止扫描' : '立即扫描',
-                    compact: true,
-                    selected: lib.scanning,
-                    onTap: () async {
-                      try {
-                        if (lib.scanning) {
-                          await _api.stopLibraryScan(lib.id);
-                          if (mounted) McToast.info('已请求停止扫描');
-                        } else {
-                          await _api.scanLibrary(lib.id);
-                          if (mounted) McToast.success('已启动扫描「${lib.name}」');
-                        }
-                        await _reload();
-                      } catch (e) {
-                        if (mounted) McToast.error('操作失败：$e');
-                      }
-                    },
-                  ),
-                  McChip(
-                    icon: McIcons.folderSmart,
-                    label: '整理命名',
-                    compact: true,
-                    onTap: () async {
-                      try {
-                        await _api.organizeLibrary(lib.id);
-                        if (mounted) McToast.success('已提交文件整理任务');
-                        await _reload();
-                      } catch (e) {
-                        if (mounted) McToast.error('整理失败：$e');
-                      }
-                    },
-                  ),
-                  McChip(
-                    icon: McIcons.refreshS,
-                    label: '刷元数据',
-                    compact: true,
-                    onTap: () async {
-                      try {
-                        await _api.refreshLibraryMetadata(lib.id);
-                        if (mounted) McToast.success('已提交整库元数据刷新');
-                        await _reload();
-                      } catch (e) {
-                        if (mounted) McToast.error('刷新失败：$e');
-                      }
-                    },
-                  ),
-                  McChip(
-                    icon: McIcons.edit,
-                    label: '编辑目录',
-                    compact: true,
-                    onTap: () => _openLibraryEditor(existing: lib),
-                  ),
-                  McChip(
-                    icon: McIcons.trash2,
-                    label: '移除库',
-                    compact: true,
-                    onTap: () => _confirmDeleteLibrary(lib),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
 
-  Future<void> _confirmDeleteLibrary(LibraryView lib) async {
-    final ok = await showMcSheet<bool>(
-      context: context,
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('移除媒体库「${lib.name}」？', style: McText.titleSm),
-            const SizedBox(height: 8),
-            Text(
-              '仅从 MovieClaw 台账移除索引记录，不会删除硬盘上的任何原始音视频文件。',
-              style: McText.sub.muted,
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: McActionPill(
-                    label: '取消',
-                    primary: false,
-                    expanded: true,
-                    onTap: () => Navigator.of(ctx).pop(false),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: McActionPill(
-                    label: '确认移除',
-                    primary: false,
-                    tone: McGlassTone.danger,
-                    expanded: true,
-                    onTap: () => Navigator.of(ctx).pop(true),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-    if (ok != true || !mounted) return;
-    try {
-      await _api.deleteLibrary(lib.id);
-      if (mounted) McToast.success('媒体库已移除');
-      await _reload();
-    } catch (e) {
-      if (mounted) McToast.error('移除失败：$e');
-    }
-  }
+    final overlaps = _globalOverlapWarnings();
 
-  Widget _buildUnidentifiedTab() {
-    if (_unidentified.isEmpty) {
-      return const McEmptyView(
-        icon: McIcons.checkCircleFill,
-        title: '全部文件均已成功识别',
-        text: '没有待人工干预的异常视频文件。',
-      );
-    }
-    return ListView.separated(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(
-        McTokens.pagePadding,
-        14,
-        McTokens.pagePadding,
-        40,
-      ),
-      itemCount: _unidentified.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, i) {
-        final f = _unidentified[i];
-        final nestedFiles = (f['files'] as List<dynamic>? ?? const [])
-            .whereType<Map>()
-            .map(Map<String, dynamic>.from)
-            .toList();
-        final fileIds = <int>[
-          if (nestedFiles.isNotEmpty)
-            for (final nf in nestedFiles)
-              (nf['id'] as num? ?? nf['file_id'] as num? ?? 0).toInt()
-          else
-            (f['id'] as num? ?? f['file_id'] as num? ?? 0).toInt(),
-        ].where((id) => id > 0).toList();
-        final path = (f['label'] ??
-                f['file_path'] ??
-                f['path'] ??
-                f['rel_path'] ??
-                f['filename'] ??
-                (nestedFiles.isNotEmpty ? nestedFiles.first['file_path'] : null) ??
-                '')
-            .toString();
-        final libName = (f['library_name'] ?? '').toString();
-        final reason = (f['reason'] ?? '').toString();
-        final size = (f['total_size_bytes'] as num? ??
-                f['size_bytes'] as num? ??
-                0)
-            .toInt();
-        final title = path.contains('/') ? path.split('/').last : path;
-        return Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: McTokens.surfaceRaised,
-            borderRadius: BorderRadius.circular(McTokens.cardRadius),
-            border: Border.all(color: McTokens.line),
-          ),
-          child: Row(
-            children: [
-              const Icon(
-                McIcons.fileWarning,
-                size: 20,
-                color: McTokens.warning,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title.isEmpty ? '未命名文件' : title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: McText.ui.semibold,
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      [
-                        if (libName.isNotEmpty) libName,
-                        if (nestedFiles.length > 1) '${nestedFiles.length} 个文件',
-                        if (size > 0) mcFormatBytes(size),
-                        if (reason.isNotEmpty) reason else path,
-                      ].where((s) => s.isNotEmpty).join(' · '),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: McText.micro.faint,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              McChip(
-                label: '手动认领',
-                selected: true,
-                compact: true,
-                onTap: fileIds.isEmpty
-                    ? null
-                    : () => _openClaimSheet(fileIds, title),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _openClaimSheet(List<int> fileIds, String fileName) async {
-    final claimed = await showMcSheet<bool>(
-      context: context,
-      maxWidth: 580,
-      builder: (_) => _ClaimFileSheet(fileIds: fileIds, fileName: fileName),
-    );
-    if (claimed == true && mounted) {
-      await _reload();
-    }
-  }
-
-  List<int> _extractTrashFileIds(Map<String, dynamic> row) {
-    final files = row['files'];
-    if (files is List && files.isNotEmpty) {
-      return [
-        for (final item in files.whereType<Map>())
-          (item['id'] as num? ?? item['file_id'] as num? ?? 0).toInt(),
-      ].where((id) => id > 0).toList();
-    }
-    final single = (row['id'] as num? ?? row['file_id'] as num? ?? 0).toInt();
-    return single > 0 ? [single] : const [];
-  }
-
-  Widget _buildTrashTab() {
-    if (_trashed.isEmpty) {
-      return const McEmptyView(
-        icon: McIcons.trash2,
-        title: '回收站为空',
-        text: '被移除的媒体文件会暂存于此，方便随时恢复或彻底清理。',
-      );
-    }
-    final allIds = <int>{
-      for (final f in _trashed) ..._extractTrashFileIds(f),
-    }.toList();
-
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(
-        McTokens.pagePadding,
-        14,
-        McTokens.pagePadding,
-        40,
-      ),
-      children: [
-        if (allIds.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: McActionPill(
-                    label: '全部恢复 (${allIds.length})',
-                    icon: McIcons.arrowGoBack,
-                    primary: false,
-                    expanded: true,
-                    onTap: () async {
-                      await _api.restoreTrashedFiles(allIds);
-                      if (mounted) McToast.success('已全部恢复');
-                      await _reload();
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: McActionPill(
-                    label: '清空回收站',
-                    icon: McIcons.trash2,
-                    primary: false,
-                    tone: McGlassTone.danger,
-                    expanded: true,
-                    onTap: () async {
-                      await _api.purgeTrashedFiles(allIds);
-                      if (mounted) McToast.success('回收站已彻底清空');
-                      await _reload();
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        McInsetGroup(
-          margin: EdgeInsets.zero,
-          children: [
-            for (final f in _trashed)
-              Builder(
-                builder: (context) {
-                  final rowIds = _extractTrashFileIds(f);
-                  final mediaItem = f['media_item'] is Map
-                      ? Map<String, dynamic>.from(f['media_item'] as Map)
-                      : null;
-                  final libraryMap = f['library'] is Map
-                      ? Map<String, dynamic>.from(f['library'] as Map)
-                      : null;
-                  final filesList = (f['files'] as List<dynamic>? ?? const [])
-                      .whereType<Map>()
-                      .map(Map<String, dynamic>.from)
-                      .toList();
-                  final firstFile = filesList.isNotEmpty ? filesList.first : f;
-                  final fallbackName = (firstFile['file_name'] ??
-                          firstFile['filename'] ??
-                          firstFile['file_path'] ??
-                          firstFile['path'] ??
-                          '未知文件')
-                      .toString();
-                  final displayTitle = mediaItem != null &&
-                          (mediaItem['title'] ?? '').toString().isNotEmpty
-                      ? [
-                          mediaItem['title'].toString(),
-                          if (mediaItem['year'] != null)
-                            '(${mediaItem['year']})',
-                        ].join(' ')
-                      : fallbackName.split('/').last;
-                  final size = (f['total_bytes'] as num? ??
-                          firstFile['size_bytes'] as num? ??
-                          0)
-                      .toInt();
-                  final fileCount =
-                      (f['file_count'] as num? ?? filesList.length).toInt();
-                  final libName = (libraryMap?['name'] ?? '').toString();
-                  final trigger =
-                      (f['trigger_label'] ?? f['note'] ?? '').toString();
-                  final subtitleParts = <String>[
-                    if (libName.isNotEmpty) libName,
-                    if (fileCount > 1) '$fileCount 个文件',
-                    if (size > 0) mcFormatBytes(size),
-                    if (trigger.isNotEmpty)
-                      trigger
-                    else if (fallbackName != '未知文件')
-                      fallbackName.split('/').last,
-                  ];
-                  return McInsetRow(
-                    icon: McIcons.fileVideo1,
-                    title: displayTitle,
-                    subtitle: subtitleParts.join(' · '),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        McChip(
-                          label: '恢复',
-                          compact: true,
-                          onTap: rowIds.isEmpty
-                              ? null
-                              : () async {
-                                  await _api.restoreTrashedFiles(rowIds);
-                                  if (mounted) McToast.success('已恢复文件');
-                                  await _reload();
-                                },
-                        ),
-                        const SizedBox(width: 6),
-                        IconButton(
-                          tooltip: '彻底删除',
-                          icon: const Icon(
-                            McIcons.trash2,
-                            size: 17,
-                            color: McTokens.danger,
-                          ),
-                          onPressed: rowIds.isEmpty
-                              ? null
-                              : () async {
-                                  await _api.purgeTrashedFiles(rowIds);
-                                  if (mounted) McToast.success('已彻底删除');
-                                  await _reload();
-                                },
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSharesTab() {
-    if (_shares.isEmpty) {
-      return const McEmptyView(
-        icon: McIcons.share,
-        title: '当前没有活跃的外链分享',
-        text: '在任意影片详情页点击「⋯ → 分享观看链接」即可生成受密码和有效期保护的客态链接。',
-      );
-    }
-    final base = _api.client.baseUrl;
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(top: 12, bottom: 40),
-      children: [
-        McInsetGroup(
-          children: [
-            for (final s in _shares)
-              Builder(
-                builder: (context) {
-                  final id = (s['id'] ?? s['slug'] ?? '').toString();
-                  final slug = (s['slug'] ?? '').toString();
-                  final title =
-                      (s['title'] ?? s['item_title'] ?? slug).toString();
-                  final expires =
-                      (s['expires_at'] ?? '').toString();
-                  var url = (s['url'] ?? '').toString();
-                  if (url.isEmpty && slug.isNotEmpty) url = '/s/$slug';
-                  if (url.startsWith('/') && base.isNotEmpty) url = base + url;
-                  return McInsetRow(
-                    icon: McIcons.link,
-                    title: title,
-                    subtitle: [
-                      if (s['has_password'] == true) '密码保护',
-                      if (expires.isNotEmpty)
-                        '到期：${mcFromNowIso(expires, empty: expires)}',
-                    ].join(' · '),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (url.isNotEmpty)
-                          McChip(
-                            label: '复制',
-                            compact: true,
-                            onTap: () {
-                              Clipboard.setData(ClipboardData(text: url));
-                              McToast.success('已复制分享链接');
-                            },
-                          ),
-                        const SizedBox(width: 6),
-                        IconButton(
-                          tooltip: '吊销分享',
-                          icon: const Icon(
-                            McIcons.trash2,
-                            size: 17,
-                            color: McTokens.danger,
-                          ),
-                          onPressed: id.isEmpty
-                              ? null
-                              : () async {
-                                  await _api.revokeShare(id);
-                                  if (mounted) McToast.success('已吊销外链分享');
-                                  await _reload();
-                                },
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-/// 新建 / 编辑媒体库弹层（内置可视化服务端目录选择器 `GET /api/v1/fs/browse`）。
-class _LibraryEditorSheet extends ConsumerStatefulWidget {
-  const _LibraryEditorSheet({this.existing});
-
-  final LibraryView? existing;
-
-  @override
-  ConsumerState<_LibraryEditorSheet> createState() =>
-      _LibraryEditorSheetState();
-}
-
-class _LibraryEditorSheetState extends ConsumerState<_LibraryEditorSheet> {
-  late final TextEditingController _name =
-      TextEditingController(text: widget.existing?.name ?? '');
-  late String _kind = widget.existing?.kind ?? 'movie';
-  late final List<String> _paths = [...(widget.existing?.paths ?? const [])];
-  late bool _isDefault = widget.existing?.isDefault ?? false;
-  late bool _excludeFromHome = widget.existing?.excludeFromHome ?? false;
-  bool _saving = false;
-
-  @override
-  void dispose() {
-    _name.dispose();
-    super.dispose();
-  }
-
-  Future<void> _pickServerDir() async {
-    final picked = await showMcSheet<String>(
-      context: context,
-      maxWidth: 580,
-      builder: (_) => const _ServerDirPickerSheet(),
-    );
-    if (picked != null && picked.isNotEmpty && !_paths.contains(picked)) {
-      setState(() => _paths.add(picked));
-    }
-  }
-
-  Future<void> _save() async {
-    final name = _name.text.trim();
-    if (name.isEmpty || _paths.isEmpty) {
-      McToast.error('请填写媒体库名称并至少添加一个目录');
-      return;
-    }
-    setState(() => _saving = true);
-    try {
-      final api = ref.read(libraryApiProvider);
-      if (widget.existing == null) {
-        await api.createLibrary(
-          name: name,
-          kind: _kind,
-          paths: _paths,
-          isDefault: _isDefault,
-          excludeFromHome: _excludeFromHome,
-        );
-      } else {
-        await api.updateLibrary(
-          widget.existing!.id,
-          name: name,
-          paths: _paths,
-          isDefault: _isDefault,
-          excludeFromHome: _excludeFromHome,
-        );
-      }
-      if (mounted) {
-        McToast.success(widget.existing == null ? '已创建媒体库' : '已更新媒体库');
-        Navigator.of(context).pop(true);
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _saving = false);
-        McToast.error('保存失败：$e');
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isEdit = widget.existing != null;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    return RefreshIndicator(
+      onRefresh: _loadLibraries,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 36),
         children: [
-          Text(isEdit ? '编辑媒体库' : '新建媒体库', style: McText.titleSm),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _name,
-            style: McText.body,
-            decoration: const InputDecoration(
-              labelText: '媒体库名称',
-              hintText: '例如：4K 蓝光电影 / 追更剧集',
+          if (overlaps.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: McTokens.warning.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: McTokens.warning.withValues(alpha: 0.35),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final w in overlaps)
+                    Text(
+                      '⚠ $w',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: McTokens.warning,
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
-          if (!isEdit) ...[
-            const SizedBox(height: 14),
-            Text('内容类型', style: McText.caption.muted),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                McChip(
-                  label: '电影',
-                  icon: McIcons.movie,
-                  selected: _kind == 'movie',
-                  onTap: () => setState(() => _kind = 'movie'),
-                ),
-                McChip(
-                  label: '剧集',
-                  icon: McIcons.tv,
-                  selected: _kind == 'tv',
-                  onTap: () => setState(() => _kind = 'tv'),
-                ),
-                McChip(
-                  label: '其他视频',
-                  icon: McIcons.film,
-                  selected: _kind == 'video',
-                  onTap: () => setState(() => _kind = 'video'),
-                ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 16),
+          for (var i = 0; i < _libraries.length; i++)
+            _libraryManageCard(_libraries[i], i),
+        ],
+      ),
+    );
+  }
+
+  Widget _libraryManageCard(LibraryView lib, int index) {
+    final issues = lib.missingCount + lib.unidentifiedCount + lib.reviewCount;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: McTokens.surfaceInset,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: McTokens.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Row(
             children: [
-              Expanded(child: Text('服务端媒体目录', style: McText.caption.muted)),
-              McChip(
-                icon: McIcons.folderOpen,
-                label: '浏览服务器目录',
-                selected: true,
-                compact: true,
-                onTap: _pickServerDir,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (_paths.isEmpty)
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: McTokens.surfaceInset,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: McTokens.line),
-              ),
-              child: Text(
-                '尚未选择目录，点击右上角「浏览服务器目录」挑选挂载盘路径。',
-                style: McText.caption.faint,
-              ),
-            )
-          else
-            McInsetGroup(
-              margin: EdgeInsets.zero,
-              children: [
-                for (final p in _paths)
-                  McInsetRow(
-                    icon: McIcons.folder,
-                    title: p,
-                    trailing: IconButton(
-                      icon: const Icon(
-                        McIcons.close,
-                        size: 16,
-                        color: McTokens.textMuted,
+              Icon(libraryKindIcon(lib.kind), size: 18, color: McTokens.accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => context.push(routeLibraryDetail(lib.id)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              lib.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: McText.body.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          if (lib.isDefault) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: McTokens.accentSoft,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text(
+                                '默认',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: McTokens.accent,
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (lib.excludeFromHome) ...[
+                            const SizedBox(width: 6),
+                            const Text(
+                              '不显示在首页',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: McTokens.textFaint,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                      onPressed: () => setState(() => _paths.remove(p)),
-                    ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${libraryKindLabel(lib.kind)} · ${lib.stats.itemCount} 部 · ${mcFormatBytes(lib.stats.totalSizeBytes)}'
+                        '${lib.lastScanAt != null ? ' · ${mcFromNowIso(lib.lastScanAt)}扫描' : ''}',
+                        style: McText.caption.muted,
+                      ),
+                    ],
                   ),
-              ],
-            ),
-          const SizedBox(height: 12),
-          McInsetGroup(
-            margin: EdgeInsets.zero,
-            children: [
-              McInsetRow(
-                title: '设为该类型的默认入库目标',
-                trailing: Switch(
-                  value: _isDefault,
-                  onChanged: (v) => setState(() => _isDefault = v),
                 ),
-                onTap: () => setState(() => _isDefault = !_isDefault),
               ),
-              McInsetRow(
-                title: '不在首页瀑布流展示',
-                trailing: Switch(
-                  value: _excludeFromHome,
-                  onChanged: (v) => setState(() => _excludeFromHome = v),
-                ),
-                onTap: () =>
-                    setState(() => _excludeFromHome = !_excludeFromHome),
+              IconButton(
+                tooltip: '上移',
+                icon: const Icon(Icons.arrow_upward_rounded, size: 17),
+                onPressed: index > 0 ? () => _moveLibrary(index, -1) : null,
+              ),
+              IconButton(
+                tooltip: '下移',
+                icon: const Icon(Icons.arrow_downward_rounded, size: 17),
+                onPressed: index < _libraries.length - 1
+                    ? () => _moveLibrary(index, 1)
+                    : null,
               ),
             ],
           ),
-          const SizedBox(height: 18),
-          McActionPill(
-            label: _saving ? '保存中…' : '保存媒体库',
-            primary: true,
-            expanded: true,
-            busy: _saving,
-            onTap: _saving ? null : _save,
+          if (lib.paths.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              lib.paths.join(' · '),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11,
+                fontFamily: 'monospace',
+                color: McTokens.textFaint,
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              McChip(
+                label: lib.scanning ? '停止扫描' : '扫描',
+                icon: lib.scanning ? McIcons.stop : McIcons.refresh,
+                compact: true,
+                selected: lib.scanning,
+                onTap: () async {
+                  try {
+                    if (lib.scanning) {
+                      await _api.stopLibraryScan(lib.id);
+                      McToast.info('已请求停止扫描');
+                    } else {
+                      await _api.scanLibrary(lib.id);
+                      McToast.success('已启动扫描');
+                    }
+                    await _loadLibraries();
+                  } catch (e) {
+                    McToast.error('操作失败：$e');
+                  }
+                },
+              ),
+              if (lib.capabilities.naming)
+                McChip(
+                  label: '整理文件名',
+                  icon: McIcons.folderSettings,
+                  compact: true,
+                  onTap: () => showLibraryOrganizeSheet(
+                    context,
+                    libraryId: lib.id,
+                    onStarted: _loadLibraries,
+                  ),
+                ),
+              if (lib.capabilities.scraped)
+                McChip(
+                  label: '刷新元数据',
+                  icon: McIcons.refresh,
+                  compact: true,
+                  onTap: () async {
+                    try {
+                      await _api.libraryMetadataRefresh(lib.id, mode: 'all');
+                      McToast.success('已启动元数据刷新');
+                    } catch (e) {
+                      McToast.error('刷新失败：$e');
+                    }
+                  },
+                ),
+              if (issues > 0)
+                McChip(
+                  label: '待处理 ($issues)',
+                  icon: McIcons.alert1,
+                  compact: true,
+                  selected: true,
+                  onTap: () => showIssueDrawerSheet(
+                    context,
+                    libraryId: lib.id,
+                    onChanged: _loadLibraries,
+                  ),
+                ),
+              McChip(
+                label: '编辑',
+                icon: McIcons.edit,
+                compact: true,
+                onTap: () => _openEditor(existing: lib),
+              ),
+              McChip(
+                label: '删除',
+                icon: McIcons.trash2,
+                compact: true,
+                onTap: () => _deleteLibrary(lib),
+              ),
+            ],
           ),
         ],
       ),
@@ -949,313 +507,805 @@ class _LibraryEditorSheetState extends ConsumerState<_LibraryEditorSheet> {
   }
 }
 
-/// 可复用的服务端目录浏览器（`GET /api/v1/fs/browse`）。
-class _ServerDirPickerSheet extends ConsumerStatefulWidget {
-  const _ServerDirPickerSheet();
+/* ────────────────────── 页签 3：回收站（完整对齐 ManageRecycleBin.swift） ────────────────────── */
+
+class _ManageRecycleBinTab extends ConsumerStatefulWidget {
+  const _ManageRecycleBinTab({required this.onCountChange});
+  final ValueChanged<int> onCountChange;
 
   @override
-  ConsumerState<_ServerDirPickerSheet> createState() =>
-      _ServerDirPickerSheetState();
+  ConsumerState<_ManageRecycleBinTab> createState() =>
+      _ManageRecycleBinTabState();
 }
 
-class _ServerDirPickerSheetState extends ConsumerState<_ServerDirPickerSheet> {
-  String _currentPath = '/';
-  String? _parentPath;
-  List<Map<String, dynamic>> _entries = const [];
+class _ManageRecycleBinTabState extends ConsumerState<_ManageRecycleBinTab> {
+  static const _pageSize = 20;
+
+  final _searchCtrl = TextEditingController();
+  Timer? _debounce;
+  String _q = '';
+  int? _libraryId;
+  String? _reason;
+  int _offset = 0;
+
+  TrashedFilesData? _data;
   bool _loading = true;
-  late final TextEditingController _manual = TextEditingController(text: '/');
+  bool _busy = false;
+  bool _failed = false;
+  int _seq = 0;
+  final Set<String> _expanded = {};
+  final Set<int> _selected = {};
+
+  bool get _filterActive =>
+      _q.trim().isNotEmpty || _libraryId != null || _reason != null;
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => _browse(null));
+    _reload();
   }
 
   @override
   void dispose() {
-    _manual.dispose();
+    _debounce?.cancel();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _browse(String? path) async {
-    setState(() => _loading = true);
+  Future<void> _reload({bool silent = false}) async {
+    final seq = ++_seq;
+    if (!silent && _data == null) setState(() => _loading = true);
+    try {
+      final next = await ref.read(libraryApiProvider).trashedFilesData(
+            q: _q.trim().isEmpty ? null : _q.trim(),
+            libraryId: _libraryId,
+            reason: _reason,
+            limit: _pageSize,
+            offset: _offset,
+          );
+      if (!mounted || seq != _seq) return;
+      setState(() {
+        _data = next;
+        _loading = false;
+        _failed = false;
+      });
+      widget.onCountChange(next.totalFiles);
+    } catch (_) {
+      if (!mounted || seq != _seq) return;
+      setState(() {
+        _loading = false;
+        _failed = true;
+      });
+    }
+  }
+
+  void _onSearchChanged(String raw) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted || _q == raw) return;
+      setState(() {
+        _q = raw;
+        _offset = 0;
+        _selected.clear();
+        _expanded.clear();
+      });
+      _reload();
+    });
+  }
+
+  String _reasonLabel(String r) => switch (r) {
+        'duplicate' => '重复清理',
+        'manual' => '手动删除',
+        'replace' => '版本替换',
+        _ => r.isEmpty ? '其他' : r,
+      };
+
+  bool _isUrgent24h(String? expiresAt) {
+    if (expiresAt == null || expiresAt.isEmpty) return false;
+    final dt = DateTime.tryParse(expiresAt);
+    if (dt == null) return false;
+    return dt.difference(DateTime.now()).inHours < 24;
+  }
+
+  Future<void> _restoreIds(List<int> ids) async {
+    if (ids.isEmpty || _busy) return;
+    setState(() => _busy = true);
     try {
       final res =
-          await ref.read(libraryApiProvider).browseServerFs(path: path);
-      final cur = (res['current_path'] ?? res['path'] ?? path ?? '/').toString();
-      final entries = (res['entries'] ?? res['dirs'] ?? const []) as List<dynamic>;
-      if (mounted) {
-        setState(() {
-          _currentPath = cur;
-          _manual.text = cur;
-          _parentPath = res['parent_path']?.toString();
-          _entries =
-              entries.whereType<Map>().map(Map<String, dynamic>.from).toList();
-          _loading = false;
-        });
-      }
+          await ref.read(libraryApiProvider).restoreTrashedFiles(ids);
+      McToast.success('已恢复 ${res.done} 个文件');
+      _selected.removeAll(ids);
+      await _reload(silent: true);
     } catch (e) {
-      if (mounted) {
-        setState(() => _loading = false);
-        McToast.error('读取目录失败：$e');
-      }
+      McToast.error('恢复失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _purge({
+    List<int>? ids,
+    Map<String, dynamic>? filter,
+    required String title,
+    required int fileCount,
+    required int bytes,
+  }) async {
+    if (fileCount <= 0 || _busy) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: McTokens.surfaceSolid,
+        title: Text(title),
+        content: Text(
+          '将永久删除 $fileCount 个磁盘文件（预计释放 ${mcFormatBytes(bytes)}），删除后无法恢复。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('暂不'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(
+              '永久删除 ($fileCount)',
+              style: const TextStyle(color: McTokens.danger),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _busy = true);
+    try {
+      final res = await ref
+          .read(libraryApiProvider)
+          .purgeTrashedFiles(ids, filter: filter);
+      McToast.success('已彻底清理 ${res.done} 个文件');
+      _selected.clear();
+      await _reload(silent: true);
+    } catch (e) {
+      McToast.error('清理失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * 0.75,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 6, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('选择服务器目录', style: McText.titleSm),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                if (_parentPath != null && _parentPath!.isNotEmpty)
+    if (_loading && _data == null) return const McLoadingView();
+    if (_failed && _data == null) {
+      return McErrorView(text: '回收站加载失败', onRetry: _reload);
+    }
+    final data = _data!;
+    if (data.totalFiles == 0 && !_filterActive) {
+      return const McEmptyView(
+        icon: McIcons.trash2,
+        title: '回收站是空的',
+        text: '删除或清理重复文件后会暂存在这里 7 天，随时可恢复。',
+      );
+    }
+
+    final pageFileIds = [
+      for (final item in data.items)
+        for (final f in item.files) f.id,
+    ];
+    final selectedOnPage =
+        pageFileIds.where(_selected.contains).length;
+    final pageSelectVal = selectedOnPage == 0
+        ? false
+        : (selectedOnPage == pageFileIds.length ? true : null);
+    final selectedBytes = [
+      for (final item in data.items)
+        for (final f in item.files)
+          if (_selected.contains(f.id)) f.sizeBytes,
+    ].fold<int>(0, (a, b) => a + b);
+
+    return RefreshIndicator(
+      onRefresh: _reload,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 36),
+        children: [
+          // 摘要头 + 立即清理全部
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${data.totalFiles} 个文件 · 共 ${mcFormatBytes(data.totalBytes)}',
+                      style: McText.body.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    if (data.dueWithin24h > 0)
+                      Text(
+                        '其中 ${data.dueWithin24h} 个将在 24 小时内自动彻底清除',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: McTokens.warning,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              McActionPill(
+                label: '立即清理全部',
+                height: 32,
+                onTap: _busy || data.totalFiles == 0
+                    ? null
+                    : () => _purge(
+                          filter: {
+                            if (_q.trim().isNotEmpty) 'q': _q.trim(),
+                            if (_libraryId != null) 'library_id': _libraryId,
+                            if (_reason != null) 'reason': _reason,
+                          },
+                          title: _filterActive ? '清理当前筛选的全部文件？' : '清空整个回收站？',
+                          fileCount: data.totalFiles,
+                          bytes: data.totalBytes,
+                        ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // 搜索框
+          TextField(
+            controller: _searchCtrl,
+            style: McText.body,
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: '搜索片名或文件名…',
+              prefixIcon: const Icon(McIcons.search, size: 17),
+              suffixIcon: _searchCtrl.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 16),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        _onSearchChanged('');
+                      },
+                    )
+                  : null,
+            ),
+            onChanged: _onSearchChanged,
+          ),
+          const SizedBox(height: 8),
+          // 库分面
+          if (data.byLibrary.isNotEmpty)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: McGlassIconButton(
-                      icon: McIcons.arrowUp,
-                      size: 34,
-                      tooltip: '上一级',
-                      onTap: () => _browse(_parentPath),
+                    padding: const EdgeInsets.only(right: 6),
+                    child: McChip(
+                      label: '全部库',
+                      compact: true,
+                      selected: _libraryId == null,
+                      onTap: () {
+                        setState(() {
+                          _libraryId = null;
+                          _offset = 0;
+                          _selected.clear();
+                        });
+                        _reload();
+                      },
                     ),
                   ),
-                Expanded(
-                  child: TextField(
-                    controller: _manual,
-                    style: McText.sub,
-                    onSubmitted: _browse,
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      hintText: '/media/movies',
+                  for (final bl in data.byLibrary)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: McChip(
+                        label: '${bl.name} ${bl.count}',
+                        compact: true,
+                        selected: _libraryId == bl.libraryId,
+                        onTap: () {
+                          setState(() {
+                            _libraryId =
+                                _libraryId == bl.libraryId ? null : bl.libraryId;
+                            _offset = 0;
+                            _selected.clear();
+                          });
+                          _reload();
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          // 原因分面
+          if (data.byReason.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: McChip(
+                      label: '全部原因',
+                      compact: true,
+                      selected: _reason == null,
+                      onTap: () {
+                        setState(() {
+                          _reason = null;
+                          _offset = 0;
+                          _selected.clear();
+                        });
+                        _reload();
+                      },
                     ),
                   ),
+                  for (final br in data.byReason)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: McChip(
+                        label: '${_reasonLabel(br.reason)} ${br.count}',
+                        compact: true,
+                        selected: _reason == br.reason,
+                        onTap: () {
+                          setState(() {
+                            _reason = _reason == br.reason ? null : br.reason;
+                            _offset = 0;
+                            _selected.clear();
+                          });
+                          _reload();
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          // 三态全选 + 批量恢复 / 彻底清理操作条
+          if (data.items.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              margin: const EdgeInsets.only(bottom: 10),
+              decoration: BoxDecoration(
+                color: McTokens.surfaceInset,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: McTokens.line),
+              ),
+              child: Row(
+                children: [
+                  Checkbox(
+                    tristate: true,
+                    value: pageSelectVal,
+                    onChanged: (_) {
+                      setState(() {
+                        if (pageSelectVal == true) {
+                          _selected.removeAll(pageFileIds);
+                        } else {
+                          _selected.addAll(pageFileIds);
+                        }
+                      });
+                    },
+                  ),
+                  Expanded(
+                    child: Text(
+                      _selected.isEmpty
+                          ? '全选本页'
+                          : '已选 ${_selected.length} 个 (${mcFormatBytes(selectedBytes)})',
+                      style: McText.caption.muted,
+                    ),
+                  ),
+                  if (_selected.isNotEmpty) ...[
+                    McActionPill(
+                      label: '恢复',
+                      height: 30,
+                      onTap:
+                          _busy ? null : () => _restoreIds(_selected.toList()),
+                    ),
+                    const SizedBox(width: 6),
+                    McActionPill(
+                      label: '彻底清理',
+                      height: 30,
+                      onTap: _busy
+                          ? null
+                          : () => _purge(
+                                ids: _selected.toList(),
+                                title: '永久删除选中的 ${_selected.length} 个文件？',
+                                fileCount: _selected.length,
+                                bytes: selectedBytes,
+                              ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          if (data.items.isEmpty)
+            const McEmptyView(text: '当前筛选下没有回收站文件')
+          else
+            for (final item in data.items) _trashItemCard(item),
+        ],
+      ),
+    );
+  }
+
+  Widget _trashItemCard(TrashedItemView item) {
+    final key = '${item.libraryId}:${item.mediaItemId ?? item.title}';
+    final expanded = _expanded.contains(key);
+    final fileIds = item.files.map((f) => f.id).toList();
+    final selCount = fileIds.where(_selected.contains).length;
+    final triVal = selCount == 0
+        ? false
+        : (selCount == fileIds.length ? true : null);
+    final urgent = _isUrgent24h(item.earliestPurgeAfter);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: McTokens.surfaceInset,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: urgent
+              ? McTokens.warning.withValues(alpha: 0.45)
+              : McTokens.line,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Checkbox(
+                tristate: true,
+                value: triVal,
+                onChanged: (_) {
+                  setState(() {
+                    if (triVal == true) {
+                      _selected.removeAll(fileIds);
+                    } else {
+                      _selected.addAll(fileIds);
+                    }
+                  });
+                },
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: McText.body
+                                .copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        if (urgent) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: McTokens.warning.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              '24h 内过期',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: McTokens.warning,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    Text(
+                      '${item.libraryName} · ${item.fileCount} 文件 · ${mcFormatBytes(item.totalBytes)}',
+                      style: McText.caption.faint,
+                    ),
+                  ],
+                ),
+              ),
+              if (item.files.length > 1)
+                IconButton(
+                  icon: Icon(
+                    expanded
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    size: 18,
+                    color: McTokens.textMuted,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      if (!_expanded.remove(key)) _expanded.add(key);
+                    });
+                  },
+                ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 10, top: 4),
+            child: Row(
+              children: [
+                McActionPill(
+                  label: '恢复',
+                  height: 28,
+                  onTap: _busy ? null : () => _restoreIds(fileIds),
+                ),
+                const SizedBox(width: 8),
+                McActionPill(
+                  label: '彻底清理',
+                  height: 28,
+                  onTap: _busy
+                      ? null
+                      : () => _purge(
+                            ids: fileIds,
+                            title: '永久删除「${item.title}」的 ${fileIds.length} 个文件？',
+                            fileCount: fileIds.length,
+                            bytes: item.totalBytes,
+                          ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: _loading
-                  ? const McLoadingView()
-                  : _entries.isEmpty
-                      ? const McEmptyView(text: '当前目录下没有子文件夹')
-                      : ListView(
-                          children: [
-                            McInsetGroup(
-                              margin: EdgeInsets.zero,
-                              children: [
-                                for (final e in _entries)
-                                  McInsetRow(
-                                    icon: McIcons.folder,
-                                    title: (e['name'] ?? '').toString(),
-                                    subtitle: e['writable'] == false
-                                        ? '只读'
-                                        : null,
-                                    onTap: () =>
-                                        _browse(e['path']?.toString()),
-                                  ),
-                              ],
-                            ),
-                          ],
+          ),
+          if (expanded || item.files.length == 1) ...[
+            const Divider(height: 14, color: McTokens.line),
+            for (final f in item.files)
+              Row(
+                children: [
+                  if (item.files.length > 1)
+                    Checkbox(
+                      value: _selected.contains(f.id),
+                      onChanged: (_) {
+                        setState(() {
+                          if (!_selected.remove(f.id)) _selected.add(f.id);
+                        });
+                      },
+                    ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          f.fileName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: McTokens.textMuted,
+                          ),
                         ),
-            ),
-            const SizedBox(height: 12),
-            McActionPill(
-              label: '选定「$_currentPath」',
-              icon: McIcons.check,
-              primary: true,
-              expanded: true,
-              onTap: () => Navigator.of(context).pop(_manual.text.trim()),
-            ),
+                        Text(
+                          '${_reasonLabel(f.reason ?? '')} · ${mcFormatBytes(f.sizeBytes)}',
+                          style: McText.caption.faint,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
           ],
-        ),
+        ],
       ),
     );
   }
 }
 
-/// 待识别文件手动认领弹层（搜索 TMDB 词条并绑定 `file-title-assignments`）。
-class _ClaimFileSheet extends ConsumerStatefulWidget {
-  const _ClaimFileSheet({required this.fileIds, required this.fileName});
+/* ────────────────────── 页签 4：活跃分享（完整对齐 ManageSharesTab.swift） ────────────────────── */
 
-  final List<int> fileIds;
-  final String fileName;
+class _ManageSharesTab extends ConsumerStatefulWidget {
+  const _ManageSharesTab({required this.onCountChange});
+  final ValueChanged<int> onCountChange;
 
   @override
-  ConsumerState<_ClaimFileSheet> createState() => _ClaimFileSheetState();
+  ConsumerState<_ManageSharesTab> createState() => _ManageSharesTabState();
 }
 
-class _ClaimFileSheetState extends ConsumerState<_ClaimFileSheet> {
-  late final TextEditingController _q = TextEditingController(
-    text: widget.fileName.replaceAll(RegExp(r'\.[a-zA-Z0-9]{2,4}$'), ''),
-  );
-  List<Map<String, dynamic>> _hits = const [];
-  bool _searching = false;
-  bool _binding = false;
+class _ManageSharesTabState extends ConsumerState<_ManageSharesTab> {
+  List<LibraryShareView>? _shares;
+  bool _failed = false;
+  int? _busyId;
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(_search);
+    _reload();
   }
 
-  @override
-  void dispose() {
-    _q.dispose();
-    super.dispose();
-  }
-
-  Future<void> _search() async {
-    final query = _q.text.trim();
-    if (query.isEmpty) return;
-    setState(() => _searching = true);
+  Future<void> _reload() async {
     try {
-      final client = ref.read(libraryApiProvider).client;
-      final movies = await client.unwrap<dynamic>(
-        Channel.general,
-        'POST',
-        '/api/v1/search/titles',
-        body: {'query': query, 'provider': 'tmdb', 'media_type': 'movie'},
-      );
-      final tvs = await client
-          .unwrap<dynamic>(
-            Channel.general,
-            'POST',
-            '/api/v1/search/titles',
-            body: {'query': query, 'provider': 'tmdb', 'media_type': 'tv'},
-          )
-          .catchError((_) => const <dynamic>[]);
-      List<Map<String, dynamic>> parse(dynamic raw) {
-        final l = raw is List
-            ? raw
-            : (raw is Map
-                ? (raw['titles'] ?? raw['items'] ?? const []) as List<dynamic>
-                : const <dynamic>[]);
-        return l.whereType<Map>().map(Map<String, dynamic>.from).toList();
-      }
-
-      if (mounted) {
-        setState(() {
-          _hits = [...parse(movies), ...parse(tvs)];
-          _searching = false;
-        });
-      }
+      final list = await ref.read(libraryApiProvider).activeSharesTyped();
+      if (!mounted) return;
+      setState(() {
+        _shares = list;
+        _failed = false;
+      });
+      widget.onCountChange(list.length);
     } catch (_) {
-      if (mounted) setState(() => _searching = false);
+      if (mounted) setState(() => _failed = true);
     }
   }
 
-  Future<void> _bind(String titleRef) async {
-    setState(() => _binding = true);
+  String _fullUrl(LibraryShareView s) {
+    final u = s.url;
+    if (u.startsWith('http://') || u.startsWith('https://')) return u;
+    final origin = (appSession.baseUrl ?? '').replaceAll(RegExp(r'/+$'), '');
+    return origin.isEmpty ? u : '$origin$u';
+  }
+
+  Future<void> _copy(LibraryShareView s) async {
+    final link = _fullUrl(s);
+    final hasPwd = s.password != null && s.password!.isNotEmpty;
+    final text = hasPwd
+        ? 'MovieClaw · 《${s.title}》\n$link\n访问密码：${s.password}'
+        : 'MovieClaw · 《${s.title}》\n$link';
+    await Clipboard.setData(ClipboardData(text: text));
+    McToast.success(hasPwd ? '已复制分享链接与密码' : '已复制分享链接');
+  }
+
+  Future<void> _revoke(LibraryShareView s) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: McTokens.surfaceSolid,
+        title: Text('取消「${s.title}」的外链分享？'),
+        content: const Text('取消后原链接立即失效，访客无法再打开或播放。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('先不'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('取消分享', style: TextStyle(color: McTokens.danger)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _busyId = s.id);
     try {
-      await ref.read(libraryApiProvider).assignFileTitle(
-            fileIds: widget.fileIds,
-            titleRef: titleRef,
+      await ref.read(libraryApiProvider).revokeShare(
+            s.id > 0 ? '${s.id}' : s.slug,
           );
-      if (mounted) {
-        McToast.success('已手动绑定词条并入库');
-        Navigator.of(context).pop(true);
-      }
+      McToast.success('已取消分享');
+      await _reload();
     } catch (e) {
-      if (mounted) {
-        setState(() => _binding = false);
-        McToast.error('绑定失败：$e');
-      }
+      McToast.error('取消失败：$e');
+    } finally {
+      if (mounted) setState(() => _busyId = null);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * 0.76,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('手动认领词条', style: McText.titleSm),
-            const SizedBox(height: 4),
-            Text(
-              widget.fileName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: McText.caption.muted,
+    if (_shares == null && !_failed) return const McLoadingView();
+    if (_failed && _shares == null) {
+      return McErrorView(text: '加载活跃分享失败', onRetry: _reload);
+    }
+    final list = _shares ?? const [];
+    if (list.isEmpty) {
+      return const McEmptyView(
+        icon: McIcons.share,
+        title: '暂无活跃分享',
+        text: '在作品或合集详情页创建外链分享后，可在这里统一审计与吊销。',
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _reload,
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 36),
+        itemCount: list.length,
+        itemBuilder: (_, i) {
+          final s = list[i];
+          final hasPwd = s.password != null && s.password!.isNotEmpty;
+          final meta = [
+            if (s.collectionId != null)
+              '合集 · ${s.itemCount ?? 0} 部'
+            else if (s.kind != null)
+              libraryKindLabel(s.kind!),
+            if (s.year != null) '${s.year}',
+            if (s.expiresAt.isNotEmpty) '到期 ${s.expiresAt.split('T').first}',
+          ];
+          final views = s.viewCount > 0
+              ? '已访问 ${s.viewCount} 次${s.lastAccessedAt != null ? ' · 最近 ${mcFromNowIso(s.lastAccessedAt)}' : ''}'
+              : '尚无访问记录';
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: McTokens.surfaceInset,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: McTokens.line),
             ),
-            const SizedBox(height: 12),
-            Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _q,
-                    style: McText.body,
-                    textInputAction: TextInputAction.search,
-                    onSubmitted: (_) => _search(),
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      hintText: '输入片名检索 TMDB…',
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        if (s.libraryId != null && s.mediaItemId != null) {
+                          context.push(
+                            '/detail/${s.libraryId}/${s.mediaItemId}',
+                          );
+                        } else if (s.collectionId != null) {
+                          context.push(routeLibraryCollection(s.collectionId!));
+                        }
+                      },
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: SizedBox(
+                          width: 44,
+                          height: 66,
+                          child: LibraryNetImage(
+                            url: s.posterUrl,
+                            widthPx: 160,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  s.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: McText.body
+                                      .copyWith(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              if (hasPwd) ...[
+                                const SizedBox(width: 6),
+                                const Icon(
+                                  McIcons.lock,
+                                  size: 13,
+                                  color: McTokens.textFaint,
+                                ),
+                                const SizedBox(width: 2),
+                                Text('密码', style: McText.caption.faint),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          Text(meta.join(' · '), style: McText.caption.muted),
+                          const SizedBox(height: 2),
+                          Text(views, style: McText.caption.faint),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                McGlassIconButton(
-                  icon: McIcons.search,
-                  onTap: _search,
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    McActionPill(
+                      label: '复制链接',
+                      icon: McIcons.copy,
+                      height: 30,
+                      onTap: () => _copy(s),
+                    ),
+                    const SizedBox(width: 8),
+                    McActionPill(
+                      label: '取消分享',
+                      height: 30,
+                      onTap: _busyId == s.id ? null : () => _revoke(s),
+                    ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: _searching
-                  ? const McLoadingView()
-                  : _hits.isEmpty
-                      ? const McEmptyView(text: '没有匹配的影视词条')
-                      : ListView(
-                          children: [
-                            McInsetGroup(
-                              margin: EdgeInsets.zero,
-                              children: [
-                                for (final h in _hits)
-                                  Builder(
-                                    builder: (context) {
-                                      final refStr =
-                                          (h['title_ref'] ?? '').toString();
-                                      final title =
-                                          (h['title'] ?? h['name'] ?? '')
-                                              .toString();
-                                      final year = h['release_year'] ?? h['year'];
-                                      return McInsetRow(
-                                        title: title,
-                                        subtitle: [
-                                          if (year != null) '$year',
-                                          refStr,
-                                        ].join(' · '),
-                                        trailing: McChip(
-                                          label: _binding ? '绑定中' : '认领',
-                                          selected: true,
-                                          compact: true,
-                                          onTap: _binding || refStr.isEmpty
-                                              ? null
-                                              : () => _bind(refStr),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

@@ -1,12 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/auth/session_watch.dart';
 import '../../../core/session/session_store.dart';
 import 'mc_api.dart';
 import 'models.dart';
 
-/// 「我的」页状态：用户 / 提醒组计数 / 会话列表分页。
+/// 「我的」页状态：用户 / 提醒组计数 / 会话列表分页 / 离线态。
 class MoreState {
   const MoreState({
     this.session,
@@ -16,35 +18,44 @@ class MoreState {
     this.sessions = const [],
     this.hasMore = false,
     this.loadingMore = false,
+    this.isOffline = false,
   });
 
-  final Map<String, dynamic>?
-      session; // SessionView 原始 JSON（username/nickname/role…）
-  final int noticeCount; // 可见公告数（待处理瓷砖口径，不含待更新）
+  final Map<String, dynamic>? session;
+  final int noticeCount;
   final int reminderCount;
   final String? pendingUpdateLabel;
   final List<SessionSummary> sessions;
   final bool hasMore;
   final bool loadingMore;
+  final bool isOffline;
+
+  bool get updatePending => pendingUpdateLabel != null;
 
   MoreState copyWith({
     Map<String, dynamic>? session,
     int? noticeCount,
     int? reminderCount,
-    String? pendingUpdateLabel,
+    Object? pendingUpdateLabel = _sentinel,
     List<SessionSummary>? sessions,
     bool? hasMore,
     bool? loadingMore,
+    bool? isOffline,
   }) =>
       MoreState(
         session: session ?? this.session,
         noticeCount: noticeCount ?? this.noticeCount,
         reminderCount: reminderCount ?? this.reminderCount,
-        pendingUpdateLabel: pendingUpdateLabel ?? this.pendingUpdateLabel,
+        pendingUpdateLabel: identical(pendingUpdateLabel, _sentinel)
+            ? this.pendingUpdateLabel
+            : pendingUpdateLabel as String?,
         sessions: sessions ?? this.sessions,
         hasMore: hasMore ?? this.hasMore,
         loadingMore: loadingMore ?? this.loadingMore,
+        isOffline: isOffline ?? this.isOffline,
       );
+
+  static const _sentinel = Object();
 }
 
 class MoreController extends Notifier<AsyncValue<MoreState>> {
@@ -52,13 +63,15 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
 
   @override
   AsyncValue<MoreState> build() {
+    ref.watch(mcSessionGenerationProvider);
     Future.microtask(load);
-    _startPolling();
+    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+      _startPolling();
+    }
     return const AsyncValue.loading();
   }
 
-  /// 轮询（对齐鸿蒙 MorePage）：公告 30s、待更新 10min，仅管理员；
-  /// 失败保留旧值（我的页不因公告挂掉而整体报错）。
+  /// 轮询：公告 30s、待更新 10min，仅管理员执行；失败保留旧值。
   void _startPolling() {
     final notices =
         Timer.periodic(const Duration(seconds: 30), (_) => _refreshNotices());
@@ -72,44 +85,53 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
     });
   }
 
-  bool get _isAdmin =>
-      (state.valueOrNull?.session?['role'] ?? '').toString() == 'admin';
+  bool get _isAdmin => ref.read(mcPermissionsProvider).isAdmin;
 
   /// 待更新文案：'新版本 v<app_version>' 优先，否则 '新识别模型 <model_tag>'。
   String? _pendingLabel(Map<String, dynamic>? pending) {
     if (pending == null) return null;
     final appVersion =
-        (pending['appVersion'] ?? pending['app_version'])?.toString();
-    if (appVersion != null) return '新版本 v$appVersion';
-    final modelTag = (pending['modelTag'] ?? pending['model_tag'])?.toString();
-    if (modelTag != null) return '新识别模型 $modelTag';
+        (pending['appVersion'] ?? pending['app_version'])?.toString().trim();
+    if (appVersion != null && appVersion.isNotEmpty) return '新版本 v$appVersion';
+    final modelTag =
+        (pending['modelTag'] ?? pending['model_tag'])?.toString().trim();
+    if (modelTag != null && modelTag.isNotEmpty) return '新识别模型 $modelTag';
     return null;
   }
 
   Future<void> _refreshNotices() async {
-    if (!_isAdmin) return;
+    if (!_isAdmin || !appSession.isReady) return;
     try {
       final notices = await _api.notices();
       final cur = state.valueOrNull;
       if (cur == null) return;
       final count = _visibleCount(notices);
-      state = AsyncValue.data(cur.copyWith(
-        noticeCount: count,
-        reminderCount: count + (cur.pendingUpdateLabel != null ? 1 : 0),
-      ));
+      state = AsyncValue.data(
+        cur.copyWith(
+          noticeCount: count,
+          reminderCount: count + (cur.pendingUpdateLabel != null ? 1 : 0),
+          isOffline: false,
+        ),
+      );
     } catch (_) {
       // 失败保留旧值。
     }
   }
 
   Future<void> _refreshPendingUpdate() async {
-    if (!_isAdmin) return;
+    if (!_isAdmin || !appSession.isReady) return;
     try {
       final pending = await _api.pendingUpdate();
       final cur = state.valueOrNull;
       if (cur == null) return;
+      final label = _pendingLabel(pending);
       state = AsyncValue.data(
-          cur.copyWith(pendingUpdateLabel: _pendingLabel(pending)));
+        cur.copyWith(
+          pendingUpdateLabel: label,
+          reminderCount: cur.noticeCount + (label != null ? 1 : 0),
+          isOffline: false,
+        ),
+      );
     } catch (_) {
       // 失败保留旧值。
     }
@@ -118,38 +140,74 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
   MoreApi get _api => ref.read(moreApiProvider);
 
   Future<void> load() async {
-    state = const AsyncValue.loading();
+    if (!appSession.isReady) {
+      state = const AsyncValue.data(MoreState());
+      return;
+    }
+    if (state.valueOrNull == null) {
+      state = const AsyncValue.loading();
+    }
     try {
       final session = await _api.me();
-      // 头像实时回写（根 Tab / 启动页共用会话快照），改头像无需重登。
-      final liveAvatar = session?['avatar_url']?.toString() ?? '';
-      if (liveAvatar.isNotEmpty && liveAvatar != appSession.avatarUrl) {
-        await appSession.saveProfile(avatarUrl: liveAvatar);
+      if (session == null) {
+        // `/auth/me` 拉取失败：进入离线降级态，允许用户直接管理离线下载。
+        final fallback = appSession.permissions.toJson();
+        state = AsyncValue.data(
+          MoreState(
+            session: fallback,
+            isOffline: true,
+          ),
+        );
+        return;
       }
+
+      final perms = await appSession.updateFromMeJson(session);
+
+      if (!perms.isAdmin) {
+        state = AsyncValue.data(
+          MoreState(
+            session: session,
+            noticeCount: 0,
+            reminderCount: 0,
+            pendingUpdateLabel: null,
+            sessions: const [],
+            hasMore: false,
+            isOffline: false,
+          ),
+        );
+        return;
+      }
+
       final results = await Future.wait<Object?>([
         _safeNotices(),
         _api.pendingUpdate(),
-        _api.sessions(limit: _pageSize, offset: 0),
+        _safeSessions(limit: _pageSize, offset: 0),
       ]);
       final notices = results[0] as List<McNotice>;
       final pending = results[1] as Map<String, dynamic>?;
       final sessions = results[2] as List<SessionSummary>;
       final pendingLabel = _pendingLabel(pending);
       final noticeCount = _visibleCount(notices);
-      state = AsyncValue.data(MoreState(
-        session: session,
-        noticeCount: noticeCount,
-        reminderCount: noticeCount + (pendingLabel != null ? 1 : 0),
-        pendingUpdateLabel: pendingLabel,
-        sessions: sessions,
-        hasMore: sessions.length >= _pageSize,
-      ));
+      state = AsyncValue.data(
+        MoreState(
+          session: session,
+          noticeCount: noticeCount,
+          reminderCount: noticeCount + (pendingLabel != null ? 1 : 0),
+          pendingUpdateLabel: pendingLabel,
+          sessions: sessions,
+          hasMore: sessions.length >= _pageSize,
+          isOffline: false,
+        ),
+      );
     } catch (e, st) {
-      state = AsyncValue.error(e, st);
+      if (state.valueOrNull != null) {
+        state = AsyncValue.data(state.valueOrNull!.copyWith(isOffline: true));
+      } else {
+        state = AsyncValue.error(e, st);
+      }
     }
   }
 
-  /// 网络细节失败时提醒组静默为 0（我的页不因公告挂掉而整体报错）。
   Future<List<McNotice>> _safeNotices() async {
     try {
       return await _api.notices();
@@ -158,19 +216,32 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
     }
   }
 
-  /// visibleNotices：grouped_under 指向某条 group_key 的告警折叠不显示。
+  Future<List<SessionSummary>> _safeSessions({
+    required int limit,
+    required int offset,
+  }) async {
+    try {
+      return await _api.sessions(limit: limit, offset: offset);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// visibleNotices：grouped_under 指向某条非空 group_key 的告警折叠不显示。
   int _visibleCount(List<McNotice> notices) {
-    final groupKeys =
-        notices.map((n) => n.groupKey).whereType<String>().toSet();
-    return notices
-        .where((n) =>
-            n.groupKey != null ||
-            n.groupedUnder == null ||
-            !groupKeys.contains(n.groupedUnder))
-        .length;
+    final groupKeys = notices
+        .map((n) => n.groupKey)
+        .whereType<String>()
+        .where((k) => k.isNotEmpty)
+        .toSet();
+    return notices.where((n) {
+      final parent = n.groupedUnder;
+      return parent == null || parent.isEmpty || !groupKeys.contains(parent);
+    }).length;
   }
 
   Future<void> loadMoreSessions() async {
+    if (!_isAdmin) return;
     final cur = state.valueOrNull;
     if (cur == null || cur.loadingMore || !cur.hasMore) return;
     state = AsyncValue.data(cur.copyWith(loadingMore: true));
@@ -180,13 +251,15 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
       final known = cur.sessions.map((s) => s.id).toSet();
       final merged = [
         ...cur.sessions,
-        ...more.where((s) => !known.contains(s.id))
+        ...more.where((s) => !known.contains(s.id)),
       ];
-      state = AsyncValue.data(cur.copyWith(
-        sessions: merged,
-        hasMore: more.length >= _pageSize,
-        loadingMore: false,
-      ));
+      state = AsyncValue.data(
+        cur.copyWith(
+          sessions: merged,
+          hasMore: more.length >= _pageSize,
+          loadingMore: false,
+        ),
+      );
     } catch (_) {
       state = AsyncValue.data(cur.copyWith(loadingMore: false));
     }
@@ -212,7 +285,6 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
     }
   }
 
-  /// 分叉会话；成功返回新会话 id（页面直接跳入），失败返回 null。
   Future<String?> forkSession(String id) async {
     try {
       final newId = await _api.forkSession(id);
@@ -224,14 +296,17 @@ class MoreController extends Notifier<AsyncValue<MoreState>> {
   }
 
   Future<void> _refreshSessions() async {
+    if (!_isAdmin) return;
     try {
       final sessions = await _api.sessions(limit: _pageSize, offset: 0);
       final cur = state.valueOrNull ?? const MoreState();
-      state = AsyncValue.data(cur.copyWith(
-        sessions: sessions,
-        hasMore: sessions.length >= _pageSize,
-        loadingMore: false,
-      ));
+      state = AsyncValue.data(
+        cur.copyWith(
+          sessions: sessions,
+          hasMore: sessions.length >= _pageSize,
+          loadingMore: false,
+        ),
+      );
     } catch (_) {}
   }
 }

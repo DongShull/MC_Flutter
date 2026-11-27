@@ -9,24 +9,30 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   flutter_riverpod: ^2.5.1          # 状态管理
   go_router: ^14.2.0                # 路由
   dio: ^5.7.0                       # 网络三通道
-  video_player: ^2.9.1              # AV Player 底层引擎（Android=ExoPlayer）
+  video_player: ^2.9.1              # AV Player 兜底引擎
   flutter_secure_storage: ^9.2.2    # 凭证安全存储（对应 mc_vault）
   shared_preferences: ^2.3.2        # 轻量偏好
   cached_network_image: ^3.4.1      # 海报缓存
-  intl: ^0.19.0
+  intl: ^0.20.3
+  path_provider: ^2.1.4             # 持久化目录（Offline / PageSnapshots / PlaybackReports）
+  crypto: ^3.0.6                    # SHA-256 账号与离线目录隔离
+  cryptography: ^2.7.0              # Ed25519 主机验签 + AES-256-GCM 推送加密
   wakelock_plus: ^1.5.2
   fl_chart: ^1.3.1
   mobile_scanner: ^7.5.0
   url_launcher: ^6.3.0              # 外链/浏览器（对应 Android Custom Tabs）
   share_plus: ^10.0.0               # 系统分享（对应 Android Intent.ACTION_SEND）
-  image_picker: ^1.1.2              # 头像选择（对应 Android Photo Picker）
-  media_kit_libs_linux: ^1.2.1
-  media_kit_libs_windows_video: ^1.0.11
+  image_picker: ^1.1.2              # 头像/附件选择（对应 Android Photo Picker）
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
+  media_kit_libs_linux: ^1.2.1
+  media_kit_libs_windows_video: ^1.0.11
 
 dev_dependencies:
   flutter_test:

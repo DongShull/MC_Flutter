@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/session_providers.dart';
+import '../../../core/session/permissions.dart';
+import '../../../core/storage/page_snapshots.dart';
+import 'home_model.dart';
 import 'mc_api.dart';
 import 'models.dart';
-import 'home_model.dart';
-import 'subscription_events.dart';
 import 'subscription_index.dart';
 
-/// 订阅列表控制器（对齐 SubsHomeScreen 的列表拉取 + SubscriptionEvents 重拉）。
+/// 订阅列表控制器。
 class SubscriptionsListController
     extends Notifier<AsyncValue<List<SubscriptionView>>> {
   String? _kind;
@@ -15,14 +19,12 @@ class SubscriptionsListController
   AsyncValue<List<SubscriptionView>> build() =>
       const AsyncValue<List<SubscriptionView>>.loading();
 
-  /// 加载列表；[kind] 为 null = 全部。SubscriptionEvents.revision 变化后调用 reload。
   Future<void> load({String? kind}) async {
     _kind = kind;
     state = const AsyncValue<List<SubscriptionView>>.loading();
     await _fetch(kind);
   }
 
-  /// 静默重拉（保留旧数据，用于事件通知后的刷新）。
   Future<void> reload() => _fetch(_kind);
 
   Future<void> _fetch(String? kind) async {
@@ -39,19 +41,15 @@ class SubscriptionsListController
 final subscriptionsListProvider = NotifierProvider<SubscriptionsListController,
     AsyncValue<List<SubscriptionView>>>(SubscriptionsListController.new);
 
-/// 订阅详情控制器（对齐 SubscriptionDetailScreen.kt 的 VM：详情 + 活动时间线 + ops）。
+/// 订阅详情控制器（保留兼容外部引用）。
 class SubscriptionDetailController
     extends FamilyNotifier<AsyncValue<SubscriptionView?>, int> {
   late int id;
 
   List<SubActivityView> _activities = const [];
-
-  /// 活动时间线（message 服务端渲染原样展示）。
   List<SubActivityView> get activities => _activities;
 
   String? _notice;
-
-  /// 轻提示（对应 McNotice），页面消费后 consumeNotice()。
   String? get notice => _notice;
   void consumeNotice() => _notice = null;
 
@@ -76,75 +74,6 @@ class SubscriptionDetailController
       state = AsyncValue<SubscriptionView?>.error(e, st);
     }
   }
-
-  Future<void> _act(Future<void> Function() op, String done) async {
-    try {
-      await op();
-      _notice = done;
-      await load();
-    } catch (e) {
-      _notice = '操作失败：$e';
-    }
-  }
-
-  /// 手动立即搜索。
-  Future<void> searchNow() => _act(
-        () => ref.read(subscriptionsApiProvider).searchNow(id),
-        '已重新排队，正在搜索缺失资源',
-      );
-
-  /// 洗版（成员不带 rule_set_id 沿用当前组）。
-  Future<void> upgradeRun({int? ruleSetId}) => _act(
-        () => ref
-            .read(subscriptionsApiProvider)
-            .upgradeRun(id, ruleSetId: ruleSetId),
-        '洗版已开始，进展在「追踪明细」里跟进',
-      );
-
-  /// 调整订阅（换选季）：PATCH 只带 selected_seasons。
-  Future<void> updateSeasons(List<int> seasons) => _act(
-        () => ref.read(subscriptionsApiProvider).update(id, {
-          'selected_seasons': seasons..sort(),
-        }),
-        '已更新选季',
-      );
-
-  /// 更换规则组：PATCH 只带 rule_set_id（超管专属）。
-  Future<void> updateRuleSet(int ruleSetId) => _act(
-        () => ref
-            .read(subscriptionsApiProvider)
-            .update(id, {'rule_set_id': ruleSetId}),
-        '已更换规则组',
-      );
-
-  /// 自动续订开关。
-  Future<void> setFollowFuture(bool v) => _act(
-        () =>
-            ref.read(subscriptionsApiProvider).setFollowFuture(id, enabled: v),
-        v ? '已开启自动续订' : '已关闭自动续订',
-      );
-
-  /// 暂停 / 恢复追踪。
-  Future<void> setTracking(bool paused) => _act(
-        () => ref
-            .read(subscriptionsApiProvider)
-            .setTrackingState(id, paused: paused),
-        paused ? '已暂停追踪' : '已恢复追踪',
-      );
-
-  /// 取消订阅（不动已下载内容）；成功后通知列表重拉 + 索引摘除。
-  Future<bool> unsubscribe() async {
-    try {
-      await ref.read(subscriptionsApiProvider).delete(id);
-      SubscriptionEvents.notifyChanged();
-      ref.read(subscriptionIndexProvider).remove(id);
-      _notice = '订阅已取消';
-      return true;
-    } catch (e) {
-      _notice = '取消失败：$e';
-      return false;
-    }
-  }
 }
 
 final subscriptionDetailProvider = NotifierProvider.family<
@@ -152,66 +81,294 @@ final subscriptionDetailProvider = NotifierProvider.family<
     AsyncValue<SubscriptionView?>,
     int>(SubscriptionDetailController.new);
 
-/// 首页数据包：订阅全集 + 日程 + 刚刚入库 + 下载 ETA（对齐鸿蒙 SubscriptionsPage 的加载口径）。
+/// 首页与海报墙共用的数据包（1:1 对齐 iOS `SubscriptionsHomeFeed`）：
+/// 订阅全集 + 整周日程 + 刚刚入库 + 下载任务快照 + ETA 映射。
 class SubsHomeBundle {
   const SubsHomeBundle({
     required this.subs,
     required this.today,
     required this.recent,
     required this.etas,
+    this.tasks = const [],
+    this.nowMs,
   });
 
   final List<SubscriptionView> subs;
   final List<TodayArrivalView> today;
   final List<RecentArrivalView> recent;
   final Map<String, int> etas;
+  final List<DownloadTaskView> tasks;
+  final int? nowMs;
 
-  SubsHome home() => SubsHome(subs, today, recent, etas);
+  SubsHome home() => SubsHome(
+        subs,
+        today,
+        recent,
+        etas,
+        nowMs: nowMs,
+        tasks: tasks,
+      );
+
+  SubsHomeBundle copyWith({
+    List<SubscriptionView>? subs,
+    List<TodayArrivalView>? today,
+    List<RecentArrivalView>? recent,
+    Map<String, int>? etas,
+    List<DownloadTaskView>? tasks,
+    int? nowMs,
+  }) =>
+      SubsHomeBundle(
+        subs: subs ?? this.subs,
+        today: today ?? this.today,
+        recent: recent ?? this.recent,
+        etas: etas ?? this.etas,
+        tasks: tasks ?? this.tasks,
+        nowMs: nowMs ?? this.nowMs,
+      );
 }
 
-/// 首页控制器：一次性拉三份列表；ETA（管理员接口）失败静默置空。
+/// 首页与海报墙共享控制器：
+/// - 账号隔离的 `PageSnapshots` 冷启动秒显（隔天快照丢弃过期 `today-arrivals`）；
+/// - 10s 轮询 `refreshArrivals()` + `refreshTasks()`，20s 轮询 `refreshRecent()`；
+/// - 同步写入 `SubscriptionIndex` 保证全站已订阅角标一致。
 class SubscriptionsHomeController extends Notifier<AsyncValue<SubsHomeBundle>> {
+  static const _feedSnapshotName = 'subscriptions-feed';
+
+  String? _ownerKey;
+  DateTime? _refreshedAt;
+  bool _snapshotChecked = false;
+
   @override
   AsyncValue<SubsHomeBundle> build() =>
       const AsyncValue<SubsHomeBundle>.loading();
 
-  Future<void> load() async {
-    state = const AsyncValue<SubsHomeBundle>.loading();
-    await _fetch();
+  ({String origin, String username, String ownerKey}) _currentOwner() {
+    final session = ref.read(sessionStoreProvider);
+    final origin = session.baseUrl ?? '';
+    final username = session.accountUsername;
+    return (
+      origin: origin,
+      username: username,
+      ownerKey: PageSnapshots.ownerKey(origin: origin, username: username),
+    );
   }
 
-  Future<void> reload() => _fetch();
+  void _adoptOwnerIfNeeded() {
+    final cur = _currentOwner();
+    if (_ownerKey == cur.ownerKey) return;
+    _ownerKey = cur.ownerKey;
+    _refreshedAt = null;
+    _snapshotChecked = false;
+    state = const AsyncValue<SubsHomeBundle>.loading();
+  }
 
-  Future<void> _fetch() async {
-    final api = ref.read(subscriptionsApiProvider);
-    try {
-      final etas = <String, int>{};
-      try {
-        for (final t in await api.downloadTasks()) {
-          if (t.infoHash.isNotEmpty) {
-            etas[t.infoHash.toLowerCase()] = t.etaSeconds;
-          }
-        }
-      } catch (_) {
-        // 非管理员拿不到下载任务：ETA 回退估算。
+  Future<void> _restoreSnapshotIfNeeded() async {
+    if (_snapshotChecked || state.hasValue) return;
+    _snapshotChecked = true;
+    final cur = _currentOwner();
+    if (cur.origin.isEmpty || cur.username.isEmpty) return;
+
+    final index = ref.read(subscriptionIndexProvider);
+    await index.restoreSnapshot();
+    final cachedSubs = index.subscriptions;
+    final snap = await PageSnapshots.readMap(
+      _feedSnapshotName,
+      origin: cur.origin,
+      username: cur.username,
+    );
+    if (_ownerKey != cur.ownerKey || state.hasValue) return;
+    if (cachedSubs == null && snap == null) return;
+
+    final subs = cachedSubs ?? const <SubscriptionView>[];
+    var today = const <TodayArrivalView>[];
+    var recent = const <RecentArrivalView>[];
+    var tasks = const <DownloadTaskView>[];
+
+    if (snap != null) {
+      final savedAt = DateTime.tryParse((snap['saved_at'] ?? '').toString());
+      final now = DateTime.now();
+      final isToday = savedAt != null &&
+          savedAt.year == now.year &&
+          savedAt.month == now.month &&
+          savedAt.day == now.day;
+      if (isToday && snap['week'] is List) {
+        today = (snap['week'] as List)
+            .whereType<Map>()
+            .map((e) => TodayArrivalView.fromJson(e.cast<String, dynamic>()))
+            .toList();
       }
-      final results = await Future.wait([
-        api.subscriptions(),
-        api.todayArrivals(),
-        api.recentArrivals(),
-      ]);
-      state = AsyncValue<SubsHomeBundle>.data(SubsHomeBundle(
-        subs: results[0] as List<SubscriptionView>,
-        today: results[1] as List<TodayArrivalView>,
-        recent: results[2] as List<RecentArrivalView>,
-        etas: etas,
-      ));
-    } catch (e, st) {
-      state = AsyncValue<SubsHomeBundle>.error(e, st);
+      if (snap['recent'] is List) {
+        recent = (snap['recent'] as List)
+            .whereType<Map>()
+            .map((e) => RecentArrivalView.fromJson(e.cast<String, dynamic>()))
+            .toList();
+      }
+      if (snap['tasks'] is List) {
+        tasks = (snap['tasks'] as List)
+            .whereType<Map>()
+            .map((e) => DownloadTaskView.fromJson(e.cast<String, dynamic>()))
+            .toList();
+      }
     }
+
+    state = AsyncValue<SubsHomeBundle>.data(
+      SubsHomeBundle(
+        subs: subs,
+        today: today,
+        recent: recent,
+        etas: _etasOf(tasks),
+        tasks: tasks,
+        nowMs: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
+  }
+
+  void _saveSnapshot(SubsHomeBundle bundle) {
+    final cur = _currentOwner();
+    if (cur.origin.isEmpty || cur.username.isEmpty) return;
+    unawaited(
+      PageSnapshots.write(
+        _feedSnapshotName,
+        {
+          'saved_at': DateTime.now().toIso8601String(),
+          'week': bundle.today.map((e) => e.toJson()).toList(),
+          'recent': bundle.recent.map((e) => e.toJson()).toList(),
+          'tasks': bundle.tasks.map((e) => e.toJson()).toList(),
+        },
+        origin: cur.origin,
+        username: cur.username,
+      ),
+    );
+  }
+
+  Map<String, int> _etasOf(List<DownloadTaskView> tasks) => {
+        for (final t in tasks)
+          if (t.infoHash.isNotEmpty) t.infoHash.toLowerCase(): t.etaSeconds,
+      };
+
+  Future<void> load() async {
+    _adoptOwnerIfNeeded();
+    await _restoreSnapshotIfNeeded();
+    await _fetchAll();
+  }
+
+  /// 海报墙复用首页数据时使用：30s 内刷过就不重复请求。
+  Future<void> refreshIfStale({Duration maxAge = const Duration(seconds: 30)}) async {
+    _adoptOwnerIfNeeded();
+    await _restoreSnapshotIfNeeded();
+    if (state.hasValue &&
+        _refreshedAt != null &&
+        DateTime.now().difference(_refreshedAt!) < maxAge) {
+      return;
+    }
+    await _fetchAll();
+  }
+
+  Future<void> reload() async {
+    _adoptOwnerIfNeeded();
+    await _fetchAll();
+  }
+
+  Future<void> _fetchAll() async {
+    final cur = _currentOwner();
+    final api = ref.read(subscriptionsApiProvider);
+    final isAdmin = ref.read(permissionsProvider).isAdmin;
+    try {
+      final subsFuture = api.subscriptions();
+      final todayFuture =
+          api.todayArrivals().catchError((_) => state.valueOrNull?.today ?? <TodayArrivalView>[]);
+      final recentFuture =
+          api.recentArrivals().catchError((_) => state.valueOrNull?.recent ?? <RecentArrivalView>[]);
+      final tasksFuture = isAdmin
+          ? api.downloadTasks().catchError((_) => state.valueOrNull?.tasks ?? <DownloadTaskView>[])
+          : Future.value(<DownloadTaskView>[]);
+
+      final results = await Future.wait([
+        subsFuture,
+        todayFuture,
+        recentFuture,
+        tasksFuture,
+      ]);
+      if (_ownerKey != cur.ownerKey) return;
+
+      final subs = results[0] as List<SubscriptionView>;
+      final today = results[1] as List<TodayArrivalView>;
+      final recent = results[2] as List<RecentArrivalView>;
+      final tasks = results[3] as List<DownloadTaskView>;
+
+      ref.read(subscriptionIndexProvider).ingest(subs);
+
+      final bundle = SubsHomeBundle(
+        subs: subs,
+        today: today,
+        recent: recent,
+        etas: _etasOf(tasks),
+        tasks: tasks,
+        nowMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      _refreshedAt = DateTime.now();
+      state = AsyncValue<SubsHomeBundle>.data(bundle);
+      _saveSnapshot(bundle);
+    } catch (e, st) {
+      if (_ownerKey != cur.ownerKey) return;
+      if (!state.hasValue) {
+        state = AsyncValue<SubsHomeBundle>.error(e, st);
+      }
+    }
+  }
+
+  /// 10s 轮询：刷新整周日程与管理员下载任务快照。
+  Future<void> refreshArrivalsAndTasks() async {
+    final prev = state.valueOrNull;
+    if (prev == null || prev.subs.isEmpty) return;
+    final cur = _currentOwner();
+    final api = ref.read(subscriptionsApiProvider);
+    final isAdmin = ref.read(permissionsProvider).isAdmin;
+    try {
+      final todayFuture =
+          api.todayArrivals().catchError((_) => prev.today);
+      final tasksFuture = isAdmin
+          ? api.downloadTasks().catchError((_) => prev.tasks)
+          : Future.value(prev.tasks);
+      final results = await Future.wait([todayFuture, tasksFuture]);
+      if (_ownerKey != cur.ownerKey) return;
+      final latest = state.valueOrNull;
+      if (latest == null) return;
+      final today = results[0] as List<TodayArrivalView>;
+      final tasks = results[1] as List<DownloadTaskView>;
+      final next = latest.copyWith(
+        today: today,
+        tasks: tasks,
+        etas: _etasOf(tasks),
+        nowMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      _refreshedAt = DateTime.now();
+      state = AsyncValue<SubsHomeBundle>.data(next);
+      _saveSnapshot(next);
+    } catch (_) {}
+  }
+
+  /// 20s 轮询：刷新刚刚入库。
+  Future<void> refreshRecent() async {
+    final prev = state.valueOrNull;
+    if (prev == null || prev.subs.isEmpty) return;
+    final cur = _currentOwner();
+    try {
+      final recent = await ref.read(subscriptionsApiProvider).recentArrivals();
+      if (_ownerKey != cur.ownerKey) return;
+      final latest = state.valueOrNull;
+      if (latest == null) return;
+      final next = latest.copyWith(
+        recent: recent,
+        nowMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      state = AsyncValue<SubsHomeBundle>.data(next);
+      _saveSnapshot(next);
+    } catch (_) {}
   }
 }
 
 final subscriptionsHomeProvider =
     NotifierProvider<SubscriptionsHomeController, AsyncValue<SubsHomeBundle>>(
-        SubscriptionsHomeController.new);
+  SubscriptionsHomeController.new,
+);
